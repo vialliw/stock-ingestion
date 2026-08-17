@@ -1,0 +1,10 @@
+{
+  "start_year": 2020,
+  "tickers": [
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "GOOGL",
+    "AMZN"
+  ]
+}
