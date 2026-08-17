@@ -1,10 +1,10 @@
-name: Twice Daily Stock Ingestion
+name: Scheduled Stock Ingestion
 
 on:
   schedule:
-    - cron: '30 13 * * 1-5'  # Mon-Fri at 13:30 UTC
-    - cron: '0 21 * * 1-5'   # Mon-Fri at 21:00 UTC
-  workflow_dispatch:          # Enables manual execution button
+    - cron: '0 19 * * 1-5'   # 15:00 US Eastern (19:00 UTC) Mon-Fri
+    - cron: '30 20 * * 1-5'  # 16:30 US Eastern (20:30 UTC) Mon-Fri
+  workflow_dispatch:
 
 jobs:
   ingest:
