@@ -1,0 +1,33 @@
+name: Twice Daily Stock Ingestion
+
+on:
+  schedule:
+    - cron: '30 13 * * 1-5'  # Mon-Fri at 13:30 UTC
+    - cron: '0 21 * * 1-5'   # Mon-Fri at 21:00 UTC
+  workflow_dispatch:          # Enables manual execution button
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run ingestion pipeline
+        env:
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: python main.py
