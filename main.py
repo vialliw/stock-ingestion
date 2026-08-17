@@ -1,9 +1,8 @@
 import os
 import boto3
-import duckdb
 import pandas as pd
-import yfinance as yf
 from src.database import StockDatabase
+from src.fetcher import fetch_stock_data, load_config
 
 R2_ENDPOINT = os.getenv("R2_ENDPOINT_URL")
 R2_ACCESS_KEY = os.getenv("R2_ACCESS_KEY_ID")
@@ -28,7 +27,7 @@ def download_existing_db():
     s3.download_file(BUCKET_NAME, "market_data.duckdb", DB_FILE)
     print("Downloaded existing database from Cloudflare R2.")
   except Exception as e:
-    print(f"No existing DB found on R2 (or initial run): {e}")
+    print(f"No existing DB found on R2: {e}")
 
 
 def upload_updated_db():
@@ -38,45 +37,28 @@ def upload_updated_db():
   print("Upload complete!")
 
 
-def fetch_stock_data(tickers: list[str]) -> pd.DataFrame:
-  """Fetch daily price data for a list of tickers via yfinance."""
-  df = yf.download(tickers, period="5d", group_by="ticker", progress=False)
-  records = []
-
-  if len(tickers) == 1:
-    ticker = tickers[0]
-    data = df.copy().reset_index()
-    data["ticker"] = ticker
-    records.append(data)
-  else:
-    for ticker in tickers:
-      if ticker in df.columns.levels[0]:
-        data = df[ticker].copy().reset_index()
-        data["ticker"] = ticker
-        records.append(data)
-
-  if not records:
-    return pd.DataFrame()
-
-  result = pd.concat(records, ignore_index=True)
-  result.columns = [c.lower().replace(" ", "_") for c in result.columns]
-
-  required = ["date", "ticker", "open", "high", "low", "close", "volume"]
-  result = result.dropna(subset=["close"])
-  result["volume"] = result["volume"].fillna(0).astype("int64")
-  return result[required]
-
-
 if __name__ == "__main__":
+  # Load repository config
+  config = load_config("config.json")
+  tickers = config.get("tickers", [])
+  start_year = config.get("start_year", 2020)
+  start_date = f"{start_year}-01-01"
+
+  print(
+      f"Configured tickers: {tickers} | Ingestion start date:"
+      f" {start_date}"
+  )
+
   download_existing_db()
 
-  tickers = ["AAPL", "MSFT", "NVDA"]
-  print(f"Fetching data for {tickers}...")
-  prices_df = fetch_stock_data(tickers)
+  # Fetch historical dataset
+  prices_df = fetch_stock_data(tickers, start_date=start_date)
 
-  db = StockDatabase(DB_FILE)
-  rows_added = db.upsert_prices(prices_df)
-  print(f"Successfully processed {rows_added} rows into DuckDB.")
-  db.close()
-
-  upload_updated_db()
+  if not prices_df.empty:
+    db = StockDatabase(DB_FILE)
+    rows_added = db.upsert_prices(prices_df)
+    print(f"Processed {rows_added} rows into DuckDB.")
+    db.close()
+    upload_updated_db()
+  else:
+    print("No new price data retrieved.")
