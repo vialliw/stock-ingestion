@@ -185,9 +185,9 @@ reports:
 
 ### 3.3 Config Loading Behavior
 
-- On startup, `PipelineConfig.from_yaml("config.yaml")` is called.
-- If `config.yaml` does not exist, all Pydantic defaults are used.
-- If `config.yaml` exists, its nested keys are mapped directly to the nested Pydantic sub-models.
+- On startup, `PipelineConfig.from_yaml("src/config.yaml")` is called.
+- If `src/config.yaml` does not exist, all Pydantic defaults are used.
+- If `src/config.yaml` exists, its nested keys are mapped directly to the nested Pydantic sub-models.
 - Access pattern in code: `config.database.duckdb_dir`, `config.ingestion.tickers`, `config.server.flight_host`, `config.logging.log_file`.
 
 ### 3.4 Field Validators
@@ -654,7 +654,7 @@ class PipelineConfig(BaseModel):
         return os.path.join(self.database.duckdb_dir, self.database.duckdb_filename)
 
     @classmethod
-    def from_yaml(cls, path: str = "config.yaml") -> "PipelineConfig":
+    def from_yaml(cls, path: str = "src/config.yaml") -> "PipelineConfig":
         if not os.path.exists(path):
             return cls()
         with open(path) as f:

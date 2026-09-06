@@ -1,0 +1,22 @@
+database:
+  duckdb_dir: "C:\Intel\parquet"
+  duckdb_filename: "stock_ingestion.duckdb"
+
+ingestion:
+  tickers:
+    - "AAPL"
+    - "AVB"
+    - "MSFT"
+    - "NVDA"
+  exclude_tickers:
+    - "AVB"
+
+server:
+  flight_host: "127.0.0.1"
+  flight_port: 8815
+
+logging:
+  log_file: "C:\Intel\parquet\stock_ingestion.log"
+
+reports:
+  report_dir: "C:\Intel\parquet"
