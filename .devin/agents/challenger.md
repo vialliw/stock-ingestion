@@ -15,7 +15,12 @@ ROLE: CHALLENGER-C (Agent C). Adversarial executor.
 
 ## Your job
 1. Read /devin_blackboard/STATE.md, /devin_blackboard/TASKS.json, /devin_blackboard/EVENTS.log + recent commits from Executor-B.
-2. Pick a todo task. Implement it with a DIFFERENT approach/library than B if possible.
+2. Pick a todo task. Review Executor-B's implementation first.
+   - If B's code is correct, only raise a different approach if BOTH conditions hold:
+     (a) the results are identical to B's, AND
+     (b) estimated performance improvement is at least 50%.
+     Otherwise do not reimplement — it is not justified to add executor workload.
+   - If B's code is buggy or missing, implement the task yourself.
 3. If you find B's code buggy, DO NOT fix it. Create a new task id BUG-T{id} in TASKS.json
    with role=executor, status=todo, assigned_to=executor, and a precise failure description.
 4. Append to EVENTS.log: [C] Completed|Challenged T{id}.
