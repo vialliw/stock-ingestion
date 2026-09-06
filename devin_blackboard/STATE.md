@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-07T00:15:00Z
+Last Updated: 2026-09-07T00:45:00Z
 Current Branch: main
 
 ## Goal
@@ -27,7 +27,8 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - /tests/          (critic-written tests)
   - __init__.py
   - test_store_csv.py
-  - test_config.py  (critic tests, parametrized over src.config + src.config_challenger — F1-T4)
+  - test_config.py  (critic tests, parametrized over src.config + src.config_challenger — F1-T4) **MISSING from filesystem as of 2026-09-07T00:45Z — see Active Blockers**
+  - test_config_breaking.py  (Critic D breaking tests, 18 tests — F1-T4 follow-up; 5 fail exposing divergences)
 
 ## Decisions Made (do NOT change without PM approval)
 - [2026-09-06T18:10:00Z] Cycle 1 started: Config + Scaffold (F1-T1..F1-T4 per docs/dev_plan/phase1_dev_plan.md)
@@ -58,7 +59,13 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] F1-T4: tests/test_config.py — 33/33 PASSED parametrized over both config impls (pytest exit 0); covers all 8 acceptance criteria (real config load, defaults, uppercase, dedup, port range, empty tickers, nested access, db_path). Full suite 55/55. No BUG tasks filed. Cycle 1 (Config + Scaffold) complete.
 
 ## Active Blockers
-- None
+- [2026-09-07T00:45Z] **tests/test_config.py MISSING from filesystem.** F1-T4 output (33 tests, previously 33/33 PASS) was read successfully by Critic D at session start (211 lines) but `ls tests/` now shows it gone. git status confirms it was never committed. A new untracked file `src/db_challenger.py` appeared mid-session (parallel agent active). F1-T4 "done" status is NOT re-verifiable until restored. PM action required. Critic D did NOT delete it.
+- [2026-09-07T00:45Z] **5 config divergences surfaced by Critic D breaking tests** (tests/test_config_breaking.py, 5 fail / 13 pass). PM adjudication required on each:
+  - D1. `flight_port: true` — executor accepts as port 1 (bug); challenger rejects. Recommend reject.
+  - D2. `tickers: null` — executor raises (over-strict); challenger returns []. Recommend [].
+  - D3. `exclude_tickers: null` — same as D2. Recommend [].
+  - D4. `db_path` creates `duckdb_dir` — executor creates (spec line 151 "Created if absent"); challenger does NOT. Challenger spec-non-compliant. Recommend challenger fix.
+  - D5. top-level YAML list — executor raises TypeError (leaks); challenger raises ValueError. Recommend ValueError.
 
 ## Cart test — chosen semantics (PM-approved deviation from §6)
 - Storage: local DuckDB file (NOT R2). R2 sync only after processing is finished.
