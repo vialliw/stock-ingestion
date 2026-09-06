@@ -184,7 +184,15 @@ class PipelineConfig:
 
     @property
     def db_path(self) -> str:
-        """Join ``duckdb_dir`` and ``duckdb_filename`` into a full DB path."""
+        """Join ``duckdb_dir`` and ``duckdb_filename`` into a full DB path.
+
+        Per spec §3 (line 151) ``duckdb_dir`` is "Created if absent":
+        accessing this property materialises the directory with
+        ``os.makedirs(..., exist_ok=True)`` so callers can immediately
+        open a DuckDB file at the returned path without a separate
+        mkdir step.
+        """
+        os.makedirs(self.database.duckdb_dir, exist_ok=True)
         return os.path.join(self.database.duckdb_dir, self.database.duckdb_filename)
 
     # -- loading ------------------------------------------------------------
