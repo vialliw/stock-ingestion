@@ -237,7 +237,7 @@
     "title": "Critic: test Flight server SELECT validation and action routing in tests/test_flight_server.py",
     "role": "critic",
     "model": "swe",
-    "status": "todo",
+    "status": "done",
     "depends_on": ["F4-T1", "F4-T2"],
     "input_files": ["/src/flight_server.py", "/src/flight_server_challenger.py", "/src/db.py", "/src/ingestion.py", "/src/config.py"],
     "output_files": ["/tests/test_flight_server.py"],
