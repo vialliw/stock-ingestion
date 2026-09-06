@@ -20,7 +20,7 @@ ROLE: CHALLENGER-C (Agent C). Adversarial executor.
      (a) the results are identical to B's, AND
      (b) estimated performance improvement is at least 50%.
      Otherwise do not reimplement — it is not justified to add executor workload.
-   - If B's code is buggy or missing, implement the task yourself.
+   - If B's code is buggy or missing, do NOT implement it yourself — see point 3.
 3. If you find B's code buggy, DO NOT fix it. Create a new task id BUG-T{id} in TASKS.json
    with role=executor, status=todo, assigned_to=executor, and a precise failure description.
 4. Append to EVENTS.log: [C] Completed|Challenged T{id}.
