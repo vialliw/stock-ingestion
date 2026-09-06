@@ -6,8 +6,15 @@
     "model": "swe",
     "status": "done",
     "depends_on": [],
-    "input_files": ["/docs/tech_spec/gemini_tech_spec.1.0.2.md", "/src/config.yaml"],
-    "output_files": ["/requirements.txt", "/src/__init__.py", "/tests/__init__.py"],
+    "input_files": [
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md",
+      "/src/config.yaml"
+    ],
+    "output_files": [
+      "/requirements.txt",
+      "/src/__init__.py",
+      "/tests/__init__.py"
+    ],
     "acceptance_criteria": "requirements.txt contains all 7 deps. pip install -r requirements.txt exits 0.",
     "assigned_to": null
   },
@@ -17,9 +24,17 @@
     "role": "executor",
     "model": "swe",
     "status": "done",
-    "depends_on": ["F1-T1"],
-    "input_files": ["/requirements.txt", "/src/config.yaml", "/docs/tech_spec/gemini_tech_spec.1.0.2.md"],
-    "output_files": ["/src/config.py"],
+    "depends_on": [
+      "F1-T1"
+    ],
+    "input_files": [
+      "/requirements.txt",
+      "/src/config.yaml",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
+    ],
+    "output_files": [
+      "/src/config.py"
+    ],
     "acceptance_criteria": "Pydantic v2 nested config with validators and from_yaml loader. Loads user's config correctly.",
     "assigned_to": null
   },
@@ -29,9 +44,17 @@
     "role": "challenger",
     "model": "glm",
     "status": "done",
-    "depends_on": ["F1-T1"],
-    "input_files": ["/requirements.txt", "/src/config.yaml", "/docs/tech_spec/gemini_tech_spec.1.0.2.md"],
-    "output_files": ["/src/config_challenger.py"],
+    "depends_on": [
+      "F1-T1"
+    ],
+    "input_files": [
+      "/requirements.txt",
+      "/src/config.yaml",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
+    ],
+    "output_files": [
+      "/src/config_challenger.py"
+    ],
     "acceptance_criteria": "Dataclass-based config with manual YAML parsing. Same public API. Loads user's config correctly.",
     "assigned_to": null
   },
@@ -41,9 +64,19 @@
     "role": "critic",
     "model": "swe",
     "status": "done",
-    "depends_on": ["F1-T2", "F1-T3"],
-    "input_files": ["/src/config.py", "/src/config_challenger.py", "/src/config.yaml"],
-    "output_files": ["/tests/test_config.py", "/tests/test_config_breaking.py"],
+    "depends_on": [
+      "F1-T2",
+      "F1-T3"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/src/config_challenger.py",
+      "/src/config.yaml"
+    ],
+    "output_files": [
+      "/tests/test_config.py",
+      "/tests/test_config_breaking.py"
+    ],
     "acceptance_criteria": "Tests parametrized over both implementations. 33 acceptance tests pass. Breaking tests found 5 edge-case bugs (filed as BUG-F1-* tasks).",
     "assigned_to": null
   },
@@ -54,8 +87,13 @@
     "model": "swe",
     "status": "todo",
     "depends_on": [],
-    "input_files": ["/src/config.py", "/tests/test_config_breaking.py"],
-    "output_files": ["/src/config.py"],
+    "input_files": [
+      "/src/config.py",
+      "/tests/test_config_breaking.py"
+    ],
+    "output_files": [
+      "/src/config.py"
+    ],
     "acceptance_criteria": "Fix 3 edge cases in src/config.py: (1) Boolean port (flight_port: true) must raise ValueError, not silently coerce to 1; (2) tickers: null and exclude_tickers: null must return [] not raise ValidationError; (3) Malformed top-level YAML list must raise ValueError, not TypeError. tests/test_config_breaking.py tests D1, D2, D3, D5 for executor:src.config must PASS. python -m pytest tests/test_config_breaking.py -v exit 0 for executor params.",
     "assigned_to": null
   },
@@ -64,10 +102,15 @@
     "title": "Fix challenger config edge case: db_path does not create duckdb_dir",
     "role": "challenger",
     "model": "glm",
-    "status": "todo",
+    "status": "done",
     "depends_on": [],
-    "input_files": ["/src/config_challenger.py", "/tests/test_config_breaking.py"],
-    "output_files": ["/src/config_challenger.py"],
+    "input_files": [
+      "/src/config_challenger.py",
+      "/tests/test_config_breaking.py"
+    ],
+    "output_files": [
+      "/src/config_challenger.py"
+    ],
     "acceptance_criteria": "Fix db_path property in src/config_challenger.py to create duckdb_dir if absent (spec: 'Created if absent'). test_db_path_creates_duckdb_dir_if_absent for challenger:src.config_challenger must PASS. python -m pytest tests/test_config_breaking.py::test_db_path_creates_duckdb_dir_if_absent -v exit 0.",
     "assigned_to": null
   },
@@ -76,11 +119,18 @@
     "title": "Implement DatabaseManager: schema init, upsert, read-only conn, write lock, split tracking, ticker detection, report query",
     "role": "executor",
     "model": "swe",
-    "status": "todo",
-    "depends_on": ["F1-T4"],
-    "input_files": ["/src/config.py", "/docs/tech_spec/gemini_tech_spec.1.0.2.md"],
-    "output_files": ["/src/db.py"],
-    "acceptance_criteria": "src/db.py defines DatabaseManager with all methods from spec §10: _init_schema (creates daily_quotes with Volume DOUBLE, splits_processed, schema_version tables), _read_only_conn, execute_query (returns pa.Table), upsert_dataframe (MERGE INTO, returns int row count), purge_ticker, is_split_processed, record_split, delete_ticker_data, get_existing_tickers, get_aligned_start_date, detect_new_tickers, generate_top_20_dollar_volume, close (CHECKPOINT). Uses threading.Lock for all writes. Read-only conn for reads. python -c \"from src.db import DatabaseManager; print('OK')\" exits 0 with output 'OK'.",
+    "status": "done",
+    "depends_on": [
+      "F1-T4"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
+    ],
+    "output_files": [
+      "/src/db.py"
+    ],
+    "acceptance_criteria": "src/db.py defines DatabaseManager with all methods from spec \u00a710: _init_schema (creates daily_quotes with Volume DOUBLE, splits_processed, schema_version tables), _read_only_conn, execute_query (returns pa.Table), upsert_dataframe (MERGE INTO, returns int row count), purge_ticker, is_split_processed, record_split, delete_ticker_data, get_existing_tickers, get_aligned_start_date, detect_new_tickers, generate_top_20_dollar_volume, close (CHECKPOINT). Uses threading.Lock for all writes. Read-only conn for reads. python -c \"from src.db import DatabaseManager; print('OK')\" exits 0 with output 'OK'.",
     "assigned_to": null
   },
   {
@@ -88,10 +138,17 @@
     "title": "Challenger: independent DatabaseManager variant in src/db_challenger.py",
     "role": "challenger",
     "model": "glm",
-    "status": "todo",
-    "depends_on": ["F1-T4"],
-    "input_files": ["/src/config.py", "/docs/tech_spec/gemini_tech_spec.1.0.2.md"],
-    "output_files": ["/src/db_challenger.py"],
+    "status": "done",
+    "depends_on": [
+      "F1-T4"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
+    ],
+    "output_files": [
+      "/src/db_challenger.py"
+    ],
     "acceptance_criteria": "src/db_challenger.py defines DatabaseManager with same public API as F2-T1. Structurally different implementation (e.g. connection pool vs single conn, different lock strategy, different SQL parameter binding style, or context manager pattern). Same acceptance test passes. python -c \"from src.db_challenger import DatabaseManager; print('OK')\" exits 0 with output 'OK'.",
     "assigned_to": null
   },
@@ -101,9 +158,17 @@
     "role": "critic",
     "model": "swe",
     "status": "todo",
-    "depends_on": ["F2-T1", "F2-T2"],
-    "input_files": ["/src/db.py", "/src/db_challenger.py"],
-    "output_files": ["/tests/test_db.py"],
+    "depends_on": [
+      "F2-T1",
+      "F2-T2"
+    ],
+    "input_files": [
+      "/src/db.py",
+      "/src/db_challenger.py"
+    ],
+    "output_files": [
+      "/tests/test_db.py"
+    ],
     "acceptance_criteria": "tests/test_db.py parametrized over BOTH src.db.DatabaseManager and src.db_challenger.DatabaseManager. Tests with tmp_path-isolated DuckDB: (1) schema creates 3 tables (daily_quotes, splits_processed, schema_version); (2) upsert inserts new rows; (3) upsert updates existing rows (MERGE); (4) upsert empty df returns 0, no error; (5) read-only conn rejects DELETE; (6) detect_new_tickers returns correct diff; (7) get_aligned_start_date returns MIN(Date) or None; (8) generate_top_20 returns sorted by dollar_volume DESC limit 20; (9) record_split + is_split_processed idempotency; (10) delete_ticker_data removes all rows for ticker; (11) thread safety: concurrent writes don't corrupt. python -m pytest tests/test_db.py -v exits 0. Critic pastes pytest output to EVENTS.log.",
     "assigned_to": null
   }
