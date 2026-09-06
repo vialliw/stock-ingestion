@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-06
+Last Updated: 2026-09-06T15:31:04Z
 Current Branch: main
 
 ## Goal
@@ -16,8 +16,12 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - /devin_blackboard/TASKS.json
 - /devin_blackboard/EVENTS.log
 - /docs/workflow_idea/procedure_multi_agents01.md
-- /src/            (ingestion + interface code — not yet created)
-- /tests/          (critic-written tests — not yet created)
+- /requirements.txt
+- /src/            (ingestion + interface code)
+  - __init__.py
+  - store.py
+- /tests/          (critic-written tests)
+  - __init__.py
 - /config/         (runtime config, non-secret — not yet created)
 
 ## Decisions Made (do NOT change without PM approval)
@@ -34,7 +38,16 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] Blackboard scaffolding
 - [x] Custom subagent profiles created (planner, executor, challenger, critic)
 - [x] AGENTS.md project rules committed
+- [x] Cart test feature planned — TASKS.json DAG T1..T4 written (procedure §6, DuckDB variant per PM approval)
+- [x] T1 scaffold: requirements.txt, /src, /tests created
+- [x] T2: src/store.py implements store_csv with APPEND semantics
 - [ ] Cart test cycle (see procedure §6)
 
 ## Active Blockers
 - None
+
+## Cart test — chosen semantics (PM-approved deviation from §6)
+- Storage: local DuckDB file (NOT R2). R2 sync only after processing is finished.
+- `store_csv(symbol, date, csv_bytes) -> int` returns the generated row id.
+- APPEND semantics: a second write for the same (symbol, date) persists as a NEW row and returns a strictly greater id. No upsert / no overwrite. This is what the Critic's breaking test verifies.
+- Duel shape: Executor (T2, src/store.py) and Challenger (T3, src/store_challenger.py) implement independently in separate files using separate default DB paths to avoid clobbering; Critic (T4) parametrizes tests over both.

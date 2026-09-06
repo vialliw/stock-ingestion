@@ -1,0 +1,1 @@
+"""stock-ingestion source package."""

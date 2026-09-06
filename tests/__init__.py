@@ -1,0 +1,1 @@
+"""stock-ingestion test package."""

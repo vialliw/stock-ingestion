@@ -1,1 +1,50 @@
-[]
+[
+  {
+    "id": "T1",
+    "title": "Scaffold project: create /src, /tests dirs and pin duckdb dependency",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [],
+    "input_files": ["/devin_blackboard/STATE.md"],
+    "output_files": ["/requirements.txt", "/src/__init__.py", "/tests/__init__.py"],
+    "acceptance_criteria": "requirements.txt exists at repo root and contains a line pinning duckdb (e.g. 'duckdb>=1.0'); directories /src and /tests exist; /src/__init__.py and /tests/__init__.py exist and are empty or contain only a module docstring. 'python -c \"import duckdb\"' exits 0 in the repo's environment.",
+    "assigned_to": "executor"
+  },
+  {
+    "id": "T2",
+    "title": "Executor: implement store_csv(symbol, date, csv_bytes) -> row_id in src/store.py using DuckDB",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": ["T1"],
+    "input_files": ["/requirements.txt", "/src/__init__.py", "/devin_blackboard/STATE.md"],
+    "output_files": ["/src/store.py"],
+    "acceptance_criteria": "src/store.py defines a top-level function `store_csv(symbol: str, date: str, csv_bytes: bytes) -> int` that opens/creates a local DuckDB file (path configurable via env var STORE_DB_PATH, default './stock.duckdb'), creates table `raw_csv` with columns (id BIGINT identity/primary key, symbol VARCHAR, date VARCHAR, csv_bytes BLOB, created_at TIMESTAMP) if not exists, INSERTs the row, commits, and returns the generated id. APPEND semantics: two calls with the same (symbol, date) MUST both persist as separate rows and return distinct monotonically increasing ids, with the second call's id strictly greater than the first. No R2/S3 calls. No Python loops used (pure SQL insert). 'python -c \"from src.store import store_csv\"' exits 0.",
+    "assigned_to": "executor"
+  },
+  {
+    "id": "T3",
+    "title": "Challenger: implement store_csv independently in src/store_challenger.py (duel variant)",
+    "role": "challenger",
+    "model": "glm",
+    "status": "in_progress",
+    "depends_on": ["T1"],
+    "input_files": ["/requirements.txt", "/src/__init__.py", "/devin_blackboard/STATE.md"],
+    "output_files": ["/src/store_challenger.py"],
+    "acceptance_criteria": "src/store_challenger.py defines a top-level function `store_csv(symbol: str, date: str, csv_bytes: bytes) -> int` with the SAME public signature and semantics as T2: writes to a local DuckDB file (env var STORE_DB_PATH_CHALLENGER, default './stock_challenger.duckdb' to avoid clobbering T2's db), table `raw_csv` with columns (id, symbol, date, csv_bytes, created_at), APPEND semantics (two calls for same symbol/date persist as two rows with distinct increasing ids), returns the generated id. Implementation must differ structurally from T2 (e.g. different connection management, parameter binding style, or id generation strategy) so the duel is meaningful. No R2/S3 calls. No unjustified Python loops. 'python -c \"from src.store_challenger import store_csv\"' exits 0.",
+    "assigned_to": "challenger"
+  },
+  {
+    "id": "T4",
+    "title": "Critic: write breaking tests in tests/test_store_csv.py and run pytest against both implementations",
+    "role": "critic",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": ["T2", "T3"],
+    "input_files": ["/src/store.py", "/src/store_challenger.py", "/devin_blackboard/STATE.md"],
+    "output_files": ["/tests/test_store_csv.py"],
+    "acceptance_criteria": "tests/test_store_csv.py is parametrized over BOTH src.store.store_csv and src.store_challenger.store_csv. It uses a tmp_path-isolated DuckDB file per test (sets STORE_DB_PATH / STORE_DB_PATH_CHALLENGER to a tmp file) so tests are hermetic and do not touch ./stock.duckdb. Tests assert, with concrete evidence: (1) first store_csv('AAPL','2024-01-01', b'a,b\\n1,2') returns an int id >= 1; (2) a second call with the SAME (symbol, date) returns a strictly greater int id; (3) after both calls, 'SELECT COUNT(*) FROM raw_csv WHERE symbol=? AND date=?' == 2 (append semantics, both rows persist); (4) the persisted csv_bytes blob round-trips equal to the input bytes via SELECT; (5) calling store_csv with empty bytes b'' does not raise and persists a row. 'python -m pytest tests/test_store_csv.py -v' exits 0 with all assertions passing. Critic pastes the pytest exit code and the final per-test pass/fail summary into EVENTS.log as evidence.",
+    "assigned_to": null
+  }
+]
