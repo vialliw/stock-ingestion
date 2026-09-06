@@ -157,7 +157,7 @@
     "title": "Critic: test DatabaseManager with temp DuckDB files in tests/test_db.py",
     "role": "critic",
     "model": "swe",
-    "status": "todo",
+    "status": "done",
     "depends_on": [
       "F2-T1",
       "F2-T2"
