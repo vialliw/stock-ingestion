@@ -261,7 +261,7 @@
     "title": "Critic: integration test — assemble all modules, verify end-to-end flow with mocked yfinance",
     "role": "critic",
     "model": "swe",
-    "status": "todo",
+    "status": "done",
     "depends_on": ["F5-T1"],
     "input_files": ["/src/main.py", "/src/config.py", "/src/db.py", "/src/ingestion.py", "/src/flight_server.py"],
     "output_files": ["/tests/test_integration.py"],
