@@ -1,50 +1,50 @@
 [
   {
-    "id": "T1",
-    "title": "Scaffold project: create /src, /tests dirs and pin duckdb dependency",
+    "id": "F1-T1",
+    "title": "Scaffold: update requirements.txt with all 7 deps, verify src/config.yaml exists, ensure src/ and tests/ packages",
     "role": "executor",
     "model": "swe",
-    "status": "done",
+    "status": "todo",
     "depends_on": [],
-    "input_files": ["/devin_blackboard/STATE.md"],
+    "input_files": ["/docs/tech_spec/gemini_tech_spec.1.0.2.md", "/src/config.yaml"],
     "output_files": ["/requirements.txt", "/src/__init__.py", "/tests/__init__.py"],
-    "acceptance_criteria": "requirements.txt exists at repo root and contains a line pinning duckdb (e.g. 'duckdb>=1.0'); directories /src and /tests exist; /src/__init__.py and /tests/__init__.py exist and are empty or contain only a module docstring. 'python -c \"import duckdb\"' exits 0 in the repo's environment.",
-    "assigned_to": "executor"
+    "acceptance_criteria": "requirements.txt contains all 7 deps from spec §12: duckdb>=1.0, pyarrow>=14.0, yfinance>=0.2, pandas>=2.0, pandas-market-calendars>=4.0, pydantic>=2.0, pyyaml>=6.0. src/config.yaml already exists (user-defined, do NOT modify it). src/__init__.py and tests/__init__.py exist. pip install -r requirements.txt exits 0.",
+    "assigned_to": null
   },
   {
-    "id": "T2",
-    "title": "Executor: implement store_csv(symbol, date, csv_bytes) -> row_id in src/store.py using DuckDB",
+    "id": "F1-T2",
+    "title": "Implement config module: Pydantic nested models, validators, from_yaml loader in src/config.py",
     "role": "executor",
     "model": "swe",
-    "status": "done",
-    "depends_on": ["T1"],
-    "input_files": ["/requirements.txt", "/src/__init__.py", "/devin_blackboard/STATE.md"],
-    "output_files": ["/src/store.py"],
-    "acceptance_criteria": "src/store.py defines a top-level function `store_csv(symbol: str, date: str, csv_bytes: bytes) -> int` that opens/creates a local DuckDB file (path configurable via env var STORE_DB_PATH, default './stock.duckdb'), creates table `raw_csv` with columns (id BIGINT identity/primary key, symbol VARCHAR, date VARCHAR, csv_bytes BLOB, created_at TIMESTAMP) if not exists, INSERTs the row, commits, and returns the generated id. APPEND semantics: two calls with the same (symbol, date) MUST both persist as separate rows and return distinct monotonically increasing ids, with the second call's id strictly greater than the first. No R2/S3 calls. No Python loops used (pure SQL insert). 'python -c \"from src.store import store_csv\"' exits 0.",
-    "assigned_to": "executor"
+    "status": "todo",
+    "depends_on": ["F1-T1"],
+    "input_files": ["/requirements.txt", "/src/config.yaml", "/docs/tech_spec/gemini_tech_spec.1.0.2.md"],
+    "output_files": ["/src/config.py"],
+    "acceptance_criteria": "src/config.py defines DatabaseConfig, IngestionConfig (with field_validator that uppercases+deduplicates tickers and exclude_tickers), ServerConfig (with field_validator for port 1-65535), LoggingConfig, ReportsConfig, and PipelineConfig (nested, with db_path property and from_yaml classmethod defaulting to 'src/config.yaml'). from_yaml('src/config.yaml') loads the user's actual config correctly: database.duckdb_dir == 'C:\\Intel\\parquet', database.duckdb_filename == 'stock_ingestion.duckdb', ingestion.tickers == ['AAPL','AVB','MSFT','NVDA'], server.flight_port == 8815, logging.log_file == 'C:\\Intel\\parquet\\stock_ingestion.log', reports.report_dir == 'C:\\Intel\\parquet'. from_yaml('nonexistent.yaml') returns all defaults without error. python -c \"from src.config import PipelineConfig; c = PipelineConfig.from_yaml('src/config.yaml'); assert c.database.duckdb_dir == 'C:\\\\Intel\\\\parquet'; assert c.ingestion.tickers == ['AAPL','AVB','MSFT','NVDA']; print('OK')\" exits 0 with output 'OK'.",
+    "assigned_to": null
   },
   {
-    "id": "T3",
-    "title": "Challenger: implement store_csv independently in src/store_challenger.py (duel variant)",
+    "id": "F1-T3",
+    "title": "Challenger: independent config module variant in src/config_challenger.py",
     "role": "challenger",
     "model": "glm",
-    "status": "done",
-    "depends_on": ["T1"],
-    "input_files": ["/requirements.txt", "/src/__init__.py", "/devin_blackboard/STATE.md"],
-    "output_files": ["/src/store_challenger.py"],
-    "acceptance_criteria": "src/store_challenger.py defines a top-level function `store_csv(symbol: str, date: str, csv_bytes: bytes) -> int` with the SAME public signature and semantics as T2: writes to a local DuckDB file (env var STORE_DB_PATH_CHALLENGER, default './stock_challenger.duckdb' to avoid clobbering T2's db), table `raw_csv` with columns (id, symbol, date, csv_bytes, created_at), APPEND semantics (two calls for same symbol/date persist as two rows with distinct increasing ids), returns the generated id. Implementation must differ structurally from T2 (e.g. different connection management, parameter binding style, or id generation strategy) so the duel is meaningful. No R2/S3 calls. No unjustified Python loops. 'python -c \"from src.store_challenger import store_csv\"' exits 0.",
-    "assigned_to": "challenger"
+    "status": "todo",
+    "depends_on": ["F1-T1"],
+    "input_files": ["/requirements.txt", "/src/config.yaml", "/docs/tech_spec/gemini_tech_spec.1.0.2.md"],
+    "output_files": ["/src/config_challenger.py"],
+    "acceptance_criteria": "src/config_challenger.py defines the same public API: PipelineConfig class with from_yaml classmethod and nested config objects (database, ingestion, server, logging, reports). Same validation behavior (tickers uppercased+deduplicated, port 1-65535). Implementation must be structurally different from src/config.py (e.g. manual YAML parsing + dataclasses instead of Pydantic, or different validator approach, or different class hierarchy). from_yaml('src/config.yaml') produces the same values as the executor's implementation. from_yaml('nonexistent.yaml') returns defaults. python -c \"from src.config_challenger import PipelineConfig; c = PipelineConfig.from_yaml('src/config.yaml'); assert c.database.duckdb_dir == 'C:\\\\Intel\\\\parquet'; assert c.ingestion.tickers == ['AAPL','AVB','MSFT','NVDA']; print('OK')\" exits 0 with output 'OK'.",
+    "assigned_to": null
   },
   {
-    "id": "T4",
-    "title": "Critic: write breaking tests in tests/test_store_csv.py and run pytest against both implementations",
+    "id": "F1-T4",
+    "title": "Critic: test config validation, YAML loading, defaults, edge cases in tests/test_config.py",
     "role": "critic",
     "model": "swe",
-    "status": "done",
-    "depends_on": ["T2", "T3"],
-    "input_files": ["/src/store.py", "/src/store_challenger.py", "/devin_blackboard/STATE.md"],
-    "output_files": ["/tests/test_store_csv.py"],
-    "acceptance_criteria": "tests/test_store_csv.py is parametrized over BOTH src.store.store_csv and src.store_challenger.store_csv. It uses a tmp_path-isolated DuckDB file per test (sets STORE_DB_PATH / STORE_DB_PATH_CHALLENGER to a tmp file) so tests are hermetic and do not touch ./stock.duckdb. Tests assert, with concrete evidence: (1) first store_csv('AAPL','2024-01-01', b'a,b\\n1,2') returns an int id >= 1; (2) a second call with the SAME (symbol, date) returns a strictly greater int id; (3) after both calls, 'SELECT COUNT(*) FROM raw_csv WHERE symbol=? AND date=?' == 2 (append semantics, both rows persist); (4) the persisted csv_bytes blob round-trips equal to the input bytes via SELECT; (5) calling store_csv with empty bytes b'' does not raise and persists a row. 'python -m pytest tests/test_store_csv.py -v' exits 0 with all assertions passing. Critic pastes the pytest exit code and the final per-test pass/fail summary into EVENTS.log as evidence.",
-    "assigned_to": "critic"
+    "status": "todo",
+    "depends_on": ["F1-T2", "F1-T3"],
+    "input_files": ["/src/config.py", "/src/config_challenger.py", "/src/config.yaml"],
+    "output_files": ["/tests/test_config.py"],
+    "acceptance_criteria": "tests/test_config.py is parametrized over BOTH src.config.PipelineConfig and src.config_challenger.PipelineConfig. Tests: (1) from_yaml('src/config.yaml') loads correctly with all user's values; (2) from_yaml('nonexistent.yaml') returns all defaults; (3) tickers are uppercased (e.g. input 'aapl' -> 'AAPL'); (4) tickers are deduplicated (e.g. ['AAPL','AAPL','MSFT'] -> ['AAPL','MSFT']); (5) port out of range (0 or 65536) raises ValueError; (6) empty tickers list -> []; (7) nested attribute access works (config.database.duckdb_dir, config.ingestion.tickers, config.server.flight_host, config.logging.log_file, config.reports.report_dir); (8) db_path property joins duckdb_dir + duckdb_filename. All tests use the real src/config.yaml for loading tests and synthetic YAML strings for validation tests. python -m pytest tests/test_config.py -v exits 0 with all tests passing. Critic pastes pytest exit code and per-test pass/fail summary into EVENTS.log.",
+    "assigned_to": null
   }
 ]

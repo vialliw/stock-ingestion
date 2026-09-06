@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-06T17:05:00Z
+Last Updated: 2026-09-06T18:10:00Z
 Current Branch: main
 
 ## Goal
@@ -21,12 +21,13 @@ Storage backend: Cloudflare R2 (S3-compatible).
   - __init__.py
   - store.py
   - store_challenger.py
+  - config.yaml    (user-defined runtime config with real paths — DO NOT modify)
 - /tests/          (critic-written tests)
   - __init__.py
   - test_store_csv.py
-- /config/         (runtime config, non-secret — not yet created)
 
 ## Decisions Made (do NOT change without PM approval)
+- [2026-09-06T18:10:00Z] Cycle 1 started: Config + Scaffold (F1-T1..F1-T4 per docs/dev_plan/phase1_dev_plan.md)
 - [2026-09-06] Multi-agent workflow adopted (see docs/workflow_idea/procedure_multi_agents01.md)
 - [2026-09-06] R2 as object storage; secrets via GitHub repo secrets, never in repo
 - [2026-09-06] Using Devin native models: glm (GLM-5.2 High) + swe (SWE-1.7 Medium) — free in Devin Local
@@ -47,6 +48,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] T4: critic tests in tests/test_store_csv.py — 22/22 PASSED over both implementations (pytest exit 0); no BUG tasks filed
 - [x] Cart test cycle (procedure §6) — PASS. Full loop verified: Plan → Execute (parallel) → Critic → done. Blackboard survived concurrent writes. 22/22 tests passed. No BUG tasks filed.
 - [x] Workflow established — procedure §8 checklist complete
+- [x] Cart test complete; Cycle 1 planning done — TASKS.json replaced with F1-T1..F1-T4 DAG (Config + Scaffold)
 
 ## Active Blockers
 - None
