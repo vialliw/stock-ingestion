@@ -40,11 +40,11 @@
     "title": "Critic: write breaking tests in tests/test_store_csv.py and run pytest against both implementations",
     "role": "critic",
     "model": "swe",
-    "status": "todo",
+    "status": "done",
     "depends_on": ["T2", "T3"],
     "input_files": ["/src/store.py", "/src/store_challenger.py", "/devin_blackboard/STATE.md"],
     "output_files": ["/tests/test_store_csv.py"],
     "acceptance_criteria": "tests/test_store_csv.py is parametrized over BOTH src.store.store_csv and src.store_challenger.store_csv. It uses a tmp_path-isolated DuckDB file per test (sets STORE_DB_PATH / STORE_DB_PATH_CHALLENGER to a tmp file) so tests are hermetic and do not touch ./stock.duckdb. Tests assert, with concrete evidence: (1) first store_csv('AAPL','2024-01-01', b'a,b\\n1,2') returns an int id >= 1; (2) a second call with the SAME (symbol, date) returns a strictly greater int id; (3) after both calls, 'SELECT COUNT(*) FROM raw_csv WHERE symbol=? AND date=?' == 2 (append semantics, both rows persist); (4) the persisted csv_bytes blob round-trips equal to the input bytes via SELECT; (5) calling store_csv with empty bytes b'' does not raise and persists a row. 'python -m pytest tests/test_store_csv.py -v' exits 0 with all assertions passing. Critic pastes the pytest exit code and the final per-test pass/fail summary into EVENTS.log as evidence.",
-    "assigned_to": null
+    "assigned_to": "critic"
   }
 ]

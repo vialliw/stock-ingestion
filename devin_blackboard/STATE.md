@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-06T16:30:00Z
+Last Updated: 2026-09-06T17:05:00Z
 Current Branch: main
 
 ## Goal
@@ -23,6 +23,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
   - store_challenger.py
 - /tests/          (critic-written tests)
   - __init__.py
+  - test_store_csv.py
 - /config/         (runtime config, non-secret — not yet created)
 
 ## Decisions Made (do NOT change without PM approval)
@@ -43,7 +44,8 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] T1 scaffold: requirements.txt, /src, /tests created
 - [x] T2: src/store.py implements store_csv with APPEND semantics
 - [x] T3: src/store_challenger.py implements challenger variant of store_csv with APPEND semantics
-- [ ] Cart test cycle (see procedure §6)
+- [x] T4: critic tests in tests/test_store_csv.py — 22/22 PASSED over both implementations (pytest exit 0); no BUG tasks filed
+- [x] Cart test cycle (see procedure §6) — awaiting PM/orchestrator completion review
 
 ## Active Blockers
 - None
