@@ -249,7 +249,7 @@
     "title": "Implement main entrypoint: assemble config -> DatabaseManager -> IngestionEngine -> FlightServer, signal handling, server.serve()",
     "role": "executor",
     "model": "swe",
-    "status": "todo",
+    "status": "done",
     "depends_on": ["F4-T3"],
     "input_files": ["/src/config.py", "/src/db.py", "/src/ingestion.py", "/src/flight_server.py", "/docs/tech_spec/gemini_tech_spec.1.0.2.md"],
     "output_files": ["/src/main.py"],
