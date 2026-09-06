@@ -21,6 +21,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
   - __init__.py
   - store.py
   - store_challenger.py
+  - config.py      (Pydantic nested config models + from_yaml loader — F1-T2)
   - config.yaml    (user-defined runtime config with real paths — DO NOT modify)
   - config_challenger.py  (challenger variant of config module — dataclasses + manual YAML, NOT Pydantic)
 - /tests/          (critic-written tests)
@@ -51,6 +52,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] Workflow established — procedure §8 checklist complete
 - [x] Cart test complete; Cycle 1 planning done — TASKS.json replaced with F1-T1..F1-T4 DAG (Config + Scaffold)
 - [x] F1-T1 scaffold: requirements.txt updated with all 7 deps (duckdb, pyarrow, yfinance, pandas, pandas-market-calendars, pydantic, pyyaml); src/__init__.py and tests/__init__.py exist; src/config.yaml exists (untouched); pip install -r requirements.txt exit 0
+- [x] F1-T2: src/config.py implements Pydantic v2 nested config (DatabaseConfig, IngestionConfig, ServerConfig, LoggingConfig, ReportsConfig, PipelineConfig) with field validators (tickers uppercased+stripped+deduped preserving order; flight_port 1-65535) and from_yaml classmethod (defaults if file missing). Loads user's src/config.yaml correctly. Both verification commands exit 0 with output 'OK'.
 - [x] F1-T3: src/config_challenger.py implements challenger variant of config module using dataclasses + manual YAML parsing + manual validation (NOT Pydantic — structurally different from executor's src/config.py). Same public API (PipelineConfig.from_yaml, nested database/ingestion/server/logging/reports, db_path property). Tolerant YAML loader handles raw backslashes in double-quoted Windows paths. Both verification commands exit 0 with output 'OK'.
 
 ## Active Blockers
