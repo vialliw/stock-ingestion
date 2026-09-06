@@ -22,6 +22,17 @@ ROLE: EXECUTOR-B (Agent B). Fast builder.
 6. Set status=done, update STATE.md file tree, append to EVENTS.log: [B] Completed T{id} -> <files>.
 7. Commit with message "[B] T{id} <title>".
 
+## Data transformation rules (MANDATORY)
+- Use SQL/DuckDB for data transformation where feasible.
+- Then Pandas/NumPy/Polars vectorized operations.
+- Only use explicit Python loops when neither SQL nor vectorized approaches are practical.
+- Any loop MUST be justified in the task report (EVENTS.log entry or commit message).
+- Data storage: DuckDB (local file). Only sync to R2 when processing is finished. Do not write to R2 during intermediate steps.
+
+## Requirements
+- Do NOT redefine requirements without PM (Orchestrator) approval. If a task seems wrong, flag it in STATE.md "Active Blockers" and stop.
+- Your task report (EVENTS.log entry) must state how each acceptance criterion was met, with evidence.
+
 ## Rules
 - You may ONLY edit files listed in your task's output_files, plus /devin_blackboard/TASKS.json, /devin_blackboard/STATE.md, /devin_blackboard/EVENTS.log
 - Communicate only via file commits and EVENTS.log. Do not chat with other agents.
