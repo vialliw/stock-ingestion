@@ -8,7 +8,9 @@
 
 ---
 
-## Changelog (1.0.0 → 1.0.1)
+## Changelog
+
+### 1.0.0 → 1.0.1
 
 | Change | Reason |
 |---|---|
@@ -19,6 +21,16 @@
 | Primary key order changed to `(Date, Ticker)` | Per revised schema |
 | Column names capitalized (`Date`, `Ticker`, etc.) | Per revised schema |
 | `adj_close` config parameter removed | No longer stored |
+
+### 1.0.1 revision (same version)
+
+| Change | Reason |
+|---|---|
+| `log_file` parameter added to configuration schema | PM requirement: log file location must be configurable |
+| Logging setup uses `config.log_file` instead of hardcoded `"pipeline.log"` | Consequence of above |
+| New ticker detection added to `daily_load` | PM requirement: when user adds a ticker to config, daily load must detect it and backfill from the aligned start date |
+| `detect_new_tickers()` and `get_aligned_start_date()` methods added to `DatabaseManager` | Support new ticker detection |
+| `run_daily_load()` expanded: backfill new tickers before trailing-4-day refresh | Consequence of above |
 
 ---
 
@@ -70,6 +82,7 @@ Configuration management uses Pydantic for schema validation and default assignm
 | `duckdb_filename` | `str` | `"market_data.duckdb"` | DuckDB physical file name. |
 | `flight_host` | `str` | `"127.0.0.1"` | Bind IP for Arrow Flight server. |
 | `flight_port` | `int` | `8815` | Listening port for Arrow Flight service. |
+| `log_file` | `str` | `"./logs/pipeline.log"` | Path to the log file. Directory is created if it does not exist. |
 
 #### 2.1.2 Specification (`config.yaml`)
 
@@ -90,6 +103,9 @@ ingestion:
 server:
   flight_host: "127.0.0.1"
   flight_port: 8815
+
+logging:
+  log_file: "./logs/pipeline.log"
 
 ```
 
@@ -145,6 +161,12 @@ COMMIT;
 #### 2.2.3 Daily Rolling Load (`daily_load`)
 
 * **Behavior:** Downloads the trailing **4 calendar days** to account for settlement windows, exchange data adjustments, and late-reported bar updates.
+* **New Ticker Detection (backfill before refresh):** Before the trailing-4-day refresh, the daily load checks for tickers in `config.tickers` that do not yet exist in the database. If new tickers are found:
+  1. Query the aligned start date: `SELECT MIN(Date) FROM daily_quotes` — the earliest date across all existing tickers.
+  2. Download historical data for the new tickers from the aligned start date to today.
+  3. Upsert via the same `MERGE INTO` pattern.
+  4. Log: `INFO - New ticker(s) detected: [TSLA, AMD]. Backfilling from aligned start date 2020-09-06.`
+  5. If the database is empty (no existing tickers), fall back to the `initial_load` default of 6 years.
 * **Deduplication / Upsert Pattern:**
 ```sql
 MERGE INTO daily_quotes AS target
@@ -325,7 +347,7 @@ import time
 import json
 import signal
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 from datetime import datetime, timedelta, timezone
 
 import duckdb
@@ -340,17 +362,6 @@ from pydantic import BaseModel, Field
 # 1. LOGGING & CONFIGURATION MODULE
 # =====================================================================
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("pipeline.log", mode="a")
-    ]
-)
-logger = logging.getLogger("MarketDataPipeline")
-
-
 class PipelineConfig(BaseModel):
     tickers: List[str] = Field(default_factory=lambda: ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"])
     exclude_tickers: List[str] = Field(default_factory=lambda: ["OTC_DELISTED_XYZ"])
@@ -359,14 +370,32 @@ class PipelineConfig(BaseModel):
     duckdb_filename: str = "market_data.duckdb"
     flight_host: str = "127.0.0.1"
     flight_port: int = 8815
+    log_file: str = "./logs/pipeline.log"
 
     @property
     def db_path(self) -> str:
         os.makedirs(self.duckdb_dir, exist_ok=True)
         return os.path.join(self.duckdb_dir, self.duckdb_filename)
 
+    @property
+    def log_dir(self) -> str:
+        log_dir = os.path.dirname(self.log_file)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        return self.log_file
+
 
 config = PipelineConfig()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(config.log_dir, mode="a")
+    ]
+)
+logger = logging.getLogger("MarketDataPipeline")
 
 # =====================================================================
 # 2. DUCKDB MANAGER WITH WAL SAFEGUARDING
@@ -436,6 +465,23 @@ class DatabaseManager:
             f"RUNTIME EVENT: Stock split processed for ticker '{ticker}'. "
             f"Ratio: {split_factor}, Split Date: {split_date}. Historical records re-adjusted."
         )
+
+    def get_existing_tickers(self) -> Set[str]:
+        """Return the set of tickers currently present in the database."""
+        result = self.conn.execute("SELECT DISTINCT Ticker FROM daily_quotes").fetchall()
+        return {row[0] for row in result}
+
+    def get_aligned_start_date(self) -> Optional[str]:
+        """Return the earliest Date across all tickers, or None if the database is empty."""
+        result = self.conn.execute("SELECT MIN(Date) FROM daily_quotes").fetchone()
+        if result and result[0]:
+            return str(result[0])
+        return None
+
+    def detect_new_tickers(self, configured_tickers: List[str]) -> List[str]:
+        """Return tickers in config that are not yet in the database."""
+        existing = self.get_existing_tickers()
+        return [t for t in configured_tickers if t not in existing]
 
     def generate_top_20_dollar_volume(self, target_date: Optional[str] = None) -> List[Dict[str, Any]]:
         date_filter = "Date = ?" if target_date else "Date = (SELECT MAX(Date) FROM daily_quotes)"
@@ -551,6 +597,22 @@ class IngestionEngine:
             logger.info("US Market is closed today (Holiday/Weekend). Daily load execution skipped.")
             return
 
+        # --- New ticker detection: backfill from aligned start date ---
+        new_tickers = self.db.detect_new_tickers(self.cfg.tickers)
+        if new_tickers:
+            aligned_start = self.db.get_aligned_start_date()
+            if aligned_start:
+                logger.info(f"New ticker(s) detected: {new_tickers}. Backfilling from aligned start date {aligned_start}.")
+                backfill_end = datetime.now().strftime('%Y-%m-%d')
+                df_new = self.fetch_and_clean(new_tickers, aligned_start, backfill_end)
+                self.db.upsert_dataframe(df_new)
+                logger.info(f"Backfill complete for {new_tickers}.")
+            else:
+                # Database is empty — fall back to initial_load defaults
+                logger.info(f"New ticker(s) detected: {new_tickers}. Database is empty, performing initial load (6 years).")
+                self.run_initial_load(years=6)
+
+        # --- Trailing 4-day refresh for all tickers ---
         logger.info("US Market active. Executing daily load (trailing 4 calendar days)...")
         end_dt = datetime.now()
         start_dt = end_dt - timedelta(days=4)
