@@ -63,6 +63,15 @@
 | Known Limitations section added | Review: document yfinance data quality, single-node, etc. |
 | Architecture diagram annotated: Phase 1 uses external triggering | Review: clarify that no internal scheduler runs in Phase 1 |
 
+### 1.0.2 revision (same version)
+
+| Change | Reason |
+|---|---|
+| Split handling changed from SQL UPDATE re-adjustment to DELETE + re-download | PM decision: DELETE all ticker rows and re-download from aligned start date with `auto_adjust=True` is simpler and less error-prone than SQL UPDATE math |
+| `adjust_for_split()` SQL UPDATE method removed | Replaced by `delete_ticker_data()` + batch re-download with `auto_adjust=True` |
+| `splits_processed` table retained for idempotency | Still needed to avoid re-downloading every run |
+| Split adjustment concurrency note removed | No longer relevant — DELETE + re-download is atomic under write lock |
+
 ---
 
 ## 1. System Overview
@@ -327,11 +336,11 @@ The per-ticker loop is retained **only for split detection** (`yf.Ticker(t).spli
 - **Behavior:** Accepts a custom payload defining `tickers: List[str]`, `start_date: str`, and `end_date: str`. Downloads and upserts via the standard `MERGE INTO` pattern.
 - **yfinance parameters:** `interval="1d"`, `auto_adjust=True`, `group_by='ticker'`.
 
-### 5.6 Stock Split Detection & Historical Re-adjustment
+### 5.6 Stock Split Detection & Re-download
 
 #### Problem
 
-`auto_adjust=True` only adjusts OHLC data **within a single yfinance API response**. It does NOT retroactively adjust data already stored in DuckDB from previous loads. Without manual adjustment, a split creates a discontinuity:
+`auto_adjust=True` only adjusts OHLC data **within a single yfinance API response**. It does NOT retroactively adjust data already stored in DuckDB from previous loads. Without handling, a split creates a discontinuity:
 
 ```
 Day 1:   initial_load stores day 1–40 (pre-split OHLC)
@@ -342,66 +351,62 @@ Day 41:  daily_load fetches day 37–40 with auto_adjust=True
          → day 1–36 in DB remain pre-split → INCONSISTENT
 ```
 
-#### Solution
+#### Solution: DELETE + Re-download
 
-Two mechanisms work together:
+When a new split is detected for a ticker:
 
-1. **`auto_adjust=True`** ensures newly fetched data is always adjusted to current split factors.
-2. **Manual `adjust_for_split()`** retroactively adjusts historical data already in DuckDB before the split date.
+1. **Delete** all existing rows for that ticker from `daily_quotes`.
+2. **Re-download** the full history from the aligned start date (earliest `Date` across all tickers in the database) to today, using `auto_adjust=True`.
+3. **Upsert** the re-downloaded data.
 
-These do NOT double-adjust the same data:
-- `auto_adjust=True` adjusts the **newly fetched window** (e.g., day 37–40).
-- `adjust_for_split()` adjusts **already stored data before the split date** (e.g., day 1–36).
-- Any overlap (day 37–39) is handled by the execution order: `adjust_for_split` runs first, then `upsert_dataframe` overwrites the overlap with yfinance's auto-adjusted values (which are identical).
+This is simpler and less error-prone than SQL UPDATE-based re-adjustment:
+- No SQL math (no factor direction errors, no comparison operator bugs, no overlap concerns).
+- yfinance's `auto_adjust=True` handles all splits correctly in a single pass.
+- Multiple compounding splits are handled automatically by yfinance.
+- The only cost is re-downloading ~1500 rows (6 years daily) for the affected ticker, which is trivial.
 
 #### Idempotency via `splits_processed` table
 
-A tracking table prevents applying the same split twice (see §4.3 for schema).
+A tracking table prevents re-downloading every run (see §4.3 for schema). Each detected split is recorded as `(Ticker, SplitDate, SplitFactor)`. On subsequent runs, already-processed splits are skipped.
 
 #### Detection logic
 
 On every `fetch_and_clean` call, for each ticker:
 
-1. Fetch `stock.splits` (all historical splits from yfinance).
+1. Fetch `yf.Ticker(t).splits` (all historical splits from yfinance).
 2. For each split, check if `(ticker, split_date)` exists in `splits_processed`.
-3. If NOT processed:
-   a. Call `adjust_for_split(ticker, split_date, split_factor)` — adjusts all rows `WHERE Ticker = ? AND Date < split_date`.
-   b. Insert `(ticker, split_date, split_factor)` into `splits_processed`.
-   c. Log: `WARNING - RUNTIME EVENT: Stock split detected for {ticker}: factor {split_factor} on {split_date}. Historical records adjusted.`
-4. If already processed, skip.
+3. If any unprocessed split is found for the ticker:
+   a. Record all unprocessed splits in `splits_processed`.
+   b. Delete all rows: `DELETE FROM daily_quotes WHERE Ticker = ?`
+   c. Re-download from aligned start date to today with `auto_adjust=True`.
+   d. Upsert the re-downloaded data.
+   e. Log: `WARNING - RUNTIME EVENT: Stock split detected for '{ticker}'. Deleted and re-downloaded from {aligned_start} to today.`
+4. If all splits are already processed, skip.
 
 This handles all edge cases:
 - **Normal case:** split detected on the next daily load after it occurs.
-- **Daemon downtime:** if the daemon was down for days/weeks, all missed splits are detected on the next fetch and applied retroactively.
-- **Multiple splits:** each split is processed independently, oldest first, so compounding splits adjust correctly.
-- **Re-runs:** the tracking table ensures no double-adjustment.
-
-#### Concurrency note
-
-`adjust_for_split` runs under the write lock. Concurrent read clients may see pre-adjusted historical rows for the brief window between the split adjustment START and the subsequent upsert completing. For Phase 1 (localhost, single user), this is acceptable. If this becomes a concern, schedule split-heavy loads outside peak query windows.
+- **Daemon downtime:** all missed splits are detected on the next fetch; a single DELETE + re-download fixes everything.
+- **Multiple splits:** yfinance's `auto_adjust=True` handles all compounding splits in one download.
+- **Re-runs:** the tracking table ensures no unnecessary re-downloads.
 
 ---
 
 ## 6. Runtime Events
 
-### 6.1 Stock Split Detection & Historical Re-adjustment
+### 6.1 Stock Split Detection & Re-download
 
 During all ingestion calls (`fetch_and_clean`), for each ticker:
 
 1. Fetch `yf.Ticker(t).splits` — returns all historical split events.
-2. For each split not yet in `splits_processed` (processed oldest-first):
-   - Adjust historical OHLCV in the database:
+2. For each split not yet in `splits_processed`:
+   - Record the split in `splits_processed` to prevent re-processing.
+   - Delete all rows for the ticker:
      ```sql
-     UPDATE daily_quotes
-     SET Open = Open / :split_factor,
-         High = High / :split_factor,
-         Low = Low / :split_factor,
-         Close = Close / :split_factor,
-         Volume = Volume * :split_factor
-     WHERE Ticker = :ticker AND Date < :split_date;
+     DELETE FROM daily_quotes WHERE Ticker = :ticker;
      ```
-   - Record the split in `splits_processed` to prevent re-adjustment.
-   - Log: `WARNING - RUNTIME EVENT: Stock split detected for {ticker}: factor {split_factor} on {split_date}. Historical records adjusted.`
+   - Re-download full history from the aligned start date with `auto_adjust=True`.
+   - Upsert the re-downloaded data.
+   - Log: `WARNING - RUNTIME EVENT: Stock split detected for '{ticker}'. Deleted and re-downloaded from {aligned_start} to today.`
 
 ### 6.2 Delisted Ticker Detection & Purge
 
@@ -460,7 +465,7 @@ The connection is closed after the query completes.
 
 ### 7.4 Thread Safety
 
-All write operations (`upsert_dataframe`, `purge_ticker`, `adjust_for_split`, schema initialization, `CHECKPOINT`) are serialized via a `threading.Lock` held by `DatabaseManager`. Read operations use independent read-only connections and do not acquire the lock, allowing concurrent reads from multiple Flight clients.
+All write operations (`upsert_dataframe`, `purge_ticker`, `delete_ticker_data`, `record_split`, schema initialization, `CHECKPOINT`) are serialized via a `threading.Lock` held by `DatabaseManager`. Read operations use independent read-only connections and do not acquire the lock, allowing concurrent reads from multiple Flight clients.
 
 ### 7.5 Action Result Format
 
@@ -787,28 +792,19 @@ class DatabaseManager:
         finally:
             conn.close()
 
-    def adjust_for_split(self, ticker: str, split_date: str, split_factor: float):
+    def record_split(self, ticker: str, split_date: str, split_factor: float):
+        """Record a split in splits_processed for idempotency."""
         with self._write_lock:
-            self.conn.execute("""
-                UPDATE daily_quotes
-                SET Open = Open / ?,
-                    High = High / ?,
-                    Low = Low / ?,
-                    Close = Close / ?,
-                    Volume = Volume * ?
-                WHERE Ticker = ? AND Date < ?;
-            """, [split_factor, split_factor, split_factor, split_factor,
-                  split_factor, ticker, split_date])
             self.conn.execute("""
                 INSERT INTO splits_processed (Ticker, SplitDate, SplitFactor)
                 VALUES (?, ?, ?)
                 ON CONFLICT (Ticker, SplitDate) DO NOTHING;
             """, [ticker, split_date, split_factor])
-        logger.warning(
-            f"RUNTIME EVENT: Stock split detected for '{ticker}'. "
-            f"Factor: {split_factor}, Date: {split_date}. "
-            f"Historical records re-adjusted."
-        )
+
+    def delete_ticker_data(self, ticker: str):
+        """Delete all rows for a ticker (used before re-download after split)."""
+        with self._write_lock:
+            self.conn.execute("DELETE FROM daily_quotes WHERE Ticker = ?", [ticker])
 
     def get_existing_tickers(self) -> Set[str]:
         conn = self._read_only_conn()
@@ -893,17 +889,51 @@ class IngestionEngine:
         self.cfg = cfg
 
     def _check_and_apply_splits(self, tickers: List[str]):
-        """Per-ticker split detection. No batch API exists for splits."""
+        """Per-ticker split detection. If any unprocessed split is found,
+        delete all ticker data and re-download from aligned start date.
+        No batch API exists for splits."""
         for t in tickers:
             try:
                 stock = yf.Ticker(t)
                 splits = stock.splits
-                if splits is not None and not splits.empty:
-                    # Process oldest-first for compounding splits
-                    for split_dt, factor in splits.sort_index().items():
-                        split_date_str = split_dt.strftime('%Y-%m-%d')
-                        if not self.db.is_split_processed(t, split_date_str):
-                            self.db.adjust_for_split(t, split_date_str, float(factor))
+                if splits is None or splits.empty:
+                    continue
+
+                # Find any unprocessed splits
+                unprocessed = []
+                for split_dt, factor in splits.sort_index().items():
+                    split_date_str = split_dt.strftime('%Y-%m-%d')
+                    if not self.db.is_split_processed(t, split_date_str):
+                        unprocessed.append((split_date_str, float(factor)))
+
+                if not unprocessed:
+                    continue
+
+                # Record all unprocessed splits for idempotency
+                for split_date_str, factor in unprocessed:
+                    self.db.record_split(t, split_date_str, factor)
+
+                # Delete all existing data for this ticker
+                self.db.delete_ticker_data(t)
+
+                # Re-download from aligned start date with auto_adjust=True
+                aligned_start = self.db.get_aligned_start_date()
+                if aligned_start is None:
+                    # DB is now empty after delete; use 6-year default
+                    end_dt = datetime.now()
+                    start_dt = end_dt - timedelta(days=6 * 365)
+                    aligned_start = start_dt.strftime('%Y-%m-%d')
+
+                today = datetime.now().strftime('%Y-%m-%d')
+                logger.warning(
+                    f"RUNTIME EVENT: Stock split detected for '{t}'. "
+                    f"Deleted and re-downloading from {aligned_start} to {today}."
+                )
+                df_redownload = self._batch_download([t], aligned_start, today)
+                df_norm, _, _, _ = self._normalize_batch_df(df_redownload, [t])
+                self.db.upsert_dataframe(df_norm)
+                logger.info(f"Re-download complete for '{t}'.")
+
             except Exception as e:
                 logger.error(f"Failed checking splits for ticker '{t}': {e}")
 
@@ -1308,5 +1338,4 @@ pyyaml>=6.0
 | Single-node only | No clustering or replication; DuckDB file is local | By design for Phase 1; R2 sync in Phase 2 provides off-host backup |
 | No authentication on Flight server | Any localhost process can read data or trigger ingestion | Acceptable for Phase 1 localhost; mTLS in Phase 2 |
 | No query timeout | A malicious or expensive query can block a read connection | Add query timeout in Phase 2 when query patterns are understood |
-| Split adjustment concurrency | Brief window where reads see partially adjusted data | Acceptable for Phase 1; schedule heavy loads off-peak if needed |
 | No intraday data | Schema and ingestion are daily-only | By design; intraday deferred to Phase 2+ |
