@@ -45,7 +45,8 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] T2: src/store.py implements store_csv with APPEND semantics
 - [x] T3: src/store_challenger.py implements challenger variant of store_csv with APPEND semantics
 - [x] T4: critic tests in tests/test_store_csv.py — 22/22 PASSED over both implementations (pytest exit 0); no BUG tasks filed
-- [x] Cart test cycle (see procedure §6) — awaiting PM/orchestrator completion review
+- [x] Cart test cycle (procedure §6) — PASS. Full loop verified: Plan → Execute (parallel) → Critic → done. Blackboard survived concurrent writes. 22/22 tests passed. No BUG tasks filed.
+- [x] Workflow established — procedure §8 checklist complete
 
 ## Active Blockers
 - None

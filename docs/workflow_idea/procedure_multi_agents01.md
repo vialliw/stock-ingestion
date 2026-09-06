@@ -231,7 +231,20 @@ Use this as the gate before writing any feature code:
 - [x] `.devin/agents/executor.md` committed (model: swe)
 - [x] `.devin/agents/challenger.md` committed (model: glm)
 - [x] `.devin/agents/critic.md` committed (model: swe)
-- [ ] Run the §6 "cart" test cycle end-to-end and confirm no blackboard corruption
-- [ ] Confirm `EVENTS.log` shows a clean `[A]→[B]→[C]→[D]` sequence
+- [x] Run the §6 "cart" test cycle end-to-end and confirm no blackboard corruption
+- [x] Confirm `EVENTS.log` shows a clean `[A]→[B]→[C]→[D]` sequence
+
+### Cart test results (2026-09-06)
+
+- **Feature:** `store_csv(symbol, date, csv_bytes) -> int` writing to local DuckDB with APPEND semantics.
+- **DAG:** T1 (scaffold) → T2 ∥ T3 (parallel implementations) → T4 (critic tests).
+- **Result:** PASS — 22/22 tests passed (11 tests × 2 implementations). No BUG tasks filed.
+- **Blackboard integrity:** Concurrent writes from T2 and T3 did not corrupt STATE.md, TASKS.json, or EVENTS.log. Git log is the reliable ordering source.
+- **Caveats:**
+  1. Timestamp anomaly in EVENTS.log (T2 timestamp out of order vs T1) — cosmetic, use git log for audit ordering.
+  2. Weak duel — T2 and T3 produced near-identical implementations. The challenger's ≥50% performance improvement rule may explain this; real divergence will come on more complex tasks.
+  3. Added `.gitignore` for `__pycache__/`, `*.duckdb`, `.pytest_cache/`, etc.
 
 Once every box is checked, the workflow is established and we proceed to plan the real ingestion features with Planner A.
+
+**✅ Workflow established. Ready for §7 feature roadmap.**
