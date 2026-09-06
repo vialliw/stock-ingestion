@@ -243,5 +243,41 @@
     "output_files": ["/tests/test_flight_server.py"],
     "acceptance_criteria": "tests/test_flight_server.py parametrized over BOTH implementations. Tests: (1) _validate_select_only accepts 'SELECT * FROM...'; (2) accepts 'WITH cte AS (...) SELECT...'; (3) rejects 'DELETE FROM...'; (4) rejects 'DROP TABLE...'; (5) rejects 'INSERT INTO...'; (6) rejects empty string; (7) _truncate_sql truncates at 200 chars with '...'; (8) do_action routing: initial_load returns correct status structure; (9) daily_load returns correct status structure; (10) on_request_load returns correct status structure; (11) daily_report returns report array + writes JSON file; (12) unknown action raises FlightServerError. Uses mocked DatabaseManager and IngestionEngine. python -m pytest tests/test_flight_server.py -v exits 0. Critic pastes pytest output to EVENTS.log.",
     "assigned_to": null
+  },
+  {
+    "id": "F5-T1",
+    "title": "Implement main entrypoint: assemble config -> DatabaseManager -> IngestionEngine -> FlightServer, signal handling, server.serve()",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": ["F4-T3"],
+    "input_files": ["/src/config.py", "/src/db.py", "/src/ingestion.py", "/src/flight_server.py", "/docs/tech_spec/gemini_tech_spec.1.0.2.md"],
+    "output_files": ["/src/main.py"],
+    "acceptance_criteria": "src/main.py defines main() function that: (1) loads config via PipelineConfig.from_yaml('src/config.yaml'); (2) creates DatabaseManager(config.db_path); (3) creates IngestionEngine(db_manager, config); (4) sets up SIGINT/SIGTERM signal handler that calls db_manager.close() and exits; (5) creates MarketDataFlightServer with location string grpc://{host}:{port}; (6) calls server.serve(). Also has if __name__=='__main__': main(). Uses the EXECUTOR's production modules (config.py, db.py, ingestion.py, flight_server.py) — NOT the challenger variants. python -c \"from src.main import main; print('OK')\" exits 0 with output 'OK'.",
+    "assigned_to": null
+  },
+  {
+    "id": "F5-T2",
+    "title": "Critic: integration test — assemble all modules, verify end-to-end flow with mocked yfinance",
+    "role": "critic",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": ["F5-T1"],
+    "input_files": ["/src/main.py", "/src/config.py", "/src/db.py", "/src/ingestion.py", "/src/flight_server.py"],
+    "output_files": ["/tests/test_integration.py"],
+    "acceptance_criteria": "tests/test_integration.py tests the full assembly using EXECUTOR's production modules (config.py, db.py, ingestion.py, flight_server.py). Uses tmp_path-isolated DuckDB, mocked yfinance (yf.download, yf.Ticker.splits), and a synthetic config file in tmp_path. Tests: (1) main() can be imported and all components assemble without error; (2) create DatabaseManager + IngestionEngine + FlightServer manually, call do_action 'initial_load' with mocked yf.download returning synthetic data, verify rows upserted > 0; (3) do_action 'daily_report' returns report with 20 items (after inserting 25 rows of synthetic data); (4) do_get with SELECT returns arrow table with data; (5) do_get with DELETE raises FlightServerError; (6) concurrent do_get from 3 threads all succeed; (7) db_manager.close() executes CHECKPOINT without error. python -m pytest tests/test_integration.py -v exits 0. Critic pastes pytest output to EVENTS.log.",
+    "assigned_to": null
+  },
+  {
+    "id": "F5-T3",
+    "title": "Critic: select production modules and update src/__init__.py to export from production files",
+    "role": "critic",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": ["F5-T2"],
+    "input_files": ["/src/config.py", "/src/db.py", "/src/ingestion.py", "/src/flight_server.py", "/src/main.py"],
+    "output_files": ["/src/__init__.py"],
+    "acceptance_criteria": "src/__init__.py updated to export from production modules: from src.config import PipelineConfig, from src.db import DatabaseManager, from src.ingestion import IngestionEngine, from src.flight_server import MarketDataFlightServer. Challenger variants (config_challenger.py, db_challenger.py, ingestion_challenger.py, flight_server_challenger.py) remain in repo for reference but are NOT imported by __init__.py. python -c \"from src import PipelineConfig, DatabaseManager, IngestionEngine, MarketDataFlightServer; print('OK')\" exits 0 with output 'OK'. Full test suite: python -m pytest tests/ -v exits 0 (excluding test_config_breaking.py which has known BUG-F1-T2 failures). Critic pastes selection rationale + pytest output to EVENTS.log.",
+    "assigned_to": null
   }
 ]
