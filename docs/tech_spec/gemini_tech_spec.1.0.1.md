@@ -42,6 +42,8 @@
 | `is_us_market_open_today()` standalone function removed | Fix: duplicated inline check in `run_daily_load` |
 | Report path standardized to `./data/reports/` | Fix: spec said `/data/reports/`, code used relative |
 | `return` added after empty-DB initial load in `daily_load` | Fix: redundant trailing 4-day refresh after full 6-year load |
+| `report_dir` added to configuration | PM requirement: report path must be configurable |
+| Trailing 4-day refresh always runs after empty-DB initial load | PM correction: system may be offline for days; refresh is not redundant |
 | Initial load SQL changed from `INSERT ON CONFLICT` to `MERGE INTO` | Fix: spec text and code now agree on single upsert pattern |
 
 ---
@@ -119,6 +121,7 @@ Configuration management uses Pydantic for schema validation. The Pydantic model
 | `server` | `flight_host` | `str` | `"127.0.0.1"` | Bind IP for Arrow Flight server. |
 | `server` | `flight_port` | `int` | `8815` | Listening port for Arrow Flight service. |
 | `logging` | `log_file` | `str` | `"./logs/pipeline.log"` | Path to the log file. Parent directory is created if absent. |
+| `reports` | `report_dir` | `str` | `"./data/reports"` | Directory for generated report JSON files. Created if absent. |
 
 ### 3.2 Example `config.yaml`
 
@@ -141,6 +144,9 @@ server:
 
 logging:
   log_file: "./logs/pipeline.log"
+
+reports:
+  report_dir: "./data/reports"
 ```
 
 ### 3.3 Config Loading Behavior
@@ -221,7 +227,7 @@ VALUES
   2. Download historical data for the new tickers from the aligned start date to today.
   3. Upsert via the standard `MERGE INTO` pattern.
   4. Log: `INFO - New ticker(s) detected: [TSLA, AMD]. Backfilling from aligned start date 2020-09-06.`
-  5. If the database is empty (no existing tickers), fall back to `initial_load` with 6 years and **return** — the trailing 4-day refresh is skipped because the full history was just loaded.
+  5. If the database is empty (no existing tickers), fall back to `initial_load` with 6 years. The trailing 4-day refresh still runs afterwards to ensure the most recent data is present (the system may have been offline for days).
 - **Market Calendar Check:** Before any download, the daily load checks the NYSE calendar. If the market is closed (holiday/weekend), the load is skipped entirely.
 - **yfinance parameters:** `interval="1d"`, `auto_adjust=True`.
 
@@ -421,7 +427,7 @@ LIMIT 20;
 
 ### 9.2 Output Format
 
-Reports are stored as JSON files in `./data/reports/dollar_volume_YYYYMMDD.json` and returned in the Flight action result payload.
+Reports are stored as JSON files in `{config.reports.report_dir}/dollar_volume_YYYYMMDD.json` and returned in the Flight action result payload. The report directory is created if it does not exist.
 
 ---
 
@@ -471,11 +477,16 @@ class LoggingConfig(BaseModel):
     log_file: str = "./logs/pipeline.log"
 
 
+class ReportsConfig(BaseModel):
+    report_dir: str = "./data/reports"
+
+
 class PipelineConfig(BaseModel):
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     ingestion: IngestionConfig = Field(default_factory=IngestionConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    reports: ReportsConfig = Field(default_factory=ReportsConfig)
 
     @property
     def db_path(self) -> str:
@@ -792,7 +803,9 @@ class IngestionEngine:
                     f"Database is empty, performing initial load (6 years)."
                 )
                 self.run_initial_load(years=6)
-                return  # Full history loaded; skip trailing 4-day refresh
+                # Fall through to trailing 4-day refresh — the system may have
+                # been offline for days, so the refresh ensures the most recent
+                # data is present even after a full historical load.
 
         # --- Trailing 4-day refresh for all tickers ---
         logger.info("US Market active. Executing daily load (trailing 4 calendar days)...")
@@ -863,7 +876,7 @@ class MarketDataFlightServer(flight.FlightServerBase):
         elif action_type == "daily_report":
             target_date = payload.get("date")
             report_data = self.db.generate_top_20_dollar_volume(target_date)
-            out_dir = os.path.join(self.cfg.database.duckdb_dir, "reports")
+            out_dir = self.cfg.reports.report_dir
             os.makedirs(out_dir, exist_ok=True)
             file_name = f"dollar_volume_{target_date or datetime.now().strftime('%Y%m%d')}.json"
             with open(os.path.join(out_dir, file_name), "w") as f:
