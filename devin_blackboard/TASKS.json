@@ -171,5 +171,41 @@
     ],
     "acceptance_criteria": "tests/test_db.py parametrized over BOTH src.db.DatabaseManager and src.db_challenger.DatabaseManager. Tests with tmp_path-isolated DuckDB: (1) schema creates 3 tables (daily_quotes, splits_processed, schema_version); (2) upsert inserts new rows; (3) upsert updates existing rows (MERGE); (4) upsert empty df returns 0, no error; (5) read-only conn rejects DELETE; (6) detect_new_tickers returns correct diff; (7) get_aligned_start_date returns MIN(Date) or None; (8) generate_top_20 returns sorted by dollar_volume DESC limit 20; (9) record_split + is_split_processed idempotency; (10) delete_ticker_data removes all rows for ticker; (11) thread safety: concurrent writes don't corrupt. python -m pytest tests/test_db.py -v exits 0. Critic pastes pytest output to EVENTS.log.",
     "assigned_to": null
+  },
+  {
+    "id": "F3-T1",
+    "title": "Implement IngestionEngine: batch download, split detection (DELETE+re-download), normalize, run_initial_load, run_daily_load, run_on_request_load",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": ["F2-T3"],
+    "input_files": ["/src/db.py", "/src/config.py", "/docs/tech_spec/gemini_tech_spec.1.0.2.md"],
+    "output_files": ["/src/ingestion.py"],
+    "acceptance_criteria": "src/ingestion.py defines IngestionEngine with all methods from spec §10: __init__(db_mgr, cfg), _check_and_apply_splits (per-ticker split detection via yf.Ticker.splits, DELETE + re-download from aligned start with auto_adjust=True), _batch_download (yf.download with end+1 day fix, auto_adjust=True, group_by='ticker'), _normalize_batch_df (handles multi-ticker and single-ticker, drops NaN, purges excluded empty tickers, warns on non-excluded empty), fetch_and_clean (split check + batch download + normalize), run_initial_load (6-year default, returns dict with rows_upserted/tickers_succeeded/tickers_failed/errors/duration_ms), run_daily_load (NYSE calendar check via pandas_market_calendars, new ticker detection + backfill from aligned start, trailing 4-day refresh, returns dict), run_on_request_load (custom tickers+dates, returns dict). python -c \"from src.ingestion import IngestionEngine; print('OK')\" exits 0 with output 'OK'.",
+    "assigned_to": null
+  },
+  {
+    "id": "F3-T2",
+    "title": "Challenger: independent IngestionEngine variant in src/ingestion_challenger.py",
+    "role": "challenger",
+    "model": "glm",
+    "status": "todo",
+    "depends_on": ["F2-T3"],
+    "input_files": ["/src/db.py", "/src/config.py", "/docs/tech_spec/gemini_tech_spec.1.0.2.md"],
+    "output_files": ["/src/ingestion_challenger.py"],
+    "acceptance_criteria": "src/ingestion_challenger.py defines IngestionEngine with same public API as F3-T1. Structurally different implementation (e.g. different download retry strategy, different normalization pipeline, different split detection order, different error handling structure). Same acceptance tests pass. python -c \"from src.ingestion_challenger import IngestionEngine; print('OK')\" exits 0 with output 'OK'.",
+    "assigned_to": null
+  },
+  {
+    "id": "F3-T3",
+    "title": "Critic: test IngestionEngine with mocked yfinance in tests/test_ingestion.py",
+    "role": "critic",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": ["F3-T1", "F3-T2"],
+    "input_files": ["/src/ingestion.py", "/src/ingestion_challenger.py", "/src/db.py", "/src/config.py"],
+    "output_files": ["/tests/test_ingestion.py"],
+    "acceptance_criteria": "tests/test_ingestion.py parametrized over BOTH src.ingestion.IngestionEngine and src.ingestion_challenger.IngestionEngine. Mock yf.download and yf.Ticker.splits. Tests: (1) _batch_download adds +1 day to end_date; (2) fetch_and_clean returns (df, succeeded, failed, errors) tuple; (3) split detection: unprocessed split -> delete + re-download; (4) already-processed split -> skip; (5) multiple splits -> single re-download; (6) empty ticker in exclude_list -> purge; (7) empty ticker NOT in exclude_list -> warning, no purge; (8) run_daily_load: new ticker detection + backfill from aligned start; (9) run_daily_load: empty DB -> initial_load + trailing refresh; (10) run_daily_load: market closed -> SKIPPED. python -m pytest tests/test_ingestion.py -v exits 0. Critic pastes pytest output to EVENTS.log.",
+    "assigned_to": null
   }
 ]
