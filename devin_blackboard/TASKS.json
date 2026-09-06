@@ -207,5 +207,41 @@
     "output_files": ["/tests/test_ingestion.py"],
     "acceptance_criteria": "tests/test_ingestion.py parametrized over BOTH src.ingestion.IngestionEngine and src.ingestion_challenger.IngestionEngine. Mock yf.download and yf.Ticker.splits. Tests: (1) _batch_download adds +1 day to end_date; (2) fetch_and_clean returns (df, succeeded, failed, errors) tuple; (3) split detection: unprocessed split -> delete + re-download; (4) already-processed split -> skip; (5) multiple splits -> single re-download; (6) empty ticker in exclude_list -> purge; (7) empty ticker NOT in exclude_list -> warning, no purge; (8) run_daily_load: new ticker detection + backfill from aligned start; (9) run_daily_load: empty DB -> initial_load + trailing refresh; (10) run_daily_load: market closed -> SKIPPED. python -m pytest tests/test_ingestion.py -v exits 0. Critic pastes pytest output to EVENTS.log.",
     "assigned_to": null
+  },
+  {
+    "id": "F4-T1",
+    "title": "Implement MarketDataFlightServer: do_get (SELECT-only validation), do_action (4 actions with rich results), _truncate_sql",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": ["F3-T3"],
+    "input_files": ["/src/db.py", "/src/ingestion.py", "/src/config.py", "/docs/tech_spec/gemini_tech_spec.1.0.2.md"],
+    "output_files": ["/src/flight_server.py"],
+    "acceptance_criteria": "src/flight_server.py defines MarketDataFlightServer(flight.FlightServerBase) with: __init__(location, db_mgr, ingest_engine, cfg), do_get (parse JSON ticket, validate SELECT-only via _validate_select_only, execute via db.execute_query, return RecordBatchStream, truncate SQL in logs to 200 chars via _truncate_sql), do_action (4 action types: initial_load, daily_load, on_request_load, daily_report — each returns flight.Result with JSON containing status SUCCESS/PARTIAL/SKIPPED + rows_upserted/tickers_succeeded/tickers_failed/errors/duration_ms; daily_report writes JSON to cfg.reports.report_dir). Also defines _validate_select_only(sql) and _truncate_sql(sql, max_len=200) as module-level functions. python -c \"from src.flight_server import MarketDataFlightServer; print('OK')\" exits 0 with output 'OK'.",
+    "assigned_to": null
+  },
+  {
+    "id": "F4-T2",
+    "title": "Challenger: independent MarketDataFlightServer variant in src/flight_server_challenger.py",
+    "role": "challenger",
+    "model": "glm",
+    "status": "todo",
+    "depends_on": ["F3-T3"],
+    "input_files": ["/src/db.py", "/src/ingestion.py", "/src/config.py", "/docs/tech_spec/gemini_tech_spec.1.0.2.md"],
+    "output_files": ["/src/flight_server_challenger.py"],
+    "acceptance_criteria": "src/flight_server_challenger.py defines MarketDataFlightServer with same public API as F4-T1. Structurally different implementation (e.g. different action dispatch pattern, different validation approach, different error handling structure). Same acceptance tests pass. python -c \"from src.flight_server_challenger import MarketDataFlightServer; print('OK')\" exits 0 with output 'OK'.",
+    "assigned_to": null
+  },
+  {
+    "id": "F4-T3",
+    "title": "Critic: test Flight server SELECT validation and action routing in tests/test_flight_server.py",
+    "role": "critic",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": ["F4-T1", "F4-T2"],
+    "input_files": ["/src/flight_server.py", "/src/flight_server_challenger.py", "/src/db.py", "/src/ingestion.py", "/src/config.py"],
+    "output_files": ["/tests/test_flight_server.py"],
+    "acceptance_criteria": "tests/test_flight_server.py parametrized over BOTH implementations. Tests: (1) _validate_select_only accepts 'SELECT * FROM...'; (2) accepts 'WITH cte AS (...) SELECT...'; (3) rejects 'DELETE FROM...'; (4) rejects 'DROP TABLE...'; (5) rejects 'INSERT INTO...'; (6) rejects empty string; (7) _truncate_sql truncates at 200 chars with '...'; (8) do_action routing: initial_load returns correct status structure; (9) daily_load returns correct status structure; (10) on_request_load returns correct status structure; (11) daily_report returns report array + writes JSON file; (12) unknown action raises FlightServerError. Uses mocked DatabaseManager and IngestionEngine. python -m pytest tests/test_flight_server.py -v exits 0. Critic pastes pytest output to EVENTS.log.",
+    "assigned_to": null
   }
 ]
