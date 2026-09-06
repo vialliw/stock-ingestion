@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-06T15:31:04Z
+Last Updated: 2026-09-06T16:30:00Z
 Current Branch: main
 
 ## Goal
@@ -20,6 +20,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - /src/            (ingestion + interface code)
   - __init__.py
   - store.py
+  - store_challenger.py
 - /tests/          (critic-written tests)
   - __init__.py
 - /config/         (runtime config, non-secret — not yet created)
@@ -41,6 +42,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] Cart test feature planned — TASKS.json DAG T1..T4 written (procedure §6, DuckDB variant per PM approval)
 - [x] T1 scaffold: requirements.txt, /src, /tests created
 - [x] T2: src/store.py implements store_csv with APPEND semantics
+- [x] T3: src/store_challenger.py implements challenger variant of store_csv with APPEND semantics
 - [ ] Cart test cycle (see procedure §6)
 
 ## Active Blockers

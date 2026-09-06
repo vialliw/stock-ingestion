@@ -28,7 +28,7 @@
     "title": "Challenger: implement store_csv independently in src/store_challenger.py (duel variant)",
     "role": "challenger",
     "model": "glm",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": ["T1"],
     "input_files": ["/requirements.txt", "/src/__init__.py", "/devin_blackboard/STATE.md"],
     "output_files": ["/src/store_challenger.py"],
