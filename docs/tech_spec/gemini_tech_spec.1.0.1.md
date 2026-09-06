@@ -30,7 +30,7 @@
 | Config model restructured to nested Pydantic models matching YAML | Fix: flat model did not match nested YAML structure |
 | YAML config loader added (`PipelineConfig.from_yaml`) | Fix: `config.yaml` was never loaded |
 | `do_get` now uses a read-only DuckDB connection | Fix: prevent write operations via read endpoint |
-| Manual stock split adjustment removed | Fix: `auto_adjust=True` already handles splits; manual logic caused double-adjustment |
+| Manual stock split adjustment restored with `splits_processed` tracking table | Fix: `auto_adjust=True` only adjusts newly fetched data; historical data already in DuckDB before a split date must be retroactively adjusted. Tracking table prevents double-adjustment. |
 | `do_put` / `IngestBatch` removed from API | Deferred to Phase 2 |
 | `timeframe` config parameter removed | Schema is daily-only; intraday deferred |
 | `threading.Lock` added around all write operations | Fix: Arrow Flight serves concurrent requests |
@@ -85,6 +85,7 @@ By wrapping DuckDB inside a single PyArrow Flight service process, the system by
 - yfinance ingestion: initial load, daily rolling load, on-request load
 - New ticker detection and aligned backfill in daily load
 - Delisted ticker purge
+- Stock split detection and historical data re-adjustment with idempotent tracking
 - Apache Arrow Flight read service (`do_get`) using read-only DuckDB connections
 - Flight actions for ingestion triggers and report generation (`do_action`)
 - Top 20 dollar volume daily report
@@ -100,7 +101,6 @@ By wrapping DuckDB inside a single PyArrow Flight service process, the system by
 | APScheduler automated scheduling | Daily load is triggered manually or via OS-level cron for Phase 1 |
 | `do_put` / `IngestBatch` | External batch ingestion not needed for Phase 1 |
 | Intraday timeframes | Schema is daily-only; `interval="1d"` is hardcoded |
-| Manual stock split adjustment | Handled by yfinance `auto_adjust=True`; no manual SQL adjustment needed |
 
 ---
 
@@ -230,15 +230,91 @@ VALUES
 - **Behavior:** Accepts a custom payload defining `tickers: List[str]`, `start_date: str`, and `end_date: str`. Downloads and upserts via the standard `MERGE INTO` pattern.
 - **yfinance parameters:** `interval="1d"`, `auto_adjust=True`.
 
-### 5.4 Split Adjustment Note
+### 5.4 Stock Split Detection & Historical Re-adjustment
 
-yfinance's `auto_adjust=True` parameter automatically adjusts OHLC data for stock splits and dividends. No manual SQL-based split adjustment is performed. This is a deliberate simplification: the stored `Close` is the split-and-dividend-adjusted close.
+#### Problem
+
+`auto_adjust=True` only adjusts OHLC data **within a single yfinance API response**. It does NOT retroactively adjust data already stored in DuckDB from previous loads. Without manual adjustment, a split creates a discontinuity:
+
+```
+Day 1:   initial_load stores day 1–40 (pre-split OHLC)
+Day 40:  XYZ splits 2:1
+Day 41:  daily_load fetches day 37–40 with auto_adjust=True
+         → yfinance returns day 37–40 already adjusted (halved OHLC, doubled Volume)
+         → MERGE updates day 37–40 in DB
+         → day 1–36 in DB remain pre-split → INCONSISTENT
+```
+
+#### Solution
+
+Two mechanisms work together:
+
+1. **`auto_adjust=True`** ensures newly fetched data is always adjusted to current split factors.
+2. **Manual `adjust_for_split()`** retroactively adjusts historical data already in DuckDB before the split date.
+
+These do NOT double-adjust the same data:
+- `auto_adjust=True` adjusts the **newly fetched window** (e.g., day 37–40).
+- `adjust_for_split()` adjusts **already stored data before the split date** (e.g., day 1–36).
+- Any overlap (day 37–39) is handled by the execution order: `adjust_for_split` runs first, then `upsert_dataframe` overwrites the overlap with yfinance's auto-adjusted values (which are identical).
+
+#### Idempotency via `splits_processed` table
+
+A tracking table prevents applying the same split twice:
+
+```sql
+CREATE TABLE IF NOT EXISTS splits_processed (
+    Ticker VARCHAR NOT NULL,
+    SplitDate DATE NOT NULL,
+    SplitFactor DOUBLE NOT NULL,
+    ProcessedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (Ticker, SplitDate)
+);
+```
+
+#### Detection logic
+
+On every `fetch_and_clean` call, for each ticker:
+
+1. Fetch `stock.splits` (all historical splits from yfinance).
+2. For each split, check if `(ticker, split_date)` exists in `splits_processed`.
+3. If NOT processed:
+   a. Call `adjust_for_split(ticker, split_date, split_factor)` — adjusts all rows `WHERE Ticker = ? AND Date < split_date`.
+   b. Insert `(ticker, split_date, split_factor)` into `splits_processed`.
+   c. Log: `WARNING - Stock split detected for {ticker}: factor {split_factor} on {split_date}. Historical records adjusted.`
+4. If already processed, skip.
+
+This handles all edge cases:
+- **Normal case:** split detected on the next daily load after it occurs.
+- **Daemon downtime:** if the daemon was down for days/weeks, all missed splits are detected on the next fetch and applied retroactively.
+- **Multiple splits:** each split is processed independently, oldest first, so compounding splits adjust correctly.
+- **Re-runs:** the tracking table ensures no double-adjustment.
 
 ---
 
 ## 6. Runtime Events
 
-### 6.1 Delisted Ticker Detection & Purge
+### 6.1 Stock Split Detection & Historical Re-adjustment
+
+During all ingestion calls (`fetch_and_clean`), for each ticker:
+
+1. Fetch `yf.Ticker(t).splits` — returns all historical split events.
+2. For each split not yet in `splits_processed`:
+   - Adjust historical OHLCV in the database:
+     ```sql
+     UPDATE daily_quotes
+     SET Open = Open / :split_factor,
+         High = High / :split_factor,
+         Low = Low / :split_factor,
+         Close = Close / :split_factor,
+         Volume = CAST(Volume * :split_factor AS BIGINT)
+     WHERE Ticker = :ticker AND Date < :split_date;
+     ```
+   - Record the split in `splits_processed` to prevent re-adjustment.
+   - Log: `WARNING - Stock split detected for {ticker}: factor {split_factor} on {split_date}. Historical records adjusted.`
+
+Splits are processed oldest-first to handle compounding splits correctly.
+
+### 6.2 Delisted Ticker Detection & Purge
 
 During all ingestion calls (`fetch_and_clean`):
 
@@ -465,6 +541,15 @@ class DatabaseManager:
                 CREATE INDEX IF NOT EXISTS idx_quotes_date_ticker
                 ON daily_quotes(Date, Ticker);
             """)
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS splits_processed (
+                    Ticker VARCHAR NOT NULL,
+                    SplitDate DATE NOT NULL,
+                    SplitFactor DOUBLE NOT NULL,
+                    ProcessedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (Ticker, SplitDate)
+                );
+            """)
 
     def _read_only_conn(self):
         """Open a short-lived read-only connection for concurrent read queries."""
@@ -504,6 +589,40 @@ class DatabaseManager:
         with self._write_lock:
             self.conn.execute("DELETE FROM daily_quotes WHERE Ticker = ?", [ticker])
         logger.critical(f"RUNTIME EVENT: Delisted ticker data completely purged for '{ticker}'.")
+
+    def is_split_processed(self, ticker: str, split_date: str) -> bool:
+        conn = self._read_only_conn()
+        try:
+            result = conn.execute(
+                "SELECT 1 FROM splits_processed WHERE Ticker = ? AND SplitDate = ?",
+                [ticker, split_date]
+            ).fetchone()
+            return result is not None
+        finally:
+            conn.close()
+
+    def adjust_for_split(self, ticker: str, split_date: str, split_factor: float):
+        with self._write_lock:
+            self.conn.execute("""
+                UPDATE daily_quotes
+                SET Open = Open / ?,
+                    High = High / ?,
+                    Low = Low / ?,
+                    Close = Close / ?,
+                    Volume = CAST(Volume * ? AS BIGINT)
+                WHERE Ticker = ? AND Date < ?;
+            """, [split_factor, split_factor, split_factor, split_factor,
+                  split_factor, ticker, split_date])
+            self.conn.execute("""
+                INSERT INTO splits_processed (Ticker, SplitDate, SplitFactor)
+                VALUES (?, ?, ?)
+                ON CONFLICT (Ticker, SplitDate) DO NOTHING;
+            """, [ticker, split_date, split_factor])
+        logger.warning(
+            f"RUNTIME EVENT: Stock split processed for ticker '{ticker}'. "
+            f"Ratio: {split_factor}, Split Date: {split_date}. "
+            f"Historical records re-adjusted."
+        )
 
     def get_existing_tickers(self) -> Set[str]:
         conn = self._read_only_conn()
@@ -587,6 +706,21 @@ class IngestionEngine:
         for t in tickers:
             try:
                 stock = yf.Ticker(t)
+
+                # --- Split detection: check all historical splits ---
+                # auto_adjust=True only adjusts the newly fetched window.
+                # Historical data already in DuckDB before the split date
+                # must be retroactively adjusted. The splits_processed table
+                # ensures each split is applied exactly once.
+                splits = stock.splits
+                if not splits.empty:
+                    # Process oldest-first for compounding splits
+                    for split_dt, factor in splits.sort_index().items():
+                        split_date_str = split_dt.strftime('%Y-%m-%d')
+                        if not self.db.is_split_processed(t, split_date_str):
+                            self.db.adjust_for_split(t, split_date_str, float(factor))
+
+                # --- Fetch pricing data (auto_adjust=True) ---
                 df = stock.history(
                     start=start_date,
                     end=end_date,
