@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-06T18:10:00Z
+Last Updated: 2026-09-06T18:30:00Z
 Current Branch: main
 
 ## Goal
@@ -49,6 +49,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] Cart test cycle (procedure §6) — PASS. Full loop verified: Plan → Execute (parallel) → Critic → done. Blackboard survived concurrent writes. 22/22 tests passed. No BUG tasks filed.
 - [x] Workflow established — procedure §8 checklist complete
 - [x] Cart test complete; Cycle 1 planning done — TASKS.json replaced with F1-T1..F1-T4 DAG (Config + Scaffold)
+- [x] F1-T1 scaffold: requirements.txt updated with all 7 deps (duckdb, pyarrow, yfinance, pandas, pandas-market-calendars, pydantic, pyyaml); src/__init__.py and tests/__init__.py exist; src/config.yaml exists (untouched); pip install -r requirements.txt exit 0
 
 ## Active Blockers
 - None

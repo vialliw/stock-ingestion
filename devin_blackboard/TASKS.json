@@ -4,7 +4,7 @@
     "title": "Scaffold: update requirements.txt with all 7 deps, verify src/config.yaml exists, ensure src/ and tests/ packages",
     "role": "executor",
     "model": "swe",
-    "status": "todo",
+    "status": "done",
     "depends_on": [],
     "input_files": ["/docs/tech_spec/gemini_tech_spec.1.0.2.md", "/src/config.yaml"],
     "output_files": ["/requirements.txt", "/src/__init__.py", "/tests/__init__.py"],
