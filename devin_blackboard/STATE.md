@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-06T19:00:00Z
+Last Updated: 2026-09-07T00:15:00Z
 Current Branch: main
 
 ## Goal
@@ -27,6 +27,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - /tests/          (critic-written tests)
   - __init__.py
   - test_store_csv.py
+  - test_config.py  (critic tests, parametrized over src.config + src.config_challenger — F1-T4)
 
 ## Decisions Made (do NOT change without PM approval)
 - [2026-09-06T18:10:00Z] Cycle 1 started: Config + Scaffold (F1-T1..F1-T4 per docs/dev_plan/phase1_dev_plan.md)
@@ -54,6 +55,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] F1-T1 scaffold: requirements.txt updated with all 7 deps (duckdb, pyarrow, yfinance, pandas, pandas-market-calendars, pydantic, pyyaml); src/__init__.py and tests/__init__.py exist; src/config.yaml exists (untouched); pip install -r requirements.txt exit 0
 - [x] F1-T2: src/config.py implements Pydantic v2 nested config (DatabaseConfig, IngestionConfig, ServerConfig, LoggingConfig, ReportsConfig, PipelineConfig) with field validators (tickers uppercased+stripped+deduped preserving order; flight_port 1-65535) and from_yaml classmethod (defaults if file missing). Loads user's src/config.yaml correctly. Both verification commands exit 0 with output 'OK'.
 - [x] F1-T3: src/config_challenger.py implements challenger variant of config module using dataclasses + manual YAML parsing + manual validation (NOT Pydantic — structurally different from executor's src/config.py). Same public API (PipelineConfig.from_yaml, nested database/ingestion/server/logging/reports, db_path property). Tolerant YAML loader handles raw backslashes in double-quoted Windows paths. Both verification commands exit 0 with output 'OK'.
+- [x] F1-T4: tests/test_config.py — 33/33 PASSED parametrized over both config impls (pytest exit 0); covers all 8 acceptance criteria (real config load, defaults, uppercase, dedup, port range, empty tickers, nested access, db_path). Full suite 55/55. No BUG tasks filed. Cycle 1 (Config + Scaffold) complete.
 
 ## Active Blockers
 - None
