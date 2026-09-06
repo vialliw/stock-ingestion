@@ -201,7 +201,7 @@
     "title": "Critic: test IngestionEngine with mocked yfinance in tests/test_ingestion.py",
     "role": "critic",
     "model": "swe",
-    "status": "todo",
+    "status": "done",
     "depends_on": ["F3-T1", "F3-T2"],
     "input_files": ["/src/ingestion.py", "/src/ingestion_challenger.py", "/src/db.py", "/src/config.py"],
     "output_files": ["/tests/test_ingestion.py"],
