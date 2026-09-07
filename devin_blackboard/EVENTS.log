@@ -244,3 +244,4 @@ No BUG tasks filed. F7-T0e status set to done.
 [ORCHESTRATOR] Cycle 0 COMPLETE (F7-T0 + F7-T0e both done, verified by Critic D). Cycle 1 tasks written: F7-T1 (executor: JSON logging) assigned to B, F7-T1b (challenger: review) assigned to C, F7-T1c (critic: verify) assigned to D. F7-T1 depends on F7-T0e (done). F7-T1b depends on F7-T1. F7-T1c depends on F7-T1 + F7-T1b. Agents check TASKS.json.
 
 [ORCHESTRATOR] Revised agent prompts (agent_b_prompt.md, agent_c_prompt.md, agent_d_prompt.md) + polling_workflow_protocol.md v2.1. All agents now MUST use canonical scripts/poll_tasks.py <role> for polling — no self-written polling scripts. Fixes root cause of Agent B idle bug (temp script was hardcoded for role C).
+[EXECUTOR] claimed F7-T1

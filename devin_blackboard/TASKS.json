@@ -500,11 +500,22 @@
     "title": "Executor: structured JSON logging + configure log_file path in main.py",
     "role": "executor",
     "model": "swe",
-    "status": "todo",
-    "depends_on": ["F7-T0e"],
-    "input_files": ["/src/config.py", "/src/main.py", "/src/config.yaml", "/AGENTS.md"],
-    "output_files": ["/src/config.py", "/src/main.py", "/src/config.yaml"],
-    "acceptance_criteria": "(1) Add log_format field to LoggingConfig in src/config.py: Literal['text', 'json'] default 'text'. (2) main.py configures logging.FileHandler writing to cfg.logging.log_file (currently broken — basicConfig doesn't use configured path). (3) Also configure console handler (StreamHandler) for visible output. (4) When log_format='json', use pythonjsonlogger.jsonlogger.JsonFormatter — all existing logger.* calls work unchanged. (5) When log_format='text', use existing plain text formatter. (6) Log file parent directory created if absent (os.makedirs(exist_ok=True)). (7) Add log_format: 'text' to src/config.yaml logging section. (8) New dependency python-json-logger installed via pip. (9) python scripts/check_loops.py --src-dir src exits 0. (10) python scripts/check_loops.py --src-dir src --strict exits 0. (11) python -m pytest tests/ -q exits 0 (122+ tests). (12) New test tests/test_logging.py verifies: text format produces plain text, json format produces valid JSON lines, log file is written to configured path.",
+    "status": "in_progress",
+    "depends_on": [
+      "F7-T0e"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/src/main.py",
+      "/src/config.yaml",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/src/config.py",
+      "/src/main.py",
+      "/src/config.yaml"
+    ],
+    "acceptance_criteria": "(1) Add log_format field to LoggingConfig in src/config.py: Literal['text', 'json'] default 'text'. (2) main.py configures logging.FileHandler writing to cfg.logging.log_file (currently broken \u2014 basicConfig doesn't use configured path). (3) Also configure console handler (StreamHandler) for visible output. (4) When log_format='json', use pythonjsonlogger.jsonlogger.JsonFormatter \u2014 all existing logger.* calls work unchanged. (5) When log_format='text', use existing plain text formatter. (6) Log file parent directory created if absent (os.makedirs(exist_ok=True)). (7) Add log_format: 'text' to src/config.yaml logging section. (8) New dependency python-json-logger installed via pip. (9) python scripts/check_loops.py --src-dir src exits 0. (10) python scripts/check_loops.py --src-dir src --strict exits 0. (11) python -m pytest tests/ -q exits 0 (122+ tests). (12) New test tests/test_logging.py verifies: text format produces plain text, json format produces valid JSON lines, log file is written to configured path.",
     "assigned_to": "B"
   },
   {
@@ -513,8 +524,15 @@
     "role": "challenger",
     "model": "glm",
     "status": "todo",
-    "depends_on": ["F7-T1"],
-    "input_files": ["/src/config.py", "/src/main.py", "/src/config.yaml", "/tests/test_logging.py"],
+    "depends_on": [
+      "F7-T1"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/src/main.py",
+      "/src/config.yaml",
+      "/tests/test_logging.py"
+    ],
     "output_files": [],
     "acceptance_criteria": "Review executor's JSON logging for: (1) Does python-json-logger handle all log levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)? (2) Are exception tracebacks serialized correctly in JSON format? (3) Does the FileHandler create the parent directory if it doesn't exist? (4) Is the log_format config field validated by Pydantic (reject invalid values)? (5) Does switching format at runtime require restart, or is it dynamic? (6) Are there any loops in the logging code that should be vectorized? (7) Does the test cover both text and json formats? Document findings in EVENTS.log. No code changes unless critical bug found.",
     "assigned_to": "C"
@@ -525,9 +543,19 @@
     "role": "critic",
     "model": "swe",
     "status": "todo",
-    "depends_on": ["F7-T1", "F7-T1b"],
-    "input_files": ["/src/config.py", "/src/main.py", "/src/config.yaml", "/tests/test_logging.py"],
-    "output_files": ["/tests/test_logging.py"],
+    "depends_on": [
+      "F7-T1",
+      "F7-T1b"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/src/main.py",
+      "/src/config.yaml",
+      "/tests/test_logging.py"
+    ],
+    "output_files": [
+      "/tests/test_logging.py"
+    ],
     "acceptance_criteria": "(1) python scripts/check_loops.py --src-dir src exits 0. (2) python scripts/check_loops.py --src-dir src --strict exits 0. (3) python -m pytest tests/ -q exits 0 (122+ tests including new test_logging.py). (4) Verify log_format field exists in config with validation. (5) Verify main.py writes to configured log_file path (not just console). (6) Verify JSON format produces valid JSON parseable lines. (7) Verify text format produces human-readable lines. (8) Critic pastes checker output + pytest output + sample log lines (both formats) to EVENTS.log.",
     "assigned_to": "D"
   }
