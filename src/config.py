@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import List
+from typing import List, Literal
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -99,6 +99,7 @@ class LoggingConfig(BaseModel):
     """Log file path (parent directory created lazily by callers)."""
 
     log_file: str = "./logs/pipeline.log"
+    log_format: Literal["text", "json"] = "text"
 
 
 class ReportsConfig(BaseModel):
