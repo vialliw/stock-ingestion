@@ -122,10 +122,17 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] Manual user-relay nudging eliminated — orchestrator messages agents directly via devin_session_interact
 
 ## Active Sessions
-- None — Cycle 2 complete. All agent sessions settled.
+- Agent B (Executor): devin-bfe9ba059ed941c7a826c55f828d920e (status: new) — F7-T3 query timeout
+- Agent C (Challenger): not yet spawned (waiting for B to finish)
+- Agent D (Critic): not yet spawned (waiting for C to finish)
 
 ## Cycle 2 — COMPLETE
 - [x] F7-T2 (Executor): health_check Flight action + ingestion_runs audit table — DONE (175 tests)
 - [x] F7-T2b (Challenger): review — DONE with CONCERNS (non-blocking)
 - [x] F7-T2c (Critic): verify — DONE (177 tests, all 6 criteria pass)
 - Final: 177/177 tests pass, loop checker clean, schema version 3
+
+## Cycle 3 — IN PROGRESS
+- [ ] F7-T3 (Executor): query timeout in do_get (120s default, no row limit)
+- [ ] F7-T3b (Challenger): review
+- [ ] F7-T3c (Critic): verify
