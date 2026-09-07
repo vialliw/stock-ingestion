@@ -548,3 +548,34 @@ Evidence map:
   }
 ]
 [2026-09-07T20:08:55.810398+00:00] [CHALLENGER] claimed F7-T3b
+[2026-09-07T20:11:49.703671+00:00] [CHALLENGER] completed F7-T3b -> PASS WITH CONCERNS. All 3 F7-T3b acceptance criteria pass (check_loops clean, --strict clean, pytest 181 passed). Findings: (1) threading.Timer + queue.Queue timeout path works, timer cancelled in finally on success, FlightServerError message includes timeout seconds, no LIMIT injection in do_get. (2) ServerConfig.query_timeout_seconds lacks a bool validator; Pydantic lax mode coerces YAML 'true' to 1 — flight_server.py defensively falls back to 120, but config model is inconsistent with flight_port validator. (3) _validate_select_only is prefix-only: false positives on leading comments, false negatives on 'WITH ... DELETE' or multi-statement queries; read-only DuckDB cursor/connection still blocks writes, so non-blocking. (4) threading.Timer cannot abort an in-flight DuckDB query; the worker daemon may continue running after timeout, a resource-leak concern under load.
+Evidence map:
+[
+  {
+    "id": "AC-1",
+    "check": "loop_checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (11 files checked)\n"
+  },
+  {
+    "id": "AC-2",
+    "check": "loop_checker_strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (11 files checked)\n"
+  },
+  {
+    "id": "AC-3",
+    "check": "pytest_suite",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "===== warnings summary ===============================\ntests/test_db.py: 8 warnings\ntests/test_delisted_lifecycle.py: 3 warnings\ntests/test_health_check.py: 2 warnings\ntests/test_integration.py: 8 warnings\n  /home/ubuntu/repos/stock-ingestion/src/db.py:144: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n181 passed, 21 warnings in 3.30s\n"
+  }
+]
