@@ -852,7 +852,7 @@
     "title": "Critic: verify query timeout + full regression",
     "role": "critic",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T3",
       "F7-T3b"

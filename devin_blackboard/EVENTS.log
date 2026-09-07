@@ -580,3 +580,61 @@ Evidence map:
   }
 ]
 [2026-09-07T20:13:19.615553+00:00] [CRITIC] claimed F7-T3c
+[2026-09-07T20:15:32.299309+00:00] [CRITIC] completed F7-T3c -> ALL PASS: AC1-AC6 verified. loop_checker clean, --strict clean, pytest 181/181, test_query_timeout.py 4/4, timeout filter 4/4, no LIMIT injection in src/flight_server.py. Default 120s timeout confirmed in ServerConfig + config.yaml. Non-blocking edge findings: Pydantic bool coercion on query_timeout_seconds (YAML true -> 1s), prefix-only SQL validator false positives/negatives, daemon query worker may continue after Timer timeout.
+Evidence map:
+[
+  {
+    "id": "AC-1",
+    "check": "loop_checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (11 files checked)\n"
+  },
+  {
+    "id": "AC-2",
+    "check": "loop_checker_strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (11 files checked)\n"
+  },
+  {
+    "id": "AC-3",
+    "check": "pytest_suite",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "===== warnings summary ===============================\ntests/test_db.py: 8 warnings\ntests/test_delisted_lifecycle.py: 3 warnings\ntests/test_health_check.py: 2 warnings\ntests/test_integration.py: 8 warnings\n  /home/ubuntu/repos/stock-ingestion/src/db.py:144: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n181 passed, 21 warnings in 3.15s\n"
+  },
+  {
+    "id": "AC-4",
+    "check": "timeout_tests_pass",
+    "command": "python -m pytest tests/test_query_timeout.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "....                                                                     [100%]\n4 passed in 0.56s\n"
+  },
+  {
+    "id": "AC-5",
+    "check": "timeout_enforced_test",
+    "command": "python -m pytest tests/test_query_timeout.py -k timeout -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "....                                                                     [100%]\n4 passed in 0.54s\n"
+  },
+  {
+    "id": "AC-6",
+    "check": "no_row_limit_test",
+    "command": "python -c \"import re; src = open('src/flight_server.py').read(); limits = re.findall(r'LIMIT\\s+\\d+', src, re.IGNORECASE); assert len(limits) == 0, f'found LIMIT injection: {limits}'; print('no row limit injection')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "no row limit injection\n"
+  }
+]
