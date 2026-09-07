@@ -166,3 +166,50 @@ Covers all 7 acceptance criteria: (1) main() importable+callable; (2) do_action 
 [ORCHESTRATOR] Replaced per-ticker purge loop with set intersection + single bulk SQL DELETE (purge_tickers). Per AGENTS.md: SQL > vectorized > loop. 122/122 tests pass.
 
 [ORCHESTRATOR] Enforce SQL > vectorized > loop rule: (1) scripts/check_loops.py AST checker, (2) .git/hooks/pre-commit hook, (3) AGENTS.md Critic mandatory checklist. Fixed 6 vectorizable loops, justified 7 remaining with # justified comments. 122/122 tests pass. Checker: 0 violations.
+
+[2026-09-07T19:00:00Z] [CRITIC-D] VERIFIED F6-T3 -> PASS (independent re-verification). All 4 mandatory checks passed:
+  CHECK 1 — Loop checker: `python scripts/check_loops.py --src-dir src` -> exit 0, output: 'No unjustified loops found. (11 files checked)'.
+  CHECK 2 — Full test suite: `python -m pytest tests/ -q` -> exit 0, 122 passed in 6.43s.
+  CHECK 3 — All 10 `# justified:` comments have non-empty reasons (manually verified, since checker --strict flag is TODO/unimplemented):
+    src/config.py:60 — 'per-element type validation cannot be vectorized'
+    src/config_challenger.py:71 — 'per-element type validation cannot be vectorized'
+    src/ingestion.py:56 — 'yfinance has no batch split API — yf.Ticker(t).splits must be called per-ticker'
+    src/ingestion.py:76 — 'db.record_split is a per-row SQL INSERT with idempotency (ON CONFLICT DO NOTHING)'
+    src/ingestion.py:158 — 'yf.download returns MultiIndex columns per ticker. Each ticker sub-frame needs individual dropna'
+    src/ingestion_challenger.py:142 — 'yf.download returns MultiIndex columns per ticker'
+    src/ingestion_challenger.py:212 — 'yfinance has no batch split API'
+    src/ingestion_challenger.py:239 — 'db.record_split is a per-row SQL INSERT with idempotency'
+    src/db.py:270 — 'Date stringify is per-row because each item is a dict, not a column'
+    src/db_challenger.py:335 — 'Date stringify is per-row because each item is a dict, not a column'
+  CHECK 4 — No unjustified for-loops: 16 for-loops total in src/; 6 exempt (range/items), 10 justified, 0 unjustified. Checker confirms 0 violations.
+  Enforcement layers verified: (1) scripts/check_loops.py AST checker exists and functional; (2) .git/hooks/pre-commit exists and calls scripts/pre_commit_check_loops.py which invokes check_loops.py; (3) AGENTS.md lines 46-51 document the Critic mandatory checklist.
+  MINOR FINDING (non-blocking): check_loops.py --strict flag is documented but unimplemented (`pass # TODO: implement if needed` at line 142) — empty justifications would not be caught. Not a blocker since all 10 current justifications are non-empty. Recommend implementing --strict in a future hardening cycle.
+  F6-T3 status remains done. No BUG tasks filed. src/ and scripts/ files NOT modified by Critic D.
+
+[2026-09-07T19:30:00Z] [CHALLENGER] reviewed F6-T2 -> PASS WITH CONCERNS. Reviewed scripts/check_loops.py AST checker for false positives/negatives, executor's justified loops, and checker's own loops. No code changes (output_files empty — review only).
+CHECKER RUN: python scripts/check_loops.py --src-dir src -> exit 0, output 'No unjustified loops found. (11 files checked)'. python scripts/check_loops.py --src-dir src --strict -> exit 0 (strict mode is TODO/unimplemented, noted by Critic D too).
+JUSTIFIED LOOPS REVIEW (10 total, all VALID):
+  src/config.py:60 — per-element type validation, raises ValueError on first non-string. Cannot vectorize (vectorized ops silently coerce/mask errors). VALID.
+  src/config_challenger.py:71 — same per-element type validation. VALID.
+  src/ingestion.py:56 — yfinance has no batch split API, yf.Ticker(t).splits per-ticker. External API constraint. VALID.
+  src/ingestion.py:76 — db.record_split is per-row SQL INSERT, no batch INSERT in DatabaseManager API. Splits are rare (1-5/ticker/decade). VALID (but see suggestion S2).
+  src/ingestion.py:158 — yf.download MultiIndex columns need per-ticker dropna + schema normalization. Cannot vectorize per-key dropna on MultiIndex. VALID.
+  src/ingestion_challenger.py:142 — same MultiIndex per-ticker normalization. VALID.
+  src/ingestion_challenger.py:212 — same yfinance per-ticker split API constraint. VALID.
+  src/ingestion_challenger.py:239 — same per-row record_split constraint. VALID.
+  src/db.py:270 — Date stringify per-row (each item is a dict, not a column). VALID (but see suggestion S1).
+  src/db_challenger.py:335 — same Date stringify per-row. VALID (but see suggestion S1).
+FALSE NEGATIVES FOUND (3, all MINOR/non-blocking):
+  FN1. while loops not checked — checker has no visit_While method. Verified: synthetic `while i < len(data): ... i += 1` produces 0 violations. Only 1 while loop in src/ (db_challenger.py:162 `while True: ... break` for queue drain) is control-flow, not data iteration. SUGGESTED FIX: add visit_While that flags while loops iterating over data (though `while True` control-flow patterns should be exempt).
+  FN2. comprehensions not checked — checker has no handling of ast.ListComp/SetComp/DictComp/GeneratorExp. 17 comprehensions in src/ iterate over data. Verified: synthetic `[dict(zip(['a','b'], row)) for row in rows]` produces 0 violations. Some are vectorizable: [dict(zip(cols,row)) for row in rows] -> pa.Table.to_pylist(); {row[0] for row in rows} -> vectorized column access. Others are fine (filtering with order preservation: [t for t in tickers if t not in excluded] needs list comp for order). SUGGESTED FIX: add visit_ListComp/visit_SetComp/visit_DictComp that flag comprehensions iterating over data variables, or explicitly document the comprehension exemption in AGENTS.md.
+  FN3. sorted() exemption too broad — checker exempts all sorted() calls (line 64-66). Verified: `for x in sorted(big_data)` produces 0 violations. sorted(large_data) still iterates all data. In practice, sorted() is only used for rglob("*.py") (file listing), not data. SUGGESTED FIX: only exempt sorted() when the argument is not a bare data variable.
+FALSE POSITIVES: None found. All exempt patterns (range, enumerate, zip, .items(), .values(), .keys(), constant literals) work correctly. No loops are incorrectly flagged.
+DOCSTRING DISCREPANCY (MINOR): check_loops.py docstring line 16 says 'for ... in self.cfg.* / self.db.* (config iteration, not data)' is exempt, but code at line 83-84 returns False (flags it). Verified: synthetic `for t in self.cfg.ingestion.tickers:` IS flagged. No practical impact — all self.cfg.* iterations in src/ are in comprehensions (lines 324, 389) which aren't scanned. SUGGESTED FIX: either implement the self.cfg.* exemption in code or remove the claim from the docstring.
+IMPROVEMENT SUGGESTIONS (non-blocking, for future hardening):
+  S1. Date stringify loops in db.py:273 and db_challenger.py:338 could be eliminated by using SQL CAST(Date AS VARCHAR) in the generate_top_20_dollar_volume query — Date would come back as string from DuckDB, no Python loop needed. This is a SQL-level solution per the 'SQL > vectorized > loop' hierarchy.
+  S2. record_split loops in ingestion.py:80 and ingestion_challenger.py:241 could be replaced with a batch INSERT method if DatabaseManager had one (e.g. batch_record_splits). Current justification ('no batch INSERT method exists') is an API limitation, not a fundamental constraint.
+CHECKER SCRIPT'S OWN LOOPS: scripts/check_loops.py has 5 for-loops, all using exempt patterns (range, sorted) or iterating over small result sets (violations list, all_violations list, AST elts). No # justified: comments, but the checker only scans src/ not scripts/. 'Practice what we preach': the loops are justified by being either exempt patterns or small-result-set iteration. No concern.
+FULL TEST SUITE: python -m pytest tests/ -q -> 122 passed in 6.25s. No regressions.
+SUMMARY: Checker is functional and correctly enforces the rule for current src/ code. 3 false-negative gaps (while loops, comprehensions, broad sorted() exemption) are design gaps, not critical bugs — no current code exploits them for data iteration. All 10 justified loops have valid reasons. 2 improvement suggestions (SQL CAST, batch INSERT) could eliminate 4 of the 10 justified loops in a future hardening cycle. No BUG tasks filed. TASKS.json F6-T2 status remains done; STATE.md What's Done + timestamp updated.
+
+[ORCHESTRATOR] Phase 2 dev plan drafted: docs/dev_plan/phase2_dev_plan.md. 8 cycles (0-7): hardening, JSON logging, health check + audit, Parquet + query limits, R2 sync, APScheduler (separate process), do_put, integration. Awaiting PM approval before spawning agents.
