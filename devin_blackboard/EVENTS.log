@@ -271,3 +271,5 @@ SAMPLE LOG LINES (both formats):
   TEXT: '2026-09-07 13:55:53,831 [INFO] sample: hello text' / '2026-09-07 13:55:53,831 [WARNING] sample: warn text'
   JSON: {"asctime": "2026-09-07 13:55:53,842", "levelname": "INFO", "name": "sample", "message": "hello json"} / {"asctime": "2026-09-07 13:55:53,842", "levelname": "WARNING", "name": "sample", "message": "warn json"}
 No BUG tasks filed. F7-T1c status set to done.
+
+[ORCHESTRATOR] Cycle 1 COMPLETE (F7-T1 + F7-T1b + F7-T1c all done). Agent A prompt written: docs/workflow_idea/agent_a_prompt.md — orchestrator runs same polling loop as B/C/D but writes tasks instead of executing them. Cycle 2 tasks written: F7-T2 (executor: health_check + audit table) assigned to B, F7-T2b (challenger: review) assigned to C, F7-T2c (critic: verify) assigned to D. F7-T2 depends on F7-T1c (done). Agents check TASKS.json.

@@ -558,5 +558,41 @@
     ],
     "acceptance_criteria": "(1) python scripts/check_loops.py --src-dir src exits 0. (2) python scripts/check_loops.py --src-dir src --strict exits 0. (3) python -m pytest tests/ -q exits 0 (122+ tests including new test_logging.py). (4) Verify log_format field exists in config with validation. (5) Verify main.py writes to configured log_file path (not just console). (6) Verify JSON format produces valid JSON parseable lines. (7) Verify text format produces human-readable lines. (8) Critic pastes checker output + pytest output + sample log lines (both formats) to EVENTS.log.",
     "assigned_to": "D"
+  },
+  {
+    "id": "F7-T2",
+    "title": "Executor: health_check Flight action + ingestion_runs audit table",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": ["F7-T1c"],
+    "input_files": ["/src/flight_server.py", "/src/db.py", "/src/ingestion.py", "/src/config.py", "/src/config.yaml", "/AGENTS.md"],
+    "output_files": ["/src/flight_server.py", "/src/db.py", "/src/ingestion.py", "/src/config.py", "/src/config.yaml"],
+    "acceptance_criteria": "(1) New ingestion_runs table: run_id (auto-increment), run_type, start_time, end_time, duration_ms, tickers_succeeded (JSON), tickers_failed (JSON), errors (JSON), rows_upserted, status. (2) IngestionEngine writes one audit row after each run_initial_load/run_daily_load/run_on_request_load (single SQL INSERT, no loop). (3) New Flight action health_check returns JSON: {\"status\": \"healthy\", \"db_connected\": true, \"db_path\": \"...\", \"ticker_count\": N, \"last_run\": \"...\", \"uptime_seconds\": ...}. (4) Health check: DB file exists, SELECT 1 works, row count in daily_close, latest ingestion_runs row. (5) No network calls (no yfinance), fast (<100ms). (6) New Flight action get_run_history returns recent ingestion_runs rows as Arrow table. (7) Schema version bump to 3 with migration logic in DatabaseManager._init_schema. (8) python scripts/check_loops.py --src-dir src exits 0. (9) python scripts/check_loops.py --src-dir src --strict exits 0. (10) python -m pytest tests/ -q exits 0 (122+ tests). (11) New test tests/test_health_check.py verifies health_check output and audit row insertion.",
+    "assigned_to": "B"
+  },
+  {
+    "id": "F7-T2b",
+    "title": "Challenger: review health_check + audit table implementation",
+    "role": "challenger",
+    "model": "glm",
+    "status": "todo",
+    "depends_on": ["F7-T2"],
+    "input_files": ["/src/flight_server.py", "/src/db.py", "/src/ingestion.py", "/tests/test_health_check.py"],
+    "output_files": [],
+    "acceptance_criteria": "Review for: (1) audit row written in single INSERT (no loop). (2) health_check <100ms. (3) JSON fields in audit row valid. (4) Schema migration v2->v3 correct. (5) get_run_history returns Arrow table. (6) Edge cases: empty DB, no runs yet, DB file missing. (7) Are there loops that could be vectorized? Document findings in EVENTS.log. No code changes unless critical bug found.",
+    "assigned_to": "C"
+  },
+  {
+    "id": "F7-T2c",
+    "title": "Critic: verify health_check + audit table + full regression",
+    "role": "critic",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": ["F7-T2", "F7-T2b"],
+    "input_files": ["/src/flight_server.py", "/src/db.py", "/src/ingestion.py", "/tests/test_health_check.py"],
+    "output_files": ["/tests/test_health_check.py"],
+    "acceptance_criteria": "(1) python scripts/check_loops.py --src-dir src exits 0. (2) python scripts/check_loops.py --src-dir src --strict exits 0. (3) python -m pytest tests/ -q exits 0 (122+ tests). (4) health_check returns valid JSON with all required fields (status, db_connected, db_path, ticker_count, last_run, uptime_seconds). (5) audit row inserted after ingestion run with correct fields. (6) get_run_history returns Arrow table. (7) Schema version is 3. (8) Critic pastes full evidence (checker output, pytest output, health_check JSON output, audit row query) to EVENTS.log.",
+    "assigned_to": "D"
   }
 ]
