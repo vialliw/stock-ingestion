@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-07T22:30:00Z
+Last Updated: 2026-09-07T19:38:19Z
 Current Branch: main
 
 ## Goal
@@ -41,6 +41,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
   - test_flight_server.py  (critic tests, 30 tests parametrized over src.flight_server + src.flight_server_challenger — F4-T3)
   - test_integration.py  (critic integration tests, 7 tests using EXECUTOR's production modules only — F5-T2)
   - test_logging.py  (critic tests, 18 tests for JSON/text logging + log_file path + log_format validation — F7-T1c)
+  - test_health_check.py  (critic tests for health_check + get_run_history actions + ingestion_runs audit table — F7-T2)
 
 ## Decisions Made (do NOT change without PM approval)
 - [2026-09-06T18:10:00Z] Cycle 1 started: Config + Scaffold (F1-T1..F1-T4 per docs/dev_plan/phase1_dev_plan.md)
@@ -92,6 +93,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] F7-T0e: Critic verified Cycle 0 hardening -> PASS. All 3 mandatory checks: check_loops exit 0 (11 files), check_loops --strict exit 0 (11 files), pytest 122 passed exit 0. All 8 acceptance criteria verified: (1) grep daily_quotes tests/=0, src/=8 (ALL migration ALTER TABLE code — required), docs/=54 (old tech specs 1.0.0/1.0.1 + dev plans, NOT in output_files; current 1.0.2=0). Intent met. (2) Schema migration v1->v2 with ALTER TABLE rename in both db files. (3) CAST(Date AS VARCHAR) in both db files. (4) batch_record_splits in both db files, used in both ingestion files. (5) No Date stringify or record_split justifications remain (was 10 justified loops, now 6). (6)(7)(8) all exit 0. No BUG tasks filed.
 - [x] F7-T1b: Challenger reviewed JSON logging implementation -> PASS WITH CONCERNS. All 3 mandatory checks: check_loops exit 0 (11 files), check_loops --strict exit 0 (11 files), pytest 122 passed exit 0. 7 acceptance criteria findings: (1) All log levels PASS — text+json emit DEBUG/INFO/WARNING/ERROR/CRITICAL; JSON lines valid. (2) Exception tracebacks PASS — JSON includes exc_info as string field; text shows multiline traceback. (3) FileHandler parent dir creation PASS — os.makedirs(exist_ok=True) creates deeply nested missing dirs. (4) Pydantic validation PASS — Literal['text','json'] rejects all invalid values (TEXT, plain, '', yaml, None, 123, True). (5) Runtime format switching is STATIC (not dynamic) — mutating cfg.log_format after _configure_logging() has no effect; requires re-calling _configure_logging(). Standard Python logging behavior, NOT a bug. (6) Loops PASS — single loop at main.py:58 justified (handler attachment side-effect). (7) Test coverage KNOWN GAP — tests/test_logging.py does NOT exist; executor says it's Critic's responsibility (F7-T1c output_files). Task assignment ambiguity, not a code bug. Additional non-blocking observations: JSON keys minimal (asctime/levelname/name/message + exc_info); exc_info serialized as string not structured fields; python-json-logger 3.3.0 supports %-style formats without deprecation. No BUG tasks filed.
 - [x] F7-T1c: Critic verified JSON logging + log_file path + full regression -> PASS. Wrote /tests/test_logging.py (18 tests). All 3 mandatory checks: check_loops exit 0 (11 files), check_loops --strict exit 0 (11 files), pytest 140 passed exit 0 (+18 new). All 8 acceptance criteria verified: (4) log_format: Literal['text','json'] in LoggingConfig, rejects invalid/empty/None; (5) _configure_logging attaches StreamHandler+FileHandler, creates nested dirs, writes to configured path; (6) JSON format: each line valid json.loads with asctime/levelname/name/message; (7) text format: human-readable with [LEVEL] + logger name, not JSON-parseable. Sample text: '2026-09-07 13:55:53,831 [INFO] sample: hello text'. Sample JSON: {"asctime":"2026-09-07 13:55:53,842","levelname":"INFO","name":"sample","message":"hello json"}. No BUG tasks filed.
+- [x] F7-T2: Executor added health_check + get_run_history Flight actions and ingestion_runs audit table. src/db.py: added ingestion_runs table in _init_schema, SCHEMA_VERSION 3, record_ingestion_run(), get_ingestion_runs() (Arrow), get_health_info(). src/ingestion.py: records a single audit row after each run of run_initial_load, run_daily_load, run_on_request_load. src/flight_server.py: do_action routes health_check (returns DB connectivity, row counts, last_run, schema_version, uptime) and get_run_history (returns ingestion_runs as Arrow-encoded JSON). tests/test_health_check.py: 4 tests covering success, degraded, non-empty run_history, empty run_history. All 8 acceptance criteria pass; check_loops and check_loops --strict clean; pytest 175 passed; real DB at C:\Intel\parquet\stock_ingestion.duckdb has ingestion_runs table and schema_version 3. poll_tasks.py --done F7-T2 B committed.
 
 ## Active Blockers
 - None blocking Cycle 2. The 5 config edge-case bugs (D1-D5) are filed as BUG-F1-T2 and BUG-F1-T3 tasks (low priority, can be fixed in parallel with Cycle 2 or deferred).
@@ -119,6 +121,6 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] Manual user-relay nudging eliminated — orchestrator messages agents directly via devin_session_interact
 
 ## Active Sessions
-- Agent B (Executor): devin-b1ac36c576ab4f93ba8bb1b16f01cdb3 (status: new) — F7-T2 health_check + ingestion_runs
+- Agent B (Executor): devin-b1ac36c576ab4f93ba8bb1b16f01cdb3 (status: done) — F7-T2 health_check + ingestion_runs
 - Agent C (Challenger): not yet spawned (waiting for B to finish)
 - Agent D (Critic): not yet spawned (waiting for C to finish)
