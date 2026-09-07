@@ -150,6 +150,27 @@ class DatabaseManager:
             ticker,
         )
 
+    def purge_tickers(self, tickers: List[str]) -> int:
+        """Bulk-purge multiple tickers in a single SQL DELETE.
+
+        Returns the number of rows deleted.
+        """
+        if not tickers:
+            return 0
+        placeholders = ", ".join("?" for _ in tickers)
+        with self._write_lock:
+            result = self.conn.execute(
+                f"DELETE FROM daily_quotes WHERE Ticker IN ({placeholders})",
+                tickers,
+            )
+            count = result.fetchone()[0] if result else 0
+        logger.critical(
+            "RUNTIME EVENT: Bulk-purged %s row(s) for tickers %s.",
+            count,
+            tickers,
+        )
+        return count
+
     # ------------------------------------------------------------------
     # Split tracking
     # ------------------------------------------------------------------

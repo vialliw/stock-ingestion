@@ -162,3 +162,5 @@ Covers all 7 acceptance criteria: (1) main() importable+callable; (2) do_action 
 [ORCHESTRATOR] exclude_tickers now filters at earliest stage (never downloaded). Added CRNX to config.yaml tickers. Smoke test: AVB excluded (not in DB), AAPL/MSFT/NVDA 1506 rows each, CRNX 1479 rows (NOT delisted — returned valid data). 121/121 tests pass.
 
 [ORCHESTRATOR] Delisted ticker lifecycle verified: Phase 1 (download OK) -> Phase 2 (delisted, not excluded, data intact) -> Phase 3 (added to exclude_tickers, stale data purged). Added purge step for excluded tickers that still have data in DB. 122/122 tests pass.
+
+[ORCHESTRATOR] Replaced per-ticker purge loop with set intersection + single bulk SQL DELETE (purge_tickers). Per AGENTS.md: SQL > vectorized > loop. 122/122 tests pass.

@@ -306,15 +306,15 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin):
                 "RUNTIME EVENT: Excluding tickers from download (in exclude_tickers): %s",
                 skipped,
             )
-            # Purge any excluded tickers that still have data in the DB
+            # Bulk-purge any excluded tickers that still have data in the DB
             existing = self.db.get_existing_tickers()
-            for t in skipped:
-                if t in existing:
-                    logger.warning(
-                        "RUNTIME EVENT: Purging stale data for excluded ticker '%s'.",
-                        t,
-                    )
-                    self.db.purge_ticker(t)
+            stale = list(set(skipped) & existing)
+            if stale:
+                logger.warning(
+                    "RUNTIME EVENT: Purging stale data for excluded tickers: %s",
+                    stale,
+                )
+                self.db.purge_tickers(stale)
         if not effective_tickers:
             return pd.DataFrame(), [], [], {}
 

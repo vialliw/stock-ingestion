@@ -374,6 +374,26 @@ class DatabaseManager:
             f"RUNTIME EVENT: Delisted ticker data completely purged for '{ticker}'."
         )
 
+    def purge_tickers(self, tickers: List[str]) -> int:
+        """Bulk-purge multiple tickers in a single SQL DELETE.
+
+        Returns the number of rows deleted.
+        """
+        if not tickers:
+            return 0
+        placeholders = ", ".join(f"$t{i}" for i in range(len(tickers)))
+        params = {f"t{i}": t for i, t in enumerate(tickers)}
+        with self._write.connection() as conn:
+            result = conn.execute(
+                f"DELETE FROM daily_quotes WHERE Ticker IN ({placeholders})",
+                params,
+            )
+            count = result.fetchone()[0] if result else 0
+        logger.critical(
+            f"RUNTIME EVENT: Bulk-purged {count} row(s) for tickers {tickers}."
+        )
+        return count
+
     def record_split(self, ticker: str, split_date: str, split_factor: float) -> None:
         """Record a split in ``splits_processed`` (idempotent)."""
         with self._write.connection() as conn:
