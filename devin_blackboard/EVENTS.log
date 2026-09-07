@@ -289,3 +289,5 @@ No BUG tasks filed. F7-T1c status set to done.
 [ORCHESTRATOR] Step 5 complete: agent_a_prompt.md updated with MCP Session Management section. Orchestrator playbook updated on Devin platform. devin_platform_setup.md marked Step 5 as DONE. Changes: background watcher subagent replaced with devin_session_create/gather/interact, notify_on_response for push notifications, direct MCP messaging instead of user-relay nudging.
 
 [ORCHESTRATOR] Tier 1 complete. Option B chosen: all agent sessions created via MCP with org default model. Manual webapp tabs B/C/D closed to eliminate user-relay bottleneck. Playbooks provide role identification and workflow. devin_mode proxy available for capability differentiation (B=normal, C=ultra, D=normal). Orchestrator now has direct programmatic control over child sessions via devin_session_create/gather/interact.
+
+[ORCHESTRATOR] Tier 2: Dynamic Workflow script updated to sequential B -> C -> D. Parallel C+D rejected in favor of thoroughness (critic sees challenger findings). Updated scripts/workflow_phase2.py and devin_platform_setup.md.

@@ -167,7 +167,11 @@ Note: `devin_mode` is batch-level only. Use separate `devin_session_create` call
 
 ---
 
-## Tier 2: Dynamic Workflows + Parallel C+D
+## Tier 2: Dynamic Workflows (Sequential B → C → D)
+
+### Design decision: Sequential, not parallel
+
+Challenger and Critic run **sequentially** (B → C → D), not in parallel. This ensures the critic sees the challenger's findings before verifying. The tradeoff is speed for thoroughness — chosen because code quality matters more than cycle speed for this project.
 
 ### Step 1: Enable Dynamic Workflows
 
@@ -177,12 +181,15 @@ If your account is enterprise:
 
 For non-enterprise accounts, Dynamic Workflows are available by default.
 
-### Step 2: Create the Dynamic Workflow script
+### Step 2: Dynamic Workflow script
 
 The file `scripts/workflow_phase2.py` is included in the repo. It defines:
 - Phase "execute": Agent B implements the task
-- Phase "review": Agent C reviews + Agent D verifies (in parallel)
+- Phase "review": Agent C reviews the executor's work
+- Phase "verify": Agent D verifies with challenger findings available
 - Phase "advance": Orchestrator reviews evidence and advances cycle
+
+The script runs B → C → D sequentially. The critic's prompt includes the challenger's findings so it can focus on issues the challenger identified.
 
 To run it, ask Devin in any session:
 > "Use a workflow to run scripts/workflow_phase2.py for the stock_ingestion Phase 2 cycle"
@@ -194,28 +201,11 @@ Devin will:
 4. Stream progress to the session
 5. Resume if interrupted
 
-### Step 3: Update dependency structure for parallel C+D
-
-In TASKS.json, change the critic task's depends_on:
-- **Before:** `F7-T<N>c depends_on: ["F7-T<N>", "F7-T<N>b"]`
-- **After:** `F7-T<N>c depends_on: ["F7-T<N>"]` (remove dependency on challenger)
-
-This allows challenger and critic to run in parallel after the executor finishes.
-
-For tasks with `challenger_required: false`, the orchestrator skips creating the challenger task entirely.
-
-### Step 4: Session linking
-
-With MCP configured, the orchestrator can:
-1. Create Agent B session via `devin_session_create`
-2. Wait for B to finish via `devin_session_gather`
-3. Create Agent C and D sessions in parallel via `devin_session_create`
-4. Wait for both via `devin_session_gather`
-5. Review evidence and create next cycle
+### Step 3: AUTO_MODE flag
 
 Add `AUTO_MODE: true|false` to `STATE.md`:
-- `true`: orchestrator auto-creates next agent sessions
-- `false`: orchestrator pauses and asks user before creating sessions
+- `true`: orchestrator auto-creates next agent sessions without pausing
+- `false`: orchestrator pauses and asks user before creating sessions (default)
 
 ---
 

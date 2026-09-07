@@ -15,9 +15,12 @@ Prerequisites:
 
 The script:
     1. Reads todo tasks from TASKS.json
-    2. For each cycle: runs executor, then parallel challenger + critic
-    3. Pipes structured results between stages
+    2. For each cycle: runs executor → challenger → critic (sequential)
+    3. Pipes structured results between stages so critic sees challenger findings
     4. Records all results for resumability
+
+Design decision: Sequential B → C → D (not parallel) so the critic benefits from
+the challenger's findings before verifying. This trades speed for thoroughness.
 """
 import asyncio
 import json
@@ -25,10 +28,11 @@ import json
 # --- Workflow metadata ---
 META = {
     "name": "stock-ingestion-phase2",
-    "description": "Execute Phase 2 cycles with executor → challenger → critic pipeline",
+    "description": "Execute Phase 2 cycles with executor → challenger → critic pipeline (sequential)",
     "phases": [
         {"title": "execute", "detail": "Agent B implements the task"},
-        {"title": "review", "detail": "Agent C reviews and Agent D verifies in parallel"},
+        {"title": "review", "detail": "Agent C reviews the executor's work"},
+        {"title": "verify", "detail": "Agent D verifies with challenger findings available"},
         {"title": "advance", "detail": "Orchestrator reviews evidence and advances cycle"},
     ],
 }
@@ -112,14 +116,21 @@ def build_challenger_prompt(task_def, exec_result):
     )
 
 
-def build_critic_prompt(task_def, exec_result):
-    """Build the prompt for the critic agent."""
+def build_critic_prompt(task_def, exec_result, challenger_result=None):
+    """Build the prompt for the critic agent, including challenger findings if available."""
+    challenger_section = ""
+    if challenger_result:
+        challenger_section = (
+            f"\nChallenger findings: {challenger_result.get('findings', 'N/A')}\n"
+            f"Challenger verdict: {challenger_result.get('verdict', 'N/A')}\n"
+        )
     return (
         f"You are Agent D (Critic) for stock_ingestion.\n"
         f"Project directory: {PROJECT_DIR}\n\n"
         f"Verify task: {task_def['id']} — {task_def['title']}\n"
         f"Executor changed: {exec_result.get('files_changed', [])}\n"
-        f"Executor evidence: {exec_result.get('evidence', 'N/A')}\n\n"
+        f"Executor evidence: {exec_result.get('evidence', 'N/A')}\n"
+        f"{challenger_section}\n"
         f"Steps:\n"
         f"1. cd to {PROJECT_DIR} and git pull\n"
         f"2. Run: python scripts/poll_tasks.py --claim {task_def['id']}c D\n"
@@ -127,6 +138,7 @@ def build_critic_prompt(task_def, exec_result):
         f"4. If all pass: python scripts/poll_tasks.py --done {task_def['id']}c D --evidence \"<full evidence map>\"\n"
         f"5. If any fail: python scripts/poll_tasks.py --blocked {task_def['id']}c D --reason \"<failed criteria>\"\n\n"
         f"You are the final gate. Verify each acceptance criterion with concrete evidence.\n"
+        f"Consider the challenger's findings when evaluating edge cases.\n"
         f"Report: task_id, verdict (pass/fail), findings, evidence_map."
     )
 
@@ -134,7 +146,11 @@ def build_critic_prompt(task_def, exec_result):
 # --- Cycle execution ---
 
 async def execute_cycle(task_def):
-    """Execute one cycle: executor → parallel(challenger, critic) → advance."""
+    """Execute one cycle: executor → challenger → critic (sequential).
+
+    Sequential design ensures the critic sees the challenger's findings
+    before verifying, trading speed for thoroughness.
+    """
     task_id = task_def["id"]
     challenger_required = task_def.get("challenger_required", True)
 
@@ -151,48 +167,55 @@ async def execute_cycle(task_def):
         log(f"{task_id}: executor failed tests, halting cycle")
         return {"task_id": task_id, "passed": False, "stage": "execute", "result": exec_result}
 
-    # Phase 2: Parallel review + verify
-    review_tasks = []
-
+    # Phase 2: Challenger (sequential — runs after executor, before critic)
+    challenger_result = None
     if challenger_required:
-        review_tasks.append(
-            agent(
-                build_challenger_prompt(task_def, exec_result),
-                phase="review",
-                schema=REVIEW_SCHEMA,
-                label=f"review-{task_id}",
-            )
-        )
-
-    review_tasks.append(
-        agent(
-            build_critic_prompt(task_def, exec_result),
+        log(f"{task_id}: running challenger review")
+        challenger_result = await agent(
+            build_challenger_prompt(task_def, exec_result),
             phase="review",
             schema=REVIEW_SCHEMA,
-            label=f"verify-{task_id}",
+            label=f"review-{task_id}",
         )
+
+        if challenger_result and challenger_result.get("verdict") == "fail":
+            log(f"{task_id}: challenger found blocking issues, halting cycle")
+            return {
+                "task_id": task_id,
+                "passed": False,
+                "stage": "review",
+                "result": challenger_result,
+            }
+
+    # Phase 3: Critic (sequential — sees challenger findings)
+    log(f"{task_id}: running critic verification")
+    critic_result = await agent(
+        build_critic_prompt(task_def, exec_result, challenger_result),
+        phase="verify",
+        schema=REVIEW_SCHEMA,
+        label=f"verify-{task_id}",
     )
 
-    log(f"{task_id}: running {'challenger + critic' if challenger_required else 'critic'} in parallel")
-    reviews = await parallel(review_tasks)
-
-    # Phase 3: Advance
-    all_pass = all(r.get("verdict") == "pass" for r in reviews if r is not None)
-    has_concerns = any(r.get("verdict") == "concerns" for r in reviews if r is not None)
+    # Phase 4: Advance
+    all_pass = critic_result and critic_result.get("verdict") == "pass"
+    has_concerns = (
+        challenger_result and challenger_result.get("verdict") == "concerns"
+    )
 
     if all_pass and not has_concerns:
         log(f"{task_id}: CYCLE COMPLETE — all reviews passed")
     elif has_concerns:
         log(f"{task_id}: CYCLE COMPLETE WITH CONCERNS — reviews passed but with findings to address")
     else:
-        log(f"{task_id}: CYCLE BLOCKED — one or more reviews failed")
+        log(f"{task_id}: CYCLE BLOCKED — critic verification failed")
 
     return {
         "task_id": task_id,
         "passed": all_pass,
         "has_concerns": has_concerns,
         "executor_result": exec_result,
-        "reviews": reviews,
+        "challenger_result": challenger_result,
+        "critic_result": critic_result,
     }
 
 
@@ -253,7 +276,8 @@ async def main():
     for r in results:
         status = "PASS" if r["passed"] else "FAIL"
         concerns = " (with concerns)" if r.get("has_concerns") else ""
-        log(f"  {r['task_id']}: {status}{concerns}")
+        stage = r.get("stage", "complete")
+        log(f"  {r['task_id']}: {status}{concerns} (stage: {stage})")
 
 
 if __name__ == "__main__":
