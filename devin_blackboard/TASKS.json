@@ -564,7 +564,7 @@
     "title": "Executor: health_check Flight action + ingestion_runs audit table",
     "role": "executor",
     "model": "swe",
-    "status": "todo",
+    "status": "in_progress",
     "depends_on": [
       "F7-T1c"
     ],
