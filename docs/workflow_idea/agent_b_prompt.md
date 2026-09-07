@@ -18,7 +18,7 @@ cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
 git pull
 ```
 
-## Workflow: Poll-Execute-Done (single pass, NOT background polling)
+## Workflow: Poll-Execute-Done (Agent B — Executor, single pass, NOT background polling)
 
 **IMPORTANT:** Do NOT run background polling shells. A background shell can only print — it cannot claim tasks, edit files, or make decisions. You must be IN the session to execute.
 

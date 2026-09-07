@@ -527,6 +527,18 @@ Since agents can't chat with each other directly, and background shells can't ma
 
 10. **State recovery:** If an agent crashes mid-task, the lock file remains and the task is stuck in "in_progress". The 10-minute stale-lock rule handles this, but should there be a more explicit recovery procedure?
 
+### Devin platform features for workflow improvement
+
+11. **Devin Playbook:** Could Devin Playbook be used to codify the agent prompts and workflow protocol as reusable, version-controlled playbooks? Would playbooks help standardize the poll-execute-done lifecycle across sessions? How do playbooks interact with the blackboard files — can a playbook reference `TASKS.json` and `poll_tasks.py` directly?
+
+12. **Devin Schedules:** Could Devin Schedules replace the manual "user tells Agent B to poll" step? For example, could we schedule Agent B's session to automatically poll `TASKS.json` every 5 minutes during active development hours? Would scheduled sessions have the same ability to claim tasks, edit files, and commit as interactive sessions? How do schedules handle the "stop and report" protocol — does a scheduled session wait for user input or proceed autonomously?
+
+13. **Devin MCP (Model Context Protocol):** Could MCP servers expose the blackboard files (`TASKS.json`, `STATE.md`, `EVENTS.log`) as structured resources instead of flat files? Would an MCP server that wraps the blackboard with a proper API (e.g., `get_next_task(role)`, `claim_task(task_id)`, `report_done(task_id, evidence)`) eliminate the polling script and lock file protocol entirely? Could MCP handle push notifications for state changes, replacing the background watcher subagent?
+
+14. **Devin Session Management:** Could Devin Session Management features (session persistence, session linking, session handoff) reduce the need for the user to manually coordinate between Agent B/C/D sessions? Can sessions be linked so that when Agent B completes a task, Agent C's session is automatically activated? Can session context be preserved across polling cycles so agents don't need to re-read `AGENTS.md` and `STATE.md` every time?
+
+15. **Devin Dynamic Workflows:** Could Devin Dynamic Workflows encode the cycle progression (executor → challenger → critic → next cycle) as a declarative workflow rather than imperative polling? Would a dynamic workflow automatically route tasks to the correct agent based on `assigned_to` without manual user nudging? Can dynamic workflows handle the dependency chain (`depends_on`) and blocker resolution automatically? How would dynamic workflows interact with the acceptance criteria verification — can they gate task completion on critic approval?
+
 ---
 
 ## 16. File Inventory
@@ -580,7 +592,7 @@ Since agents can't chat with each other directly, and background shells can't ma
 
 > Source file: `AGENTS.md` (repo root). Auto-loaded by every Devin session.
 
-```markdown
+~~~markdown
 # Project Rules — stock_ingestion (Multi-Agent Blackboard Protocol)
 
 ## Blackboard protocol (MANDATORY for all agents)
@@ -638,7 +650,7 @@ Completion requires evidence against the explicit acceptance_criteria defined in
 - Python 3.10+
 - Tests in /tests/, source in /src/
 - Run tests with: python -m pytest tests/
-```
+~~~
 
 ---
 
@@ -646,7 +658,7 @@ Completion requires evidence against the explicit acceptance_criteria defined in
 
 > Source file: `docs/workflow_idea/polling_workflow_protocol.md`
 
-```markdown
+~~~markdown
 # Multi-Agent Workflow Protocol — Event-Driven Coordination
 
 **Status:** ACTIVE
@@ -831,7 +843,7 @@ If any check fails: set status="blocked", file blocker in STATE.md, append to EV
 - Enforcement: `scripts/check_loops.py` + pre-commit hook + Critic checklist
 - Python 3.10+, tests in /tests/, source in /src/
 - Run tests with: `python -m pytest tests/`
-```
+~~~
 
 ---
 
@@ -839,7 +851,7 @@ If any check fails: set status="blocked", file blocker in STATE.md, append to EV
 
 > Source file: `docs/workflow_idea/agent_a_prompt.md`
 
-```markdown
+~~~markdown
 # Agent A (Orchestrator/PM) — Session Prompt
 
 You are the ORCHESTRATOR (Agent A) for the stock_ingestion project.
@@ -1003,7 +1015,7 @@ i. Go to Step 3 (spawn watcher)
 - Keep STATE.md "Current Cycle" section updated
 - Keep EVENTS.log entries prefixed with "[ORCHESTRATOR]"
 - When telling the user to nudge an agent, be specific: "Please tell Agent B to poll"
-```
+~~~
 
 ---
 
@@ -1011,7 +1023,7 @@ i. Go to Step 3 (spawn watcher)
 
 > Source file: `docs/workflow_idea/agent_b_prompt.md`
 
-```markdown
+~~~markdown
 # Agent B (Executor) — Session Prompt
 
 You are the EXECUTOR (Agent B) for the stock_ingestion project.
@@ -1032,7 +1044,7 @@ cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
 git pull
 ```
 
-## Workflow: Poll-Execute-Done (single pass, NOT background polling)
+## Workflow: Poll-Execute-Done (Agent B — Executor, single pass, NOT background polling)
 
 **IMPORTANT:** Do NOT run background polling shells. A background shell can only print — it cannot claim tasks, edit files, or make decisions. You must be IN the session to execute.
 
@@ -1109,7 +1121,7 @@ STEP 4: If no READY task (WAITING or no tasks):
 - Run tests: `python -m pytest tests/`
 - Always `git pull` before committing to avoid conflicts with other agents
 - After completing a task, poll once more for the next task. If none ready, STOP and report.
-```
+~~~
 
 ---
 
@@ -1117,7 +1129,7 @@ STEP 4: If no READY task (WAITING or no tasks):
 
 > Source file: `docs/workflow_idea/agent_c_prompt.md`
 
-```markdown
+~~~markdown
 # Agent C (Challenger) — Session Prompt
 
 You are the CHALLENGER (Agent C) for the stock_ingestion project.
@@ -1138,7 +1150,7 @@ cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
 git pull
 ```
 
-## Workflow: Poll-Review-Done (single pass, NOT background polling)
+## Workflow: Poll-Review-Done (Agent C — Challenger, single pass, NOT background polling)
 
 **IMPORTANT:** Do NOT run background polling shells. A background shell can only print — it cannot claim tasks, edit files, or make decisions. You must be IN the session to execute.
 
@@ -1202,7 +1214,7 @@ STEP 4: If no READY task:
 - Read AGENTS.md before starting any work
 - Always `git pull` before committing to avoid conflicts with other agents
 - After completing a task, poll once more for the next task. If none ready, STOP and report.
-```
+~~~
 
 ---
 
@@ -1210,7 +1222,7 @@ STEP 4: If no READY task:
 
 > Source file: `docs/workflow_idea/agent_d_prompt.md`
 
-```markdown
+~~~markdown
 # Agent D (Critic) — Session Prompt
 
 You are the CRITIC (Agent D) for the stock_ingestion project.
@@ -1231,7 +1243,7 @@ cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
 git pull
 ```
 
-## Workflow: Poll-Verify-Done (single pass, NOT background polling)
+## Workflow: Poll-Verify-Done (Agent D — Critic, single pass, NOT background polling)
 
 **IMPORTANT:** Do NOT run background polling shells. A background shell can only print — it cannot claim tasks, edit files, or make decisions. You must be IN the session to execute.
 
@@ -1305,4 +1317,4 @@ STEP 4: If no READY task:
 - Read AGENTS.md before starting any work
 - Always `git pull` before committing to avoid conflicts with other agents
 - After completing a task, poll once more for the next task. If none ready, STOP and report.
-```
+~~~
