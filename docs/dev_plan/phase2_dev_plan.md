@@ -12,13 +12,13 @@
 |---|---|
 | R2 Sync | Sync the single DuckDB file directly (no Parquet export). Standalone Flight action, auto-trigger after successful daily_load, also manual trigger. |
 | APScheduler | Separate process (`src/scheduler_main.py`). |
-| do_put / IngestBatch | Include in Phase 2. Table name is `DAILY_CLOSE` (not `daily_quotes`). |
+| do_put / IngestBatch | Include in Phase 2. Table name is `daily_close` (not `daily_quotes`). |
 | Intraday timeframes | **Removed entirely** — not deferred, not Phase 3. Schema stays daily-only. |
 | Parquet Report Output | **Deferred to Phase 3.** User will provide SQL. Report format will be xlsx (not Parquet). |
 | Query Timeout | Default 120 seconds. No row limit (production: ~1200 tickers, 6-year initial load, abundant rows). |
 | mTLS Authentication | Deferred to Phase 3. |
-| Health check | Uses table name `DAILY_CLOSE`. |
-| Table rename | `daily_quotes` → `DAILY_CLOSE` throughout entire codebase (schema migration, Cycle 0). |
+| Health check | Uses table name `daily_close`. |
+| Table rename | `daily_quotes` → `daily_close` (all lowercase) throughout entire codebase (schema migration, Cycle 0). |
 
 ---
 
@@ -28,7 +28,7 @@
 
 | ID | Title | Owner | Output Files |
 |---|---|---|---|
-| F7-T0 | Rename `daily_quotes` → `DAILY_CLOSE` throughout codebase | executor | src/db.py, src/db_challenger.py, src/ingestion.py, src/ingestion_challenger.py, src/flight_server.py, src/flight_server_challenger.py, src/store.py, src/store_challenger.py, tests/*.py |
+| F7-T0 | Rename `daily_quotes` → `daily_close` throughout codebase | executor | src/db.py, src/db_challenger.py, src/ingestion.py, src/ingestion_challenger.py, src/flight_server.py, src/flight_server_challenger.py, src/store.py, src/store_challenger.py, tests/*.py |
 | F7-T0b | SQL CAST(Date AS VARCHAR) in generate_top_20_dollar_volume — eliminate Date stringify loops | executor | src/db.py, src/db_challenger.py |
 | F7-T0c | batch_record_splits method in DatabaseManager — eliminate record_split loops | executor | src/db.py, src/db_challenger.py, src/ingestion.py, src/ingestion_challenger.py |
 | F7-T0d | check_loops.py --strict mode implementation | executor | scripts/check_loops.py |
@@ -37,14 +37,14 @@
 **Cycle 0 goals:**
 
 **Table rename (F7-T0):**
-- Rename `daily_quotes` table to `DAILY_CLOSE` in DuckDB schema creation
+- Rename `daily_quotes` table to `daily_close` in DuckDB schema creation
 - Update ALL SQL queries across `src/db.py`, `src/db_challenger.py`, `src/ingestion.py`, `src/ingestion_challenger.py`, `src/flight_server.py`, `src/flight_server_challenger.py`
 - Update `src/store.py`, `src/store_challenger.py` if they reference `daily_quotes`
 - Update ALL test files that reference `daily_quotes` in SQL strings or assertions
-- Update tech spec `docs/tech_spec/gemini_tech_spec.1.0.2.md` — replace `daily_quotes` with `DAILY_CLOSE`
-- Schema migration: `ALTER TABLE daily_quotes RENAME TO DAILY_CLOSE` for existing DBs, or recreate if fresh
+- Update tech spec `docs/tech_spec/gemini_tech_spec.1.0.2.md` — replace `daily_quotes` with `daily_close`
+- Schema migration: `ALTER TABLE daily_quotes RENAME TO daily_close` for existing DBs, or recreate if fresh
 - Bump `SCHEMA_VERSION` from 1 to 2
-- Add migration logic in `DatabaseManager.__init__`: check `schema_version`, if 1 and `daily_quotes` exists, rename to `DAILY_CLOSE`
+- Add migration logic in `DatabaseManager.__init__`: check `schema_version`, if 1 and `daily_quotes` exists, rename to `daily_close`
 
 **SQL CAST (F7-T0b):**
 - Replace `for item in result: item["Date"] = str(item["Date"])` with SQL `CAST(Date AS VARCHAR)` in the `generate_top_20_dollar_volume` query
@@ -92,7 +92,7 @@
 - New `ingestion_runs` table: `run_id` (auto-increment), `run_type`, `start_time`, `end_time`, `duration_ms`, `tickers_succeeded` (JSON), `tickers_failed` (JSON), `errors` (JSON), `rows_upserted`, `status`
 - `IngestionEngine` writes one audit row after each `run_initial_load` / `run_daily_load` / `run_on_request_load` (single SQL INSERT, no loop)
 - New Flight action `health_check` — returns JSON: `{"status": "healthy", "db_connected": true, "db_path": "...", "ticker_count": N, "last_run": "...", "uptime_seconds": ...}`
-- Health check: DB file exists, `SELECT 1` works, row count in `DAILY_CLOSE`, latest `ingestion_runs` row
+- Health check: DB file exists, `SELECT 1` works, row count in `daily_close`, latest `ingestion_runs` row
 - No network calls (no yfinance), fast (<100ms)
 - New Flight action `get_run_history` — returns recent `ingestion_runs` rows as Arrow table
 
@@ -162,13 +162,13 @@
 
 | ID | Title | Owner | Output Files |
 |---|---|---|---|
-| F7-T6 | Implement do_put in Flight server — accept external batch data into DAILY_CLOSE | executor | src/flight_server.py, src/db.py |
+| F7-T6 | Implement do_put in Flight server — accept external batch data into daily_close | executor | src/flight_server.py, src/db.py |
 | F7-T6b | Challenger: independent do_put variant | challenger | src/flight_server_challenger.py, src/db_challenger.py |
 | F7-T6c | Critic: verify do_put | critic | tests/test_do_put.py |
 
 **Cycle 6 goals:**
 - Implement `do_put` in `MarketDataFlightServer`
-- Accept Arrow record batches with `DAILY_CLOSE` schema (7 columns: Date, Ticker, Open, High, Low, Close, Volume)
+- Accept Arrow record batches with `daily_close` schema (7 columns: Date, Ticker, Open, High, Low, Close, Volume)
 - Validate schema matches exactly — reject mismatched schemas with `FlightServerError`
 - Reject data for tickers in `exclude_tickers` — filter + log warning
 - Upsert via existing `DatabaseManager.upsert_dataframe`
@@ -186,7 +186,7 @@
 
 **Cycle 7 goals:**
 - End-to-end test: scheduler triggers daily_load → audit row written → R2 sync runs → health_check reflects last run
-- Full regression: all Phase 1 tests still pass (122+, updated for DAILY_CLOSE rename)
+- Full regression: all Phase 1 tests still pass (122+, updated for daily_close rename)
 - Loop checker: 0 violations on all src/ files including new modules
 - Pre-commit hook: active and blocking unjustified loops in new code
 
@@ -288,7 +288,7 @@ Cycle 7 (Integration)
 
 ## Risks
 
-1. **Table rename breaks everything** (Cycle 0): `daily_quotes` → `DAILY_CLOSE` touches every SQL query, every test, the tech spec. Mitigation: executor does a comprehensive grep for `daily_quotes` across all files, renames systematically, runs full test suite. Schema migration for existing DB: `ALTER TABLE daily_quotes RENAME TO DAILY_CLOSE`.
+1. **Table rename breaks everything** (Cycle 0): `daily_quotes` → `daily_close` touches every SQL query, every test, the tech spec. Mitigation: executor does a comprehensive grep for `daily_quotes` across all files, renames systematically, runs full test suite. Schema migration for existing DB: `ALTER TABLE daily_quotes RENAME TO daily_close`.
 
 2. **DuckDB multi-process contention** (Cycle 5): Scheduler process and Flight server process both need write access to the same DuckDB file. Mitigation: scheduler acquires write lock briefly, retries with backoff if locked.
 
@@ -302,17 +302,17 @@ Cycle 7 (Integration)
 
 ## Acceptance Criteria (Phase 2 complete)
 
-1. All Phase 1 tests still pass (updated for DAILY_CLOSE rename)
+1. All Phase 1 tests still pass (updated for daily_close rename)
 2. All Phase 2 tests pass (new tests for each cycle)
 3. Loop checker: 0 violations on all src/ files
 4. Pre-commit hook: active
-5. Table renamed: `DAILY_CLOSE` everywhere, no `daily_quotes` references remain
+5. Table renamed: `daily_close` everywhere, no `daily_quotes` references remain
 6. R2 sync: works with mocked boto3, auto-syncs DuckDB file after daily_load when enabled, manual `sync_to_r2` action works
 7. Scheduler: runs as separate process, triggers daily_load at configured time
-8. Health check: returns service status in <100ms, references DAILY_CLOSE
+8. Health check: returns service status in <100ms, references daily_close
 9. Audit table: records every ingestion run
 10. JSON logging: configurable, writes to configured log file path
 11. Query timeout: 120s default, enforced in do_get, no row limit
-12. do_put: accepts external batch data into DAILY_CLOSE with schema validation
+12. do_put: accepts external batch data into daily_close with schema validation
 13. Blackboard: STATE.md + EVENTS.log updated for each cycle
 14. No secrets committed

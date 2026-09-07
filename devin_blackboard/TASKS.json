@@ -411,7 +411,7 @@
     "input_files": ["/src/db.py", "/src/db_challenger.py", "/src/ingestion.py", "/src/ingestion_challenger.py", "/src/flight_server.py", "/src/flight_server_challenger.py", "/src/store.py", "/src/store_challenger.py", "/tests/*.py", "/docs/tech_spec/gemini_tech_spec.1.0.2.md", "/scripts/check_loops.py"],
     "output_files": ["/src/db.py", "/src/db_challenger.py", "/src/ingestion.py", "/src/ingestion_challenger.py", "/src/flight_server.py", "/src/flight_server_challenger.py", "/src/store.py", "/src/store_challenger.py", "/tests/test_db.py", "/tests/test_ingestion.py", "/tests/test_integration.py", "/tests/test_flight_server.py", "/tests/test_delisted_lifecycle.py", "/tests/test_store_csv.py", "/tests/test_config_breaking.py", "/docs/tech_spec/gemini_tech_spec.1.0.2.md", "/scripts/check_loops.py"],
     "acceptance_criteria": "(1) Table renamed: grep -ri daily_quotes src/ tests/ docs/ returns 0 matches. All SQL uses daily_close (lowercase). (2) Schema migration: DatabaseManager.__init__ checks schema_version; if version 1 and daily_quotes exists, executes ALTER TABLE daily_quotes RENAME TO daily_close; bumps SCHEMA_VERSION to 2. (3) SQL CAST: generate_top_20_dollar_volume query uses CAST(Date AS VARCHAR) — no Python loop for Date stringify in db.py or db_challenger.py. (4) batch_record_splits: DatabaseManager.batch_record_splits(splits: List[Tuple[str, str, float]]) does single SQL INSERT with ON CONFLICT DO NOTHING. ingestion.py and ingestion_challenger.py use it instead of per-split loop. (5) check_loops --strict: flags # justified: comments with empty reason text. (6) python scripts/check_loops.py --src-dir src exits 0. (7) python scripts/check_loops.py --src-dir src --strict exits 0. (8) python -m pytest tests/ -q exits 0 (122+ tests). (9) Existing production DB at C:\\Intel\\parquet\\stock_ingestion.duckdb can be opened and daily_close table exists with correct row counts.",
-    "assigned_to": null
+    "assigned_to": "B"
   },
   {
     "id": "F7-T0e",
@@ -423,6 +423,6 @@
     "input_files": ["/src/*.py", "/tests/*.py", "/scripts/check_loops.py", "/docs/tech_spec/gemini_tech_spec.1.0.2.md"],
     "output_files": ["/tests/ (update if needed)"],
     "acceptance_criteria": "(1) grep -ri daily_quotes src/ tests/ docs/ returns 0 matches. (2) python scripts/check_loops.py --src-dir src exits 0. (3) python scripts/check_loops.py --src-dir src --strict exits 0. (4) python -m pytest tests/ -q exits 0 (122+ tests). (5) No # justified: loops remain for Date stringify or record_split (those should be eliminated by CAST and batch INSERT). (6) Critic pastes full grep output + checker output + pytest output to EVENTS.log.",
-    "assigned_to": null
+    "assigned_to": "D"
   }
 ]
