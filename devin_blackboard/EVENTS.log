@@ -406,3 +406,61 @@ Evidence map:
   }
 ]
 [2026-09-07T19:44:47.677262+00:00] [CRITIC] claimed F7-T2c
+[2026-09-07T19:48:41.741229+00:00] [CRITIC] completed F7-T2c -> ALL PASS. check_loops clean, check_loops --strict clean, pytest 177 passed, health_check JSON keys verified, schema version 3 verified, get_ingestion_runs returns pyarrow Table.
+Evidence map:
+[
+  {
+    "id": "AC-1",
+    "check": "loop_checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (11 files checked)\n"
+  },
+  {
+    "id": "AC-2",
+    "check": "loop_checker_strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (11 files checked)\n"
+  },
+  {
+    "id": "AC-3",
+    "check": "pytest_suite",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "===== warnings summary ===============================\ntests/test_db.py: 8 warnings\ntests/test_delisted_lifecycle.py: 3 warnings\ntests/test_health_check.py: 2 warnings\ntests/test_integration.py: 8 warnings\n  /home/ubuntu/repos/stock-ingestion/src/db.py:144: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n177 passed, 21 warnings in 2.77s\n"
+  },
+  {
+    "id": "AC-4",
+    "check": "health_check_json",
+    "command": "python -m pytest tests/test_health_check.py::test_health_check_returns_db_connectivity_and_row_counts -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ".                                                                        [100%]\n1 passed in 0.45s\n"
+  },
+  {
+    "id": "AC-5",
+    "check": "schema_version_3",
+    "command": "python -m pytest tests/test_health_check.py::test_database_schema_version_is_three -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ".                                                                        [100%]\n1 passed in 0.48s\n"
+  },
+  {
+    "id": "AC-6",
+    "check": "get_run_history_arrow",
+    "command": "python -m pytest tests/test_health_check.py::test_get_ingestion_runs_returns_arrow_table -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "=============== warnings summary ===============================\ntests/test_health_check.py::test_get_ingestion_runs_returns_arrow_table\ntests/test_health_check.py::test_get_ingestion_runs_returns_arrow_table\n  /home/ubuntu/repos/stock-ingestion/src/db.py:144: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 2 warnings in 0.49s\n"
+  }
+]

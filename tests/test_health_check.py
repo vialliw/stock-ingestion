@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import pyarrow as pa
 import pytest
 
+from src.db import DatabaseManager
 from src.flight_server import MarketDataFlightServer
 
 
@@ -128,3 +129,44 @@ def test_get_run_history_empty_table():
 
     assert data["status"] == "SUCCESS"
     assert data["run_history"] == []
+
+
+def test_database_schema_version_is_three(tmp_path):
+    """A fresh DatabaseManager initializes the schema to version 3."""
+    db_path = tmp_path / "schema_test.duckdb"
+    db = DatabaseManager(str(db_path))
+    try:
+        row = db.conn.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ).fetchone()
+        assert row[0] == 3
+    finally:
+        db.close()
+
+
+def test_get_ingestion_runs_returns_arrow_table(tmp_path):
+    """DatabaseManager.get_ingestion_runs returns a pyarrow Table."""
+    db_path = tmp_path / "runs_test.duckdb"
+    db = DatabaseManager(str(db_path))
+    try:
+        table = db.get_ingestion_runs()
+        assert isinstance(table, pa.Table)
+        assert hasattr(table, "schema")
+        assert "run_id" in table.schema.names
+        assert "run_type" in table.schema.names
+
+        db.record_ingestion_run(
+            "daily_load",
+            {
+                "rows_upserted": 5,
+                "tickers_succeeded": ["AAPL"],
+                "tickers_failed": [],
+                "errors": {},
+                "duration_ms": 100,
+            },
+        )
+        table = db.get_ingestion_runs()
+        assert table.num_rows == 1
+        assert table.column("run_type").to_pylist() == ["daily_load"]
+    finally:
+        db.close()
