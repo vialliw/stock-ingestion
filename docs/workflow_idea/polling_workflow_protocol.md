@@ -46,40 +46,44 @@ todo  -->  in_progress  -->  done
 
 ## Polling Protocol (Agents B/C/D)
 
-Each agent session runs this loop continuously:
+Each agent session runs this loop continuously.
+
+**IMPORTANT:** Agents MUST use the canonical polling script `scripts/poll_tasks.py` to find tasks. Agents MUST NOT write their own polling scripts or hardcode their role in temp scripts. The canonical script takes the role as a CLI argument.
 
 ```
 LOOP:
-  1. Read devin_blackboard/TASKS.json
-  2. Find tasks where:
-     - assigned_to == my_role (B/C/D)
-     - status == "todo"
-     - all dependencies (depends_on) have status == "done"
-  3. If no matching task:
-     - Print "No tasks assigned to me. Waiting 30s..."
+  1. git pull
+  2. python scripts/poll_tasks.py <B|C|D>
+  3. Read script output:
+     - "READY:" lines = tasks you can claim now
+     - "WAITING:" lines = tasks assigned to you but dependencies not yet done
+     - "No tasks assigned_to=<role> with status=todo" = nothing to do
+  4. If no READY task:
+     - Print "No tasks for me. Waiting 30s..."
      - Sleep 30 seconds
      - Go back to step 1
-  4. If matching task found:
-     a. Check devin_blackboard/locks/<task_id>.lock
+  5. For each READY task:
+     a. Extract task_id from the "READY:" line
+     b. Check devin_blackboard/locks/<task_id>.lock
         - If lock file exists AND was created < 10 minutes ago: skip, go to step 1
         - If lock file exists AND was created > 10 minutes ago: delete it (stale lock), continue
         - If no lock file: continue
-     b. Create devin_blackboard/locks/<task_id>.lock with contents:
+     c. Create devin_blackboard/locks/<task_id>.lock with contents:
         {"agent": "<B/C/D>", "claimed_at": "<ISO timestamp>"}
-     c. Update TASKS.json: set task status = "in_progress"
-     d. Append to EVENTS.log: "[<ROLE>] claimed <task_id>"
-     e. Commit blackboard changes: git add -A && git commit -m "[<B/C/D>] claim <task_id>"
-     f. Read all input_files for the task
-     g. Read AGENTS.md for project rules (SQL > vectorized > loop)
-     h. Read devin_blackboard/STATE.md and devin_blackboard/EVENTS.log (last 20 lines)
-     i. Execute the task (read input_files, write output_files)
-     j. Verify (see verification section below)
-     k. Update TASKS.json: set task status = "done"
-     l. Append to EVENTS.log: "[<ROLE>] completed <task_id> -> <output_files>. <evidence>"
-     m. Update STATE.md: add to "What's Done", update timestamp
-     n. Delete lock file: devin_blackboard/locks/<task_id>.lock
-     o. Commit all changes: git add -A && git commit -m "[<B/C/D>] <task_id> <description>"
-     p. Go back to step 1
+     d. Update TASKS.json: set task status = "in_progress"
+     e. Append to EVENTS.log: "[<ROLE>] claimed <task_id>"
+     f. Commit blackboard changes: git add -A && git commit -m "[<B/C/D>] claim <task_id>"
+     g. Read all input_files for the task
+     h. Read AGENTS.md for project rules (SQL > vectorized > loop)
+     i. Read devin_blackboard/STATE.md and devin_blackboard/EVENTS.log (last 20 lines)
+     j. Execute the task (read input_files, write output_files)
+     k. Verify (see verification section below)
+     l. Update TASKS.json: set task status = "done"
+     m. Append to EVENTS.log: "[<ROLE>] completed <task_id> -> <output_files>. <evidence>"
+     n. Update STATE.md: add to "What's Done", update timestamp
+     o. Delete lock file: devin_blackboard/locks/<task_id>.lock
+     p. Commit all changes: git add -A && git commit -m "[<B/C/D>] <task_id> <description>"
+     q. Go back to step 1
 ```
 
 ---
