@@ -149,9 +149,10 @@ def update_task_status(tasks, task_id, status):
 
 
 def commit_blackboard(message):
-    """Stage and commit blackboard files."""
+    """Stage, commit, and push blackboard files."""
     subprocess.run(["git", "add", "-A"], check=False)
     subprocess.run(["git", "commit", "-m", message], check=False)
+    subprocess.run(["git", "push", "origin", "HEAD"], check=False)
 
 
 def role_label(role):
