@@ -54,7 +54,7 @@ import logging
 import queue
 import threading
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import duckdb
 import pandas as pd
@@ -62,7 +62,7 @@ import pyarrow as pa
 
 logger = logging.getLogger("MarketDataPipeline")
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Maximum number of read cursors the pool will keep alive at once.
 # Additional concurrent readers block until a cursor is returned.
@@ -172,8 +172,8 @@ class _ReadPool:
 # Schema DDL (kept as module-level constants so the critic can introspect)
 # ---------------------------------------------------------------------------
 
-_DAILY_QUOTES_DDL = """
-CREATE TABLE IF NOT EXISTS daily_quotes (
+_DAILY_CLOSE_DDL = """
+CREATE TABLE IF NOT EXISTS daily_close (
     Date DATE NOT NULL,
     Ticker VARCHAR NOT NULL,
     Open DOUBLE,
@@ -204,7 +204,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 # Upsert via INSERT ... ON CONFLICT (structurally different from MERGE INTO).
 _UPSERT_SQL = """
-INSERT INTO daily_quotes (Date, Ticker, Open, High, Low, Close, Volume)
+INSERT INTO daily_close (Date, Ticker, Open, High, Low, Close, Volume)
 SELECT Date, Ticker, Open, High, Low, Close, Volume FROM staging_df
 ON CONFLICT (Date, Ticker) DO UPDATE SET
     Open   = excluded.Open,
@@ -254,7 +254,31 @@ class DatabaseManager:
 
     def _init_schema(self) -> None:
         with self._write.connection() as conn:
-            conn.execute(_DAILY_QUOTES_DDL)
+            # --- Schema migration: v1 -> v2 (rename daily_quotes -> daily_close) ---
+            try:
+                row = conn.execute(
+                    "SELECT MAX(version) FROM schema_version"
+                ).fetchone()
+                current_version = row[0] if row and row[0] is not None else 0
+            except duckdb.Error:
+                current_version = 0
+            if current_version == 1:
+                # Check if the old daily_quotes table still exists
+                tables = {
+                    r[0]
+                    for r in conn.execute(
+                        "SELECT table_name FROM information_schema.tables"
+                    ).fetchall()
+                }
+                if "daily_quotes" in tables:
+                    conn.execute(
+                        "ALTER TABLE daily_quotes RENAME TO daily_close"
+                    )
+                conn.execute(
+                    "INSERT INTO schema_version (version) VALUES ($version)",
+                    {"version": SCHEMA_VERSION},
+                )
+            conn.execute(_DAILY_CLOSE_DDL)
             conn.execute(_SPLITS_PROCESSED_DDL)
             conn.execute(_SCHEMA_VERSION_DDL)
             conn.execute(
@@ -285,13 +309,13 @@ class DatabaseManager:
 
     def get_existing_tickers(self) -> Set[str]:
         with self._reads.read() as conn:
-            rows = conn.execute("SELECT DISTINCT Ticker FROM daily_quotes").fetchall()
+            rows = conn.execute("SELECT DISTINCT Ticker FROM daily_close").fetchall()
         return {row[0] for row in rows}
 
     def get_aligned_start_date(self) -> Optional[str]:
         """Earliest ``Date`` across all tickers as an ISO string, or ``None``."""
         with self._reads.read() as conn:
-            result = conn.execute("SELECT MIN(Date) FROM daily_quotes").fetchone()
+            result = conn.execute("SELECT MIN(Date) FROM daily_close").fetchone()
         if result and result[0]:
             return str(result[0])
         return None
@@ -311,9 +335,10 @@ class DatabaseManager:
         with self._reads.read() as conn:
             if target_date:
                 rel = conn.execute(
-                    "SELECT Ticker, Date, Close, Volume, "
+                    "SELECT Ticker, CAST(Date AS VARCHAR) AS Date, "
+                    "       Close, Volume, "
                     "       (Close * Volume) AS dollar_volume "
-                    "FROM daily_quotes "
+                    "FROM daily_close "
                     "WHERE Date = $target_date "
                     "ORDER BY dollar_volume DESC "
                     "LIMIT 20;",
@@ -321,22 +346,19 @@ class DatabaseManager:
                 )
             else:
                 rel = conn.execute(
-                    "SELECT Ticker, Date, Close, Volume, "
+                    "SELECT Ticker, CAST(Date AS VARCHAR) AS Date, "
+                    "       Close, Volume, "
                     "       (Close * Volume) AS dollar_volume "
-                    "FROM daily_quotes "
-                    "WHERE Date = (SELECT MAX(Date) FROM daily_quotes) "
+                    "FROM daily_close "
+                    "WHERE Date = (SELECT MAX(Date) FROM daily_close) "
                     "ORDER BY dollar_volume DESC "
                     "LIMIT 20;"
                 )
             cols = [desc[0] for desc in rel.description]
             rows = rel.fetchall()
-        # Vectorized: build all dicts at once, then stringify Date per-item
+        # Date already comes back as a string via SQL CAST — no
+        # Python stringify loop needed (SQL > loop hierarchy).
         result: List[Dict[str, Any]] = [dict(zip(cols, row)) for row in rows]
-        # justified: Date stringify is per-row because each item is a
-        # dict, not a column — cannot apply vectorized str() to a
-        # list of dicts. List comprehension is the most compact form.
-        for item in result:
-            item["Date"] = str(item["Date"])
         return result
 
     def detect_new_tickers(self, configured_tickers: List[str]) -> List[str]:
@@ -346,7 +368,7 @@ class DatabaseManager:
     # -- writes -------------------------------------------------------------
 
     def upsert_dataframe(self, df: pd.DataFrame) -> int:
-        """Upsert a dataframe into ``daily_quotes``; return rows staged.
+        """Upsert a dataframe into ``daily_close``; return rows staged.
 
         The dataframe is converted to a pyarrow Table before being
         registered as the ``staging_df`` view.  Going through Arrow (rather
@@ -369,7 +391,7 @@ class DatabaseManager:
     def purge_ticker(self, ticker: str) -> None:
         with self._write.connection() as conn:
             conn.execute(
-                "DELETE FROM daily_quotes WHERE Ticker = $ticker",
+                "DELETE FROM daily_close WHERE Ticker = $ticker",
                 {"ticker": ticker},
             )
         logger.critical(
@@ -387,7 +409,7 @@ class DatabaseManager:
         params = {f"t{i}": t for i, t in enumerate(tickers)}
         with self._write.connection() as conn:
             result = conn.execute(
-                f"DELETE FROM daily_quotes WHERE Ticker IN ({placeholders})",
+                f"DELETE FROM daily_close WHERE Ticker IN ({placeholders})",
                 params,
             )
             count = result.fetchone()[0] if result else 0
@@ -406,11 +428,42 @@ class DatabaseManager:
                 {"ticker": ticker, "split_date": split_date, "factor": split_factor},
             )
 
+    def batch_record_splits(
+        self, splits: List[Tuple[str, str, float]]
+    ) -> int:
+        """Record multiple splits in a single SQL INSERT (idempotent).
+
+        ``splits`` is a list of ``(ticker, split_date, split_factor)``
+        tuples.  Uses ``ON CONFLICT (Ticker, SplitDate) DO NOTHING`` so
+        re-recording existing splits is a no-op.  Returns the number of
+        rows inserted.
+        """
+        if not splits:
+            return 0
+        # Build named-parameter placeholders: ($t0_ticker, $t0_date, $t0_factor), ...
+        placeholders = []
+        params: Dict[str, Any] = {}
+        for i, (ticker, split_date, split_factor) in enumerate(splits):
+            placeholders.append(f"($t{i}_ticker, $t{i}_date, $t{i}_factor)")
+            params[f"t{i}_ticker"] = ticker
+            params[f"t{i}_date"] = split_date
+            params[f"t{i}_factor"] = split_factor
+        values_clause = ", ".join(placeholders)
+        with self._write.connection() as conn:
+            conn.execute(
+                f"INSERT INTO splits_processed "
+                f"(Ticker, SplitDate, SplitFactor) "
+                f"VALUES {values_clause} "
+                f"ON CONFLICT (Ticker, SplitDate) DO NOTHING;",
+                params,
+            )
+        return len(splits)
+
     def delete_ticker_data(self, ticker: str) -> None:
         """Delete all rows for a ticker (used before re-download after a split)."""
         with self._write.connection() as conn:
             conn.execute(
-                "DELETE FROM daily_quotes WHERE Ticker = $ticker",
+                "DELETE FROM daily_close WHERE Ticker = $ticker",
                 {"ticker": ticker},
             )
 

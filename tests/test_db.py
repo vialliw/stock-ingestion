@@ -58,7 +58,7 @@ def manager(request, tmp_path):
 
 
 def make_df(ticker, dates, close_prices, volumes):
-    """Build a valid daily_quotes DataFrame with explicit, safe dtypes.
+    """Build a valid daily_close DataFrame with explicit, safe dtypes.
 
     - Date   -> datetime64 (DuckDB casts to DATE)
     - Ticker -> object      (avoids pandas 3.x 'str' dtype)
@@ -89,7 +89,7 @@ def test_schema_creates_three_tables(manager):
         "SELECT table_name FROM information_schema.tables ORDER BY table_name"
     )
     names = set(tbl.column("table_name").to_pylist())
-    assert {"daily_quotes", "splits_processed", "schema_version"} <= names
+    assert {"daily_close", "splits_processed", "schema_version"} <= names
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ def test_upsert_inserts_new_rows(manager):
     df = make_df("AAPL", ["2026-01-01", "2026-01-02"], [100.0, 101.0], [1000.0, 2000.0])
     n = manager.upsert_dataframe(df)
     assert n == 2
-    tbl = manager.execute_query("SELECT COUNT(*) AS c FROM daily_quotes")
+    tbl = manager.execute_query("SELECT COUNT(*) AS c FROM daily_close")
     assert tbl.column("c").to_pylist()[0] == 2
 
 
@@ -119,12 +119,12 @@ def test_upsert_updates_existing_rows(manager):
     manager.upsert_dataframe(df2)
 
     # Row count must NOT grow -- same (Date, Ticker) PK.
-    tbl = manager.execute_query("SELECT COUNT(*) AS c FROM daily_quotes")
+    tbl = manager.execute_query("SELECT COUNT(*) AS c FROM daily_close")
     assert tbl.column("c").to_pylist()[0] == 2
 
     # Close values must be the updated ones, in date order.
     closes = manager.execute_query(
-        "SELECT Close FROM daily_quotes WHERE Ticker = 'AAPL' ORDER BY Date"
+        "SELECT Close FROM daily_close WHERE Ticker = 'AAPL' ORDER BY Date"
     )
     assert closes.column("Close").to_pylist() == [8.8, 9.9]
 
@@ -141,7 +141,7 @@ def test_upsert_empty_df_returns_zero(manager):
     )
     n = manager.upsert_dataframe(df)
     assert n == 0
-    tbl = manager.execute_query("SELECT COUNT(*) AS c FROM daily_quotes")
+    tbl = manager.execute_query("SELECT COUNT(*) AS c FROM daily_close")
     assert tbl.column("c").to_pylist()[0] == 0
 
 
@@ -157,7 +157,7 @@ def test_execute_query_rejects_write(manager):
     # differs (executor: duckdb.TransactionException; challenger: ValueError),
     # so we only assert that it raises.
     with pytest.raises(Exception):
-        manager.execute_query("DELETE FROM daily_quotes")
+        manager.execute_query("DELETE FROM daily_close")
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +272,7 @@ def test_delete_ticker_data(manager):
     existing = manager.get_existing_tickers()
     assert existing == {"MSFT"}
 
-    tbl = manager.execute_query("SELECT COUNT(*) AS c FROM daily_quotes")
+    tbl = manager.execute_query("SELECT COUNT(*) AS c FROM daily_close")
     assert tbl.column("c").to_pylist()[0] == 2
 
 
@@ -309,5 +309,5 @@ def test_concurrent_writes_thread_safety(manager):
     existing = manager.get_existing_tickers()
     assert existing == set(tickers)
 
-    tbl = manager.execute_query("SELECT COUNT(*) AS c FROM daily_quotes")
+    tbl = manager.execute_query("SELECT COUNT(*) AS c FROM daily_close")
     assert tbl.column("c").to_pylist()[0] == len(tickers) * 2

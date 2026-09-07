@@ -362,14 +362,16 @@ def test_multiple_splits_single_redownload(
          patch(f"{module_name}.yf.download", side_effect=dl_side_effect), \
          patch.object(db, "is_split_processed", return_value=False), \
          patch.object(db, "delete_ticker_data") as mock_delete, \
-         patch.object(db, "record_split") as mock_record, \
+         patch.object(db, "batch_record_splits", return_value=2) as mock_batch, \
          patch.object(db, "upsert_dataframe", return_value=1):
         engine.fetch_and_clean(["AAPL"], "2024-01-01", "2024-01-05")
 
     # delete called once (not twice) despite two splits
     assert mock_delete.call_count == 1
-    # record_split called for each unprocessed split (2 calls)
-    assert mock_record.call_count == 2
+    # batch_record_splits called once with all unprocessed splits (2 splits)
+    mock_batch.assert_called_once()
+    batch_args = mock_batch.call_args.args[0]
+    assert len(batch_args) == 2
     # re-download happened exactly once (first download is the re-download)
     assert dl_calls["count"] >= 1
 

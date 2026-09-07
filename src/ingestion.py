@@ -72,13 +72,11 @@ class IngestionEngine:
                 if not unprocessed:
                     continue
 
-                # Record all unprocessed splits for idempotency
-                # justified: db.record_split is a per-row SQL INSERT with
-                # idempotency (ON CONFLICT DO NOTHING). No batch INSERT method
-                # exists in the DatabaseManager API. Splits are rare (1-5 per
-                # ticker per decade) so the loop is negligible.
-                for split_date_str, factor in unprocessed:
-                    self.db.record_split(t, split_date_str, factor)
+                # Record all unprocessed splits for idempotency via a single
+                # batch INSERT (SQL > loop hierarchy).
+                self.db.batch_record_splits(
+                    [(t, ds, f) for ds, f in unprocessed]
+                )
 
                 # Delete all existing data for this ticker
                 self.db.delete_ticker_data(t)

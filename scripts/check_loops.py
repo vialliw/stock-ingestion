@@ -24,8 +24,10 @@ Exit codes:
     0 — no unjustified loops found
     1 — unjustified loops found (prints violations)
 
-The --strict flag also flags loops that DO have a # justified comment,
-checking that the justification is non-empty.
+The --strict flag also flags ``# justified:`` comments that have no
+non-empty reason text after the colon (e.g. ``# justified:`` or
+``# justified:  `` with only whitespace).  A valid justification must
+have descriptive text after the colon.
 """
 from __future__ import annotations
 
@@ -119,8 +121,36 @@ class LoopChecker(ast.NodeVisitor):
         self.visit_For(node)  # type: ignore[arg-type]
 
 
+def _find_empty_justifications(
+    source_lines: list[str],
+) -> List[Tuple[int, int, str]]:
+    """Find ``# justified:`` comments with no non-empty reason text.
+
+    In strict mode, a ``# justified:`` comment must have descriptive
+    text after the colon.  Lines like ``# justified:`` or
+    ``# justified:   `` (only whitespace) are flagged.
+    """
+    violations: List[Tuple[int, int, str]] = []
+    for idx, line in enumerate(source_lines, start=1):
+        lower = line.lower()
+        marker = "# justified:"
+        pos = lower.find(marker)
+        if pos == -1:
+            continue
+        # Extract text after the colon
+        after = line[pos + len(marker):].strip()
+        if not after:
+            snippet = line.strip()
+            violations.append((idx, 0, snippet))
+    return violations
+
+
 def check_file(filepath: str, strict: bool = False) -> List[Tuple[int, int, str]]:
-    """Check a single Python file for unjustified loops."""
+    """Check a single Python file for unjustified loops.
+
+    If ``strict`` is True, also flag ``# justified:`` comments that
+    have no non-empty reason text after the colon.
+    """
     try:
         with open(filepath, encoding="utf-8") as f:
             source = f.read()
@@ -136,12 +166,15 @@ def check_file(filepath: str, strict: bool = False) -> List[Tuple[int, int, str]
     checker = LoopChecker(filepath, source_lines)
     checker.visit(tree)
 
-    if strict:
-        # In strict mode, also flag loops with empty justifications
-        # (e.g. "# justified:" with no text after it)
-        pass  # TODO: implement if needed
+    violations = list(checker.violations)
 
-    return checker.violations
+    if strict:
+        # In strict mode, also flag # justified: comments with empty
+        # reason text (e.g. "# justified:" with no text after the colon).
+        empty_just = _find_empty_justifications(source_lines)
+        violations.extend(empty_just)
+
+    return violations
 
 
 def main() -> int:

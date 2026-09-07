@@ -117,7 +117,7 @@ class _DownloadMixin:
 
 
 class _NormalizeMixin:
-    """Normalize raw yf.download output to the flat daily_quotes schema."""
+    """Normalize raw yf.download output to the flat daily_close schema."""
 
     _OUTPUT_COLUMNS = ["Date", "Ticker", "Open", "High", "Low", "Close", "Volume"]
 
@@ -235,11 +235,11 @@ class _SplitMixin:
                 if not unprocessed:
                     continue
 
-                # Record all unprocessed splits for idempotency
-                # justified: db.record_split is a per-row SQL INSERT with
-                # idempotency. No batch INSERT method exists. Splits are rare.
-                for split_date_str, factor in unprocessed:
-                    self.db.record_split(t, split_date_str, factor)
+                # Record all unprocessed splits for idempotency via a single
+                # batch INSERT (SQL > loop hierarchy).
+                self.db.batch_record_splits(
+                    [(t, ds, f) for ds, f in unprocessed]
+                )
 
                 # Delete all existing data for this ticker
                 self.db.delete_ticker_data(t)

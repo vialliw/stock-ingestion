@@ -111,7 +111,7 @@ By wrapping DuckDB inside a single PyArrow Flight service process, the system by
 ### Phase 1 (this specification)
 
 - Configuration via `config.yaml` with Pydantic validation, nested schema, and field validators
-- DuckDB local storage with the 7-column `daily_quotes` schema + `schema_version` + `splits_processed` tables
+- DuckDB local storage with the 7-column `daily_close` schema + `schema_version` + `splits_processed` tables
 - yfinance batch ingestion: initial load, daily rolling load, on-request load
 - New ticker detection and aligned backfill in daily load
 - Delisted ticker purge with soft-fail logging for non-excluded empty tickers
@@ -219,7 +219,7 @@ Primary key: `(Date, Ticker)`. DuckDB automatically creates an index for the pri
 > **Volume type note:** `DOUBLE` instead of `BIGINT` because yfinance returns float volumes after split/dividend adjustments. `BIGINT` would silently truncate fractional shares.
 
 ```sql
-CREATE TABLE IF NOT EXISTS daily_quotes (
+CREATE TABLE IF NOT EXISTS daily_close (
     Date DATE NOT NULL,
     Ticker VARCHAR NOT NULL,
     Open DOUBLE,
@@ -265,7 +265,7 @@ CREATE TABLE IF NOT EXISTS splits_processed (
 All ingestion operations (initial, daily, on-request) use the same `MERGE INTO` upsert via `DatabaseManager.upsert_dataframe()`. The dataframe is registered as a DuckDB view named `staging_df`, then merged:
 
 ```sql
-MERGE INTO daily_quotes AS target
+MERGE INTO daily_close AS target
 USING staging_df AS source
 ON target.Date = source.Date AND target.Ticker = source.Ticker
 WHEN MATCHED THEN UPDATE SET
@@ -315,7 +315,7 @@ The per-ticker loop is retained **only for split detection** (`yf.Ticker(t).spli
 
 ### 5.3 Initial Load (`initial_load`)
 
-- **Behavior:** Downloads 6 years of historical daily data for all configured tickers via batch `yf.download()` and upserts into `daily_quotes`.
+- **Behavior:** Downloads 6 years of historical daily data for all configured tickers via batch `yf.download()` and upserts into `daily_close`.
 - **Execution:** Triggered manually via the Flight `do_action` endpoint (`action_type: "initial_load"`). Intended for first-time database population or when the database is empty.
 - **yfinance parameters:** `interval="1d"`, `auto_adjust=True`, `group_by='ticker'`.
 
@@ -323,7 +323,7 @@ The per-ticker loop is retained **only for split detection** (`yf.Ticker(t).spli
 
 - **Behavior:** Downloads the trailing 4 calendar days for all configured tickers to account for settlement windows, exchange data adjustments, and late-reported bar updates.
 - **New Ticker Detection (backfill before refresh):** Before the trailing-4-day refresh, the daily load checks for tickers in `config.ingestion.tickers` that do not yet exist in the database. If new tickers are found:
-  1. Query the aligned start date: `SELECT MIN(Date) FROM daily_quotes` — the earliest date across all existing tickers.
+  1. Query the aligned start date: `SELECT MIN(Date) FROM daily_close` — the earliest date across all existing tickers.
   2. Download historical data for the new tickers from the aligned start date to today.
   3. Upsert via the standard `MERGE INTO` pattern.
   4. Log: `INFO - New ticker(s) detected: [TSLA, AMD]. Backfilling from aligned start date 2020-09-06.`
@@ -355,7 +355,7 @@ Day 41:  daily_load fetches day 37–40 with auto_adjust=True
 
 When a new split is detected for a ticker:
 
-1. **Delete** all existing rows for that ticker from `daily_quotes`.
+1. **Delete** all existing rows for that ticker from `daily_close`.
 2. **Re-download** the full history from the aligned start date (earliest `Date` across all tickers in the database) to today, using `auto_adjust=True`.
 3. **Upsert** the re-downloaded data.
 
@@ -377,7 +377,7 @@ On every `fetch_and_clean` call, for each ticker:
 2. For each split, check if `(ticker, split_date)` exists in `splits_processed`.
 3. If any unprocessed split is found for the ticker:
    a. Record all unprocessed splits in `splits_processed`.
-   b. Delete all rows: `DELETE FROM daily_quotes WHERE Ticker = ?`
+   b. Delete all rows: `DELETE FROM daily_close WHERE Ticker = ?`
    c. Re-download from aligned start date to today with `auto_adjust=True`.
    d. Upsert the re-downloaded data.
    e. Log: `WARNING - RUNTIME EVENT: Stock split detected for '{ticker}'. Deleted and re-downloaded from {aligned_start} to today.`
@@ -402,7 +402,7 @@ During all ingestion calls (`fetch_and_clean`), for each ticker:
    - Record the split in `splits_processed` to prevent re-processing.
    - Delete all rows for the ticker:
      ```sql
-     DELETE FROM daily_quotes WHERE Ticker = :ticker;
+     DELETE FROM daily_close WHERE Ticker = :ticker;
      ```
    - Re-download full history from the aligned start date with `auto_adjust=True`.
    - Upsert the re-downloaded data.
@@ -413,7 +413,7 @@ During all ingestion calls (`fetch_and_clean`), for each ticker:
 During all ingestion calls (`fetch_and_clean`):
 
 1. If `yfinance` returns an empty dataframe for a ticker AND that ticker is listed in `config.ingestion.exclude_tickers`:
-   - Execute: `DELETE FROM daily_quotes WHERE Ticker = ?`
+   - Execute: `DELETE FROM daily_close WHERE Ticker = ?`
    - Log: `CRITICAL - RUNTIME EVENT: Delisted ticker data completely purged for '{ticker}'.`
 2. If a ticker returns empty data but is NOT in `exclude_tickers`:
    - Log: `WARNING - RUNTIME EVENT: Ticker '{ticker}' returned empty dataset. Not in exclude list — skipped (no purge). This may indicate a temporary data outage.`
@@ -439,7 +439,7 @@ Flight Server Endpoints
 
 | Function | Type | Input Descriptor / Ticket JSON | Output Payload |
 | --- | --- | --- | --- |
-| `QueryData` | `do_get` | `{"sql": "SELECT * FROM daily_quotes WHERE Ticker='AAPL'"}` | PyArrow RecordBatch Stream |
+| `QueryData` | `do_get` | `{"sql": "SELECT * FROM daily_close WHERE Ticker='AAPL'"}` | PyArrow RecordBatch Stream |
 | `TriggerInitLoad` | `do_action` | `Action: "initial_load", Body: {"years": 6}` | ActionResult (see §7.5) |
 | `TriggerDailyLoad` | `do_action` | `Action: "daily_load", Body: {}` | ActionResult (see §7.5) |
 | `TriggerOnDemand` | `do_action` | `Action: "on_request_load", Body: {"tickers": ["NVDA"], "start_date": "2026-01-01", "end_date": "2026-09-01"}` | ActionResult (see §7.5) |
@@ -544,8 +544,8 @@ SELECT
     Close,
     Volume,
     (Close * Volume) AS dollar_volume
-FROM daily_quotes
-WHERE Date = (SELECT MAX(Date) FROM daily_quotes)
+FROM daily_close
+WHERE Date = (SELECT MAX(Date) FROM daily_close)
 ORDER BY dollar_volume DESC
 LIMIT 20;
 ```
@@ -559,7 +559,7 @@ SELECT
     Close,
     Volume,
     (Close * Volume) AS dollar_volume
-FROM daily_quotes
+FROM daily_close
 WHERE Date = ?
 ORDER BY dollar_volume DESC
 LIMIT 20;
@@ -706,7 +706,7 @@ class DatabaseManager:
     def _init_schema(self):
         with self._write_lock:
             self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS daily_quotes (
+                CREATE TABLE IF NOT EXISTS daily_close (
                     Date DATE NOT NULL,
                     Ticker VARCHAR NOT NULL,
                     Open DOUBLE,
@@ -758,7 +758,7 @@ class DatabaseManager:
         with self._write_lock:
             self.conn.register("staging_df", df)
             self.conn.execute("""
-                MERGE INTO daily_quotes AS target
+                MERGE INTO daily_close AS target
                 USING staging_df AS source
                 ON target.Date = source.Date AND target.Ticker = source.Ticker
                 WHEN MATCHED THEN UPDATE SET
@@ -778,7 +778,7 @@ class DatabaseManager:
 
     def purge_ticker(self, ticker: str):
         with self._write_lock:
-            self.conn.execute("DELETE FROM daily_quotes WHERE Ticker = ?", [ticker])
+            self.conn.execute("DELETE FROM daily_close WHERE Ticker = ?", [ticker])
         logger.critical(f"RUNTIME EVENT: Delisted ticker data completely purged for '{ticker}'.")
 
     def is_split_processed(self, ticker: str, split_date: str) -> bool:
@@ -804,12 +804,12 @@ class DatabaseManager:
     def delete_ticker_data(self, ticker: str):
         """Delete all rows for a ticker (used before re-download after split)."""
         with self._write_lock:
-            self.conn.execute("DELETE FROM daily_quotes WHERE Ticker = ?", [ticker])
+            self.conn.execute("DELETE FROM daily_close WHERE Ticker = ?", [ticker])
 
     def get_existing_tickers(self) -> Set[str]:
         conn = self._read_only_conn()
         try:
-            result = conn.execute("SELECT DISTINCT Ticker FROM daily_quotes").fetchall()
+            result = conn.execute("SELECT DISTINCT Ticker FROM daily_close").fetchall()
             return {row[0] for row in result}
         finally:
             conn.close()
@@ -818,7 +818,7 @@ class DatabaseManager:
         """Return the earliest Date across all tickers as ISO string, or None."""
         conn = self._read_only_conn()
         try:
-            result = conn.execute("SELECT MIN(Date) FROM daily_quotes").fetchone()
+            result = conn.execute("SELECT MIN(Date) FROM daily_close").fetchone()
             if result and result[0]:
                 return str(result[0])
             return None
@@ -836,7 +836,7 @@ class DatabaseManager:
                 rel = conn.execute(
                     """SELECT Ticker, Date, Close, Volume,
                               (Close * Volume) AS dollar_volume
-                       FROM daily_quotes
+                       FROM daily_close
                        WHERE Date = ?
                        ORDER BY dollar_volume DESC
                        LIMIT 20;""",
@@ -846,8 +846,8 @@ class DatabaseManager:
                 rel = conn.execute(
                     """SELECT Ticker, Date, Close, Volume,
                               (Close * Volume) AS dollar_volume
-                       FROM daily_quotes
-                       WHERE Date = (SELECT MAX(Date) FROM daily_quotes)
+                       FROM daily_close
+                       WHERE Date = (SELECT MAX(Date) FROM daily_close)
                        ORDER BY dollar_volume DESC
                        LIMIT 20;"""
                 )
@@ -1259,7 +1259,7 @@ import json
 client = flight.FlightClient("grpc://127.0.0.1:8815")
 
 ticket_payload = json.dumps({
-    "sql": "SELECT * FROM daily_quotes WHERE Ticker = 'AAPL' ORDER BY Date DESC"
+    "sql": "SELECT * FROM daily_close WHERE Ticker = 'AAPL' ORDER BY Date DESC"
 })
 ticket = flight.Ticket(ticket_payload.encode('utf-8'))
 

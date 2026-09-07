@@ -271,7 +271,7 @@ def test_do_get_select_returns_arrow_data(components):
     server, db_manager, engine, cfg = components
     insert_synthetic_data(db_manager, n_tickers=5)
 
-    ticket = make_ticket("SELECT * FROM daily_quotes")
+    ticket = make_ticket("SELECT * FROM daily_close")
     stream = server.do_get(None, ticket)
 
     # do_get must return a RecordBatchStream (proves the full path:
@@ -279,7 +279,7 @@ def test_do_get_select_returns_arrow_data(components):
     assert isinstance(stream, flight.RecordBatchStream)
 
     # Verify the underlying data by executing the same query directly
-    table = db_manager.execute_query("SELECT * FROM daily_quotes")
+    table = db_manager.execute_query("SELECT * FROM daily_close")
     assert table.num_rows == 5
     assert table.num_columns == 7  # Date, Ticker, Open, High, Low, Close, Volume
 
@@ -289,10 +289,10 @@ def test_do_get_select_returns_arrow_data(components):
 # =====================================================================
 
 def test_do_get_delete_raises_flight_server_error(components):
-    """AC 5: do_get with 'DELETE FROM daily_quotes' raises FlightServerError."""
+    """AC 5: do_get with 'DELETE FROM daily_close' raises FlightServerError."""
     server, db_manager, engine, cfg = components
 
-    ticket = make_ticket("DELETE FROM daily_quotes")
+    ticket = make_ticket("DELETE FROM daily_close")
     with pytest.raises(flight.FlightServerError):
         server.do_get(None, ticket)
 
@@ -319,14 +319,14 @@ def test_concurrent_do_get_3_threads(components):
     def query_thread(idx):
         try:
             ticket = make_ticket(
-                "SELECT COUNT(*) AS cnt FROM daily_quotes"
+                "SELECT COUNT(*) AS cnt FROM daily_close"
             )
             stream = server.do_get(None, ticket)
             # Verify do_get returned a RecordBatchStream (no exception)
             assert isinstance(stream, flight.RecordBatchStream)
             # Verify underlying data via direct execute_query
             table = db_manager.execute_query(
-                "SELECT COUNT(*) AS cnt FROM daily_quotes"
+                "SELECT COUNT(*) AS cnt FROM daily_close"
             )
             results[idx] = table.num_rows
         except Exception as e:

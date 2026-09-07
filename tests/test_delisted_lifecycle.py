@@ -70,7 +70,7 @@ def test_delisted_ticker_lifecycle(tmp_path):
     assert "XYZ" in succeeded
 
     # Verify XYZ data is in DB
-    table = db.execute_query("SELECT COUNT(*) as c FROM daily_quotes WHERE Ticker='XYZ'")
+    table = db.execute_query("SELECT COUNT(*) as c FROM daily_close WHERE Ticker='XYZ'")
     count = table.to_pandas().iloc[0]["c"]
     print(f"[Phase 1] XYZ rows in DB: {count}")
     assert count == 20
@@ -90,7 +90,7 @@ def test_delisted_ticker_lifecycle(tmp_path):
     assert errors2.get("XYZ") == "Empty dataset"
 
     # Verify XYZ data is STILL in DB (not purged — not in exclude_tickers)
-    table2 = db.execute_query("SELECT COUNT(*) as c FROM daily_quotes WHERE Ticker='XYZ'")
+    table2 = db.execute_query("SELECT COUNT(*) as c FROM daily_close WHERE Ticker='XYZ'")
     count2 = table2.to_pandas().iloc[0]["c"]
     print(f"[Phase 2] XYZ rows in DB after delisted download: {count2}")
     assert count2 == 20, f"Expected 20 rows intact, got {count2}"
@@ -112,7 +112,7 @@ def test_delisted_ticker_lifecycle(tmp_path):
     assert "XYZ" not in failed3  # excluded tickers are filtered, not failed
 
     # KEY CHECK: Was XYZ purged from the DB?
-    table3 = db.execute_query("SELECT COUNT(*) as c FROM daily_quotes WHERE Ticker='XYZ'")
+    table3 = db.execute_query("SELECT COUNT(*) as c FROM daily_close WHERE Ticker='XYZ'")
     count3 = table3.to_pandas().iloc[0]["c"]
     print(f"[Phase 3] XYZ rows in DB after exclude: {count3}")
 

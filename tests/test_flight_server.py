@@ -96,30 +96,30 @@ class TestValidateSelectOnly:
     """Tests for the module-level ``_validate_select_only`` function."""
 
     def test_accepts_simple_select(self, module):
-        # AC 1: accepts 'SELECT * FROM daily_quotes'
-        module._validate_select_only("SELECT * FROM daily_quotes")
+        # AC 1: accepts 'SELECT * FROM daily_close'
+        module._validate_select_only("SELECT * FROM daily_close")
 
     def test_accepts_with_cte(self, module):
-        # AC 2: accepts 'WITH cte AS (SELECT * FROM daily_quotes) SELECT * FROM cte'
+        # AC 2: accepts 'WITH cte AS (SELECT * FROM daily_close) SELECT * FROM cte'
         module._validate_select_only(
-            "WITH cte AS (SELECT * FROM daily_quotes) SELECT * FROM cte"
+            "WITH cte AS (SELECT * FROM daily_close) SELECT * FROM cte"
         )
 
     def test_rejects_delete(self, module):
-        # AC 3: rejects 'DELETE FROM daily_quotes'
+        # AC 3: rejects 'DELETE FROM daily_close'
         with pytest.raises(ValueError):
-            module._validate_select_only("DELETE FROM daily_quotes")
+            module._validate_select_only("DELETE FROM daily_close")
 
     def test_rejects_drop(self, module):
-        # AC 4: rejects 'DROP TABLE daily_quotes'
+        # AC 4: rejects 'DROP TABLE daily_close'
         with pytest.raises(ValueError):
-            module._validate_select_only("DROP TABLE daily_quotes")
+            module._validate_select_only("DROP TABLE daily_close")
 
     def test_rejects_insert(self, module):
-        # AC 5: rejects 'INSERT INTO daily_quotes VALUES (...)'
+        # AC 5: rejects 'INSERT INTO daily_close VALUES (...)'
         with pytest.raises(ValueError):
             module._validate_select_only(
-                "INSERT INTO daily_quotes VALUES (1, 'AAPL', 100, 200)"
+                "INSERT INTO daily_close VALUES (1, 'AAPL', 100, 200)"
             )
 
     def test_rejects_empty_string(self, module):
