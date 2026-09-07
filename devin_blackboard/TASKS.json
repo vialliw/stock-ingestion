@@ -371,9 +371,24 @@
     "role": "executor",
     "model": "swe",
     "status": "done",
-    "depends_on": ["F5-T3"],
-    "input_files": ["/src/*.py", "/AGENTS.md"],
-    "output_files": ["/scripts/check_loops.py", "/scripts/pre_commit_check_loops.py", "/.git/hooks/pre-commit", "/src/config.py", "/src/config_challenger.py", "/src/db.py", "/src/db_challenger.py", "/src/ingestion.py", "/src/ingestion_challenger.py"],
+    "depends_on": [
+      "F5-T3"
+    ],
+    "input_files": [
+      "/src/*.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/scripts/check_loops.py",
+      "/scripts/pre_commit_check_loops.py",
+      "/.git/hooks/pre-commit",
+      "/src/config.py",
+      "/src/config_challenger.py",
+      "/src/db.py",
+      "/src/db_challenger.py",
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py"
+    ],
     "acceptance_criteria": "scripts/check_loops.py: AST-based checker that scans src/*.py for unjustified for-loops. Exempts range/enumerate/zip/.items()/.values()/.keys()/constant literals. Accepts '# justified: <reason>' comments within 6 lines above the for. scripts/pre_commit_check_loops.py + .git/hooks/pre-commit: blocks commits with unjustified loops. 6 vectorizable loops replaced with vectorized ops or dict comprehensions. 7 remaining loops annotated with '# justified:' comments. python scripts/check_loops.py --src-dir src exits 0 with 'No unjustified loops found'. Full suite: python -m pytest tests/ -q exits 0.",
     "assigned_to": null
   },
@@ -383,10 +398,15 @@
     "role": "challenger",
     "model": "glm",
     "status": "done",
-    "depends_on": ["F5-T3"],
-    "input_files": ["/scripts/check_loops.py", "/AGENTS.md"],
+    "depends_on": [
+      "F5-T3"
+    ],
+    "input_files": [
+      "/scripts/check_loops.py",
+      "/AGENTS.md"
+    ],
     "output_files": [],
-    "acceptance_criteria": "Review scripts/check_loops.py for: (1) false positives — exempt patterns that are incorrectly flagged; (2) false negatives — data-iteration loops that are incorrectly exempted; (3) edge cases — nested loops, comprehensions, while loops. Document findings in EVENTS.log. No code changes required unless a critical false negative is found.",
+    "acceptance_criteria": "Review scripts/check_loops.py for: (1) false positives \u2014 exempt patterns that are incorrectly flagged; (2) false negatives \u2014 data-iteration loops that are incorrectly exempted; (3) edge cases \u2014 nested loops, comprehensions, while loops. Document findings in EVENTS.log. No code changes required unless a critical false negative is found.",
     "assigned_to": null
   },
   {
@@ -395,9 +415,18 @@
     "role": "critic",
     "model": "swe",
     "status": "done",
-    "depends_on": ["F6-T1", "F6-T2"],
-    "input_files": ["/scripts/check_loops.py", "/src/*.py", "/AGENTS.md"],
-    "output_files": ["/AGENTS.md"],
+    "depends_on": [
+      "F6-T1",
+      "F6-T2"
+    ],
+    "input_files": [
+      "/scripts/check_loops.py",
+      "/src/*.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/AGENTS.md"
+    ],
     "acceptance_criteria": "python scripts/check_loops.py --src-dir src exits 0. python -m pytest tests/ -q exits 0 (122+ tests). AGENTS.md updated with enforcement mechanism documentation: checker script, pre-commit hook, Critic mandatory checklist. Critic pastes checker output + pytest output to EVENTS.log.",
     "assigned_to": null
   },
@@ -407,21 +436,62 @@
     "role": "executor",
     "model": "swe",
     "status": "done",
-    "depends_on": ["F6-T3"],
-    "input_files": ["/src/db.py", "/src/db_challenger.py", "/src/ingestion.py", "/src/ingestion_challenger.py", "/src/flight_server.py", "/src/flight_server_challenger.py", "/src/store.py", "/src/store_challenger.py", "/tests/*.py", "/docs/tech_spec/gemini_tech_spec.1.0.2.md", "/scripts/check_loops.py"],
-    "output_files": ["/src/db.py", "/src/db_challenger.py", "/src/ingestion.py", "/src/ingestion_challenger.py", "/src/flight_server.py", "/src/flight_server_challenger.py", "/src/store.py", "/src/store_challenger.py", "/tests/test_db.py", "/tests/test_ingestion.py", "/tests/test_integration.py", "/tests/test_flight_server.py", "/tests/test_delisted_lifecycle.py", "/tests/test_store_csv.py", "/tests/test_config_breaking.py", "/docs/tech_spec/gemini_tech_spec.1.0.2.md", "/scripts/check_loops.py"],
-    "acceptance_criteria": "(1) Table renamed: grep -ri daily_quotes src/ tests/ docs/ returns 0 matches. All SQL uses daily_close (lowercase). (2) Schema migration: DatabaseManager.__init__ checks schema_version; if version 1 and daily_quotes exists, executes ALTER TABLE daily_quotes RENAME TO daily_close; bumps SCHEMA_VERSION to 2. (3) SQL CAST: generate_top_20_dollar_volume query uses CAST(Date AS VARCHAR) — no Python loop for Date stringify in db.py or db_challenger.py. (4) batch_record_splits: DatabaseManager.batch_record_splits(splits: List[Tuple[str, str, float]]) does single SQL INSERT with ON CONFLICT DO NOTHING. ingestion.py and ingestion_challenger.py use it instead of per-split loop. (5) check_loops --strict: flags # justified: comments with empty reason text. (6) python scripts/check_loops.py --src-dir src exits 0. (7) python scripts/check_loops.py --src-dir src --strict exits 0. (8) python -m pytest tests/ -q exits 0 (122+ tests). (9) Existing production DB at C:\\Intel\\parquet\\stock_ingestion.duckdb can be opened and daily_close table exists with correct row counts.",
+    "depends_on": [
+      "F6-T3"
+    ],
+    "input_files": [
+      "/src/db.py",
+      "/src/db_challenger.py",
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/src/flight_server.py",
+      "/src/flight_server_challenger.py",
+      "/src/store.py",
+      "/src/store_challenger.py",
+      "/tests/*.py",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md",
+      "/scripts/check_loops.py"
+    ],
+    "output_files": [
+      "/src/db.py",
+      "/src/db_challenger.py",
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/src/flight_server.py",
+      "/src/flight_server_challenger.py",
+      "/src/store.py",
+      "/src/store_challenger.py",
+      "/tests/test_db.py",
+      "/tests/test_ingestion.py",
+      "/tests/test_integration.py",
+      "/tests/test_flight_server.py",
+      "/tests/test_delisted_lifecycle.py",
+      "/tests/test_store_csv.py",
+      "/tests/test_config_breaking.py",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md",
+      "/scripts/check_loops.py"
+    ],
+    "acceptance_criteria": "(1) Table renamed: grep -ri daily_quotes src/ tests/ docs/ returns 0 matches. All SQL uses daily_close (lowercase). (2) Schema migration: DatabaseManager.__init__ checks schema_version; if version 1 and daily_quotes exists, executes ALTER TABLE daily_quotes RENAME TO daily_close; bumps SCHEMA_VERSION to 2. (3) SQL CAST: generate_top_20_dollar_volume query uses CAST(Date AS VARCHAR) \u2014 no Python loop for Date stringify in db.py or db_challenger.py. (4) batch_record_splits: DatabaseManager.batch_record_splits(splits: List[Tuple[str, str, float]]) does single SQL INSERT with ON CONFLICT DO NOTHING. ingestion.py and ingestion_challenger.py use it instead of per-split loop. (5) check_loops --strict: flags # justified: comments with empty reason text. (6) python scripts/check_loops.py --src-dir src exits 0. (7) python scripts/check_loops.py --src-dir src --strict exits 0. (8) python -m pytest tests/ -q exits 0 (122+ tests). (9) Existing production DB at C:\\Intel\\parquet\\stock_ingestion.duckdb can be opened and daily_close table exists with correct row counts.",
     "assigned_to": "B"
   },
   {
     "id": "F7-T0e",
-    "title": "Critic: verify Cycle 0 — table rename + hardening + full regression",
+    "title": "Critic: verify Cycle 0 \u2014 table rename + hardening + full regression",
     "role": "critic",
     "model": "swe",
-    "status": "todo",
-    "depends_on": ["F7-T0"],
-    "input_files": ["/src/*.py", "/tests/*.py", "/scripts/check_loops.py", "/docs/tech_spec/gemini_tech_spec.1.0.2.md"],
-    "output_files": ["/tests/ (update if needed)"],
+    "status": "in_progress",
+    "depends_on": [
+      "F7-T0"
+    ],
+    "input_files": [
+      "/src/*.py",
+      "/tests/*.py",
+      "/scripts/check_loops.py",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
+    ],
+    "output_files": [
+      "/tests/ (update if needed)"
+    ],
     "acceptance_criteria": "(1) grep -ri daily_quotes src/ tests/ docs/ returns 0 matches. (2) python scripts/check_loops.py --src-dir src exits 0. (3) python scripts/check_loops.py --src-dir src --strict exits 0. (4) python -m pytest tests/ -q exits 0 (122+ tests). (5) No # justified: loops remain for Date stringify or record_split (those should be eliminated by CAST and batch INSERT). (6) Critic pastes full grep output + checker output + pytest output to EVENTS.log.",
     "assigned_to": "D"
   }
