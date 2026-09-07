@@ -289,38 +289,47 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin):
     ) -> Tuple[pd.DataFrame, List[str], List[str], Dict[str, str]]:
         """Fetch pricing data (batch) + check splits (per-ticker).
 
-        Returns ``(df, succeeded, failed, errors)``.
+        ``exclude_tickers`` are filtered out at the earliest stage —
+        they are never downloaded, never split-checked, and never
+        normalised.  Returns ``(df, succeeded, failed, errors)``.
         """
         if not tickers:
             return pd.DataFrame(), [], [], {}
 
+        # --- Earliest-stage exclusion filter ---
+        excluded = set(self.cfg.ingestion.exclude_tickers)
+        effective_tickers = [t for t in tickers if t not in excluded]
+        skipped = [t for t in tickers if t in excluded]
+        if skipped:
+            logger.info(
+                "RUNTIME EVENT: Excluding tickers from download (in exclude_tickers): %s",
+                skipped,
+            )
+        if not effective_tickers:
+            return pd.DataFrame(), [], [], {}
+
         # --- Split detection (per-ticker, no batch API) ---
-        self._check_and_apply_splits(tickers)
+        self._check_and_apply_splits(effective_tickers)
 
         # --- Batch pricing download (with retry/backoff) ---
         try:
-            raw_df = self._batch_download(tickers, start_date, end_date)
+            raw_df = self._batch_download(effective_tickers, start_date, end_date)
         except DownloadError as exc:
             # All retries exhausted — mark every ticker as failed.
-            failed = list(tickers)
-            errors: Dict[str, str] = {t: str(exc) for t in tickers}
-            for t in tickers:
-                if t in self.cfg.ingestion.exclude_tickers:
-                    self.db.purge_ticker(t)
+            failed = list(effective_tickers)
+            errors: Dict[str, str] = {t: str(exc) for t in effective_tickers}
             return pd.DataFrame(), [], failed, errors
 
         if raw_df.empty:
             # All tickers returned nothing
             failed = []
             errors = {}
-            for t in tickers:
+            for t in effective_tickers:
                 failed.append(t)
                 errors[t] = "Empty dataset from yf.download"
-                if t in self.cfg.ingestion.exclude_tickers:
-                    self.db.purge_ticker(t)
             return pd.DataFrame(), [], failed, errors
 
-        return self._normalize_batch_df(raw_df, tickers)
+        return self._normalize_batch_df(raw_df, effective_tickers)
 
     def run_initial_load(self, years: int = 6) -> Dict[str, Any]:
         start_time = datetime.now()
@@ -362,7 +371,9 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin):
         total_rows = 0
 
         # --- New ticker detection: backfill from aligned start date ---
-        new_tickers = self.db.detect_new_tickers(self.cfg.ingestion.tickers)
+        excluded = set(self.cfg.ingestion.exclude_tickers)
+        effective_tickers = [t for t in self.cfg.ingestion.tickers if t not in excluded]
+        new_tickers = self.db.detect_new_tickers(effective_tickers)
         if new_tickers:
             aligned_start = self.db.get_aligned_start_date()
             if aligned_start:
@@ -397,14 +408,14 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin):
                 all_errors.update(result.get("errors", {}))
                 # Fall through to trailing 4-day refresh
 
-        # --- Trailing 4-day refresh for all tickers ---
+        # --- Trailing 4-day refresh for all effective tickers ---
         logger.info(
             "US Market active. Executing daily load (trailing 4 calendar days)..."
         )
         end_dt = datetime.now()
         start_dt = end_dt - timedelta(days=4)
         df, succ, fail, err = self.fetch_and_clean(
-            self.cfg.ingestion.tickers,
+            effective_tickers,
             start_dt.strftime("%Y-%m-%d"),
             end_dt.strftime("%Y-%m-%d"),
         )

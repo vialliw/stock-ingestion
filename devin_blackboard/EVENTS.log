@@ -158,3 +158,5 @@ Covers all 7 acceptance criteria: (1) main() importable+callable; (2) do_action 
 [ORCHESTRATOR] PHASE 1 COMPLETE. All 5 cycles done. 103/103 tests pass (excluding known BUG-F1-T2 edge cases). Production modules selected: config.py, db.py, ingestion.py, flight_server.py, main.py. Challenger variants retained for reference. Full test suite: python -m pytest tests/ -v --ignore=tests/test_config_breaking.py -> 103 passed in 9.98s.
 
 [ORCHESTRATOR] Fixed BUG-F1-T2: 4 config edge cases in src/config.py. (1) Boolean port rejected via mode=before validator; (2) null tickers/exclude_tickers return [] via mode=before; (3) malformed top-level YAML list raises ValueError not TypeError; (4) string scalar tickers and non-string ticker elements rejected. All 18 breaking tests now pass. Full suite: 121/121 passed.
+
+[ORCHESTRATOR] exclude_tickers now filters at earliest stage (never downloaded). Added CRNX to config.yaml tickers. Smoke test: AVB excluded (not in DB), AAPL/MSFT/NVDA 1506 rows each, CRNX 1479 rows (NOT delisted — returned valid data). 121/121 tests pass.

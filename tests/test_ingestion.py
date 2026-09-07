@@ -375,7 +375,7 @@ def test_multiple_splits_single_redownload(
 
 
 # ---------------------------------------------------------------------------
-# 6. Empty ticker in exclude_list -> purge
+# 6. Excluded ticker is filtered at earliest stage (never downloaded)
 # ---------------------------------------------------------------------------
 
 
@@ -385,34 +385,30 @@ def test_multiple_splits_single_redownload(
 def test_empty_excluded_ticker_purged(
     engine, db, cfg, module_name
 ):
-    """An empty dataset for a ticker in exclude_tickers triggers purge_ticker."""
-    # Build a multi-ticker df where BADTICKER is all-NaN and AAPL is valid.
+    """A ticker in exclude_tickers is filtered out at the earliest stage —
+    it is never downloaded, never split-checked, and never purged."""
     dates = dates_range("2024-01-01", "2024-01-03")
     good = make_mock_download_df(["AAPL"], dates)
-    # Construct an empty (NaN) sub-frame for BADTICKER.
-    bad_cols = pd.MultiIndex.from_product(
-        [["BADTICKER"], ["Open", "High", "Low", "Close", "Volume"]]
-    )
-    bad_idx = pd.to_datetime(dates)
-    bad_idx.name = "Date"
-    bad_data = np.full((len(dates), 5), np.nan)
-    bad_df = pd.DataFrame(bad_data, index=bad_idx, columns=bad_cols)
-    combined = pd.concat([good, bad_df], axis=1)
-    combined.index.name = "Date"
 
     mock_ticker = MagicMock()
     mock_ticker.splits = pd.Series([], dtype=float, name="splits")
 
-    with patch(f"{module_name}.yf.download", return_value=combined), \
+    with patch(f"{module_name}.yf.download", return_value=good) as mock_dl, \
          patch(f"{module_name}.yf.Ticker", return_value=mock_ticker), \
          patch.object(db, "purge_ticker") as mock_purge:
         df, succeeded, failed, errors = engine.fetch_and_clean(
             ["AAPL", "BADTICKER"], "2024-01-01", "2024-01-03"
         )
 
-    mock_purge.assert_called_once_with("BADTICKER")
-    assert "BADTICKER" in failed
+    # BADTICKER was filtered out — yf.download was called with only ["AAPL"]
+    assert "BADTICKER" not in succeeded
+    assert "BADTICKER" not in failed
     assert "AAPL" in succeeded
+    # purge_ticker was never called (excluded tickers are filtered, not purged)
+    mock_purge.assert_not_called()
+    # yf.download was called with only effective tickers (no BADTICKER)
+    call_args = mock_dl.call_args
+    assert "BADTICKER" not in call_args.kwargs.get("tickers", [])
 
 
 # ---------------------------------------------------------------------------
