@@ -278,14 +278,16 @@ class IngestionEngine:
         )
         rows = self.db.upsert_dataframe(df)
         duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
-        logger.info("Initial load completed. Rows upserted: %s.", rows)
-        return {
+        result = {
             "rows_upserted": rows,
             "tickers_succeeded": succeeded,
             "tickers_failed": failed,
             "errors": errors if failed else {},
             "duration_ms": duration_ms,
         }
+        self.db.record_ingestion_run("initial_load", result, started_at=start_time)
+        logger.info("Initial load completed. Rows upserted: %s.", rows)
+        return result
 
     def run_daily_load(self) -> Dict[str, Any]:
         """Daily incremental load.
@@ -310,7 +312,9 @@ class IngestionEngine:
                 "US Market is closed today (Holiday/Weekend). "
                 "Daily load execution skipped."
             )
-            return {"status": "SKIPPED", "reason": "Market closed", "duration_ms": 0}
+            result = {"status": "SKIPPED", "reason": "Market closed", "duration_ms": 0}
+            self.db.record_ingestion_run("daily_load", result, started_at=start_time)
+            return result
 
         all_succeeded: List[str] = []
         all_failed: List[str] = []
@@ -373,14 +377,16 @@ class IngestionEngine:
         all_errors.update(err)
 
         duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
-        logger.info("Daily load complete. Total rows upserted: %s.", total_rows)
-        return {
+        result = {
             "rows_upserted": total_rows,
             "tickers_succeeded": list(set(all_succeeded)),
             "tickers_failed": list(set(all_failed)),
             "errors": all_errors if all_failed else {},
             "duration_ms": duration_ms,
         }
+        self.db.record_ingestion_run("daily_load", result, started_at=start_time)
+        logger.info("Daily load complete. Total rows upserted: %s.", total_rows)
+        return result
 
     def run_on_request_load(
         self, tickers: List[str], start_date: str, end_date: str
@@ -403,14 +409,18 @@ class IngestionEngine:
         )
         rows = self.db.upsert_dataframe(df)
         duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
-        logger.info("On-request load complete. Rows upserted: %s.", rows)
-        return {
+        result = {
             "rows_upserted": rows,
             "tickers_succeeded": succeeded,
             "tickers_failed": failed,
             "errors": errors if failed else {},
             "duration_ms": duration_ms,
         }
+        self.db.record_ingestion_run(
+            "on_request_load", result, started_at=start_time
+        )
+        logger.info("On-request load complete. Rows upserted: %s.", rows)
+        return result
 
 
 __all__ = ["IngestionEngine"]

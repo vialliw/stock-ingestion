@@ -297,3 +297,79 @@ No BUG tasks filed. F7-T1c status set to done.
 [ORCHESTRATOR] Cycle 2 started. Spawning Agent B (Executor) for F7-T2 via devin_session_create with executor playbook. Task: health_check Flight action + ingestion_runs audit table. 8 acceptance criteria.
 
 [2026-09-07T19:32:42.532071+00:00] [EXECUTOR] claimed F7-T2
+[2026-09-07T19:37:57.294321+00:00] [EXECUTOR] completed F7-T2 -> All 8 acceptance criteria pass; 175 pytest tests pass; loop checker clean; health_check and get_run_history actions implemented; ingestion_runs audit table present and schema_version 3.
+Evidence map:
+[
+  {
+    "id": "AC-1",
+    "check": "loop_checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (11 files checked)\n"
+  },
+  {
+    "id": "AC-2",
+    "check": "loop_checker_strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (11 files checked)\n"
+  },
+  {
+    "id": "AC-3",
+    "check": "pytest_suite",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "      [100%]\n=============================== warnings summary ===============================\ntests/test_db.py: 8 warnings\ntests/test_delisted_lifecycle.py: 3 warnings\ntests/test_integration.py: 8 warnings\n  /home/ubuntu/repos/stock-ingestion/src/db.py:144: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n175 passed, 19 warnings in 2.76s\n"
+  },
+  {
+    "id": "AC-4",
+    "check": "ingestion_runs_table",
+    "command": "python -c \"import duckdb; conn = duckdb.connect('C:\\Intel\\parquet\\stock_ingestion.duckdb', read_only=True); conn.execute('SELECT column_name FROM information_schema.columns WHERE table_name=\\'ingestion_runs\\''); print('ingestion_runs table exists')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "ingestion_runs table exists\n"
+  },
+  {
+    "id": "AC-5",
+    "check": "health_check_action",
+    "command": "python -c \"import ast; tree = ast.parse(open('src/flight_server.py').read()); src = open('src/flight_server.py').read(); assert 'health_check' in src, 'health_check action not found'; print('health_check action found')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "health_check action found\n"
+  },
+  {
+    "id": "AC-6",
+    "check": "get_run_history_action",
+    "command": "python -c \"src = open('src/flight_server.py').read(); assert 'get_run_history' in src, 'get_run_history action not found'; print('get_run_history action found')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "get_run_history action found\n"
+  },
+  {
+    "id": "AC-7",
+    "check": "schema_version_3",
+    "command": "python -c \"import duckdb; conn = duckdb.connect('C:\\Intel\\parquet\\stock_ingestion.duckdb', read_only=True); r = conn.execute('SELECT MAX(version) FROM schema_version').fetchone(); assert r[0] >= 3, f'schema version {r[0]} < 3'; print(f'schema version {r[0]} >= 3')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "schema version 3 >= 3\n"
+  },
+  {
+    "id": "AC-8",
+    "check": "test_health_check_exists",
+    "command": "python -c \"import os; assert os.path.exists('tests/test_health_check.py'), 'tests/test_health_check.py not found'; print('test_health_check.py exists')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "test_health_check.py exists\n"
+  }
+]

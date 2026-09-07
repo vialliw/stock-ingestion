@@ -10,8 +10,10 @@ Spec reference: docs/tech_spec/gemini_tech_spec.1.0.2.md §4, §9, §10.
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import duckdb
@@ -20,7 +22,7 @@ import pyarrow as pa
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class DatabaseManager:
@@ -38,30 +40,13 @@ class DatabaseManager:
 
     def _init_schema(self):
         with self._write_lock:
-            # --- Schema migration: v1 -> v2 (rename daily_quotes -> daily_close) ---
-            try:
-                row = self.conn.execute(
-                    "SELECT MAX(version) FROM schema_version"
-                ).fetchone()
-                current_version = row[0] if row and row[0] is not None else 0
-            except duckdb.Error:
-                current_version = 0
-            if current_version == 1:
-                # Check if the old daily_quotes table still exists
-                tables = {
-                    r[0]
-                    for r in self.conn.execute(
-                        "SELECT table_name FROM information_schema.tables"
-                    ).fetchall()
-                }
-                if "daily_quotes" in tables:
-                    self.conn.execute(
-                        "ALTER TABLE daily_quotes RENAME TO daily_close"
-                    )
-                self.conn.execute(
-                    "INSERT INTO schema_version (version) VALUES (?)",
-                    [SCHEMA_VERSION],
-                )
+            # Ensure core tables exist before querying/migrating schema version.
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS schema_version (
+                    version INTEGER NOT NULL,
+                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS daily_close (
                     Date DATE NOT NULL,
@@ -84,18 +69,52 @@ class DatabaseManager:
                 );
             """)
             self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS schema_version (
-                    version INTEGER NOT NULL,
-                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                CREATE TABLE IF NOT EXISTS ingestion_runs (
+                    run_id BIGINT PRIMARY KEY,
+                    run_type VARCHAR NOT NULL,
+                    started_at TIMESTAMP,
+                    completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    status VARCHAR,
+                    rows_upserted INTEGER DEFAULT 0,
+                    tickers_succeeded INTEGER DEFAULT 0,
+                    tickers_failed INTEGER DEFAULT 0,
+                    errors_json VARCHAR,
+                    duration_ms INTEGER
                 );
             """)
-            self.conn.execute("""
-                INSERT INTO schema_version (version)
-                SELECT ?
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM schema_version WHERE version = ?
-                );
-            """, [SCHEMA_VERSION, SCHEMA_VERSION])
+
+            # Determine current schema version (0 = fresh database).
+            try:
+                row = self.conn.execute(
+                    "SELECT MAX(version) FROM schema_version"
+                ).fetchone()
+                current_version = row[0] if row and row[0] is not None else 0
+            except duckdb.Error:
+                current_version = 0
+
+            # --- v1 -> v2: rename the legacy daily_quotes table to daily_close ---
+            if current_version < 2:
+                if current_version == 1:
+                    tables = {
+                        r[0]
+                        for r in self.conn.execute(
+                            "SELECT table_name FROM information_schema.tables"
+                        ).fetchall()
+                    }
+                    if "daily_quotes" in tables:
+                        self.conn.execute(
+                            "ALTER TABLE daily_quotes RENAME TO daily_close"
+                        )
+                self.conn.execute(
+                    "INSERT INTO schema_version (version) VALUES (?)", [2]
+                )
+                current_version = 2
+
+            # --- v2 -> v3: ingestion_runs audit table (already created above) ---
+            if current_version < 3:
+                self.conn.execute(
+                    "INSERT INTO schema_version (version) VALUES (?)", [3]
+                )
 
     # ------------------------------------------------------------------
     # Read path (short-lived read-only connections)
@@ -321,6 +340,119 @@ class DatabaseManager:
                 params,
             )
         return len(splits)
+
+    # ------------------------------------------------------------------
+    # Ingestion run audit
+    # ------------------------------------------------------------------
+
+    def record_ingestion_run(
+        self,
+        run_type: str,
+        result: Dict[str, Any],
+        started_at: Optional[datetime] = None,
+    ) -> int:
+        """Persist a single audit row summarising an ingestion run.
+
+        ``result`` is the dict returned by one of the ``run_*`` entry
+        points.  A single SQL INSERT is used (no Python row loops).
+        Returns the generated ``run_id``.
+        """
+        if result is None:
+            result = {}
+        rows = int(result.get("rows_upserted", 0) or 0)
+        succeeded = len(result.get("tickers_succeeded", []) or [])
+        failed = len(result.get("tickers_failed", []) or [])
+        status = result.get("status", "UNKNOWN")
+        duration_ms = int(result.get("duration_ms", 0) or 0)
+        errors = result.get("errors", {})
+        if not isinstance(errors, dict):
+            errors = {}
+        errors_json = json.dumps(errors)
+        completed_at = datetime.now()
+
+        with self._write_lock:
+            max_id_row = self.conn.execute(
+                "SELECT COALESCE(MAX(run_id), 0) FROM ingestion_runs"
+            ).fetchone()
+            run_id = int(max_id_row[0]) + 1
+            self.conn.execute(
+                """
+                INSERT INTO ingestion_runs
+                (run_id, run_type, started_at, completed_at, status,
+                 rows_upserted, tickers_succeeded, tickers_failed,
+                 errors_json, duration_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    run_id,
+                    run_type,
+                    started_at,
+                    completed_at,
+                    status,
+                    rows,
+                    succeeded,
+                    failed,
+                    errors_json,
+                    duration_ms,
+                ],
+            )
+        return run_id
+
+    def get_ingestion_runs(self) -> pa.Table:
+        """Return the full ingestion_runs audit table as an Arrow table."""
+        return self.execute_query(
+            "SELECT * FROM ingestion_runs ORDER BY completed_at DESC"
+        )
+
+    def get_health_info(self) -> Dict[str, Any]:
+        """Return a snapshot of database health and row counts.
+
+        All aggregates are computed in a single SQL query
+        (SQL > vectorized > loop hierarchy).  If the database is
+        unreachable, ``db_connected`` is False and the remaining fields
+        fall back to safe defaults.
+        """
+        defaults: Dict[str, Any] = {
+            "db_connected": False,
+            "daily_close_count": 0,
+            "splits_processed_count": 0,
+            "ingestion_runs_count": 0,
+            "ticker_count": 0,
+            "last_run": None,
+            "schema_version": SCHEMA_VERSION,
+        }
+        try:
+            conn = self._read_only_conn()
+            try:
+                row = conn.execute(
+                    """
+                    SELECT
+                        (SELECT COUNT(*) FROM daily_close) AS daily_close_count,
+                        (SELECT COUNT(*) FROM splits_processed) AS splits_processed_count,
+                        (SELECT COUNT(*) FROM ingestion_runs) AS ingestion_runs_count,
+                        (SELECT COUNT(DISTINCT Ticker) FROM daily_close) AS ticker_count,
+                        (SELECT MAX(version) FROM schema_version) AS schema_version,
+                        (SELECT MAX(completed_at) FROM ingestion_runs) AS last_run
+                    """
+                ).fetchone()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error("Health check query failed: %s", e)
+            return defaults
+
+        if row is None:
+            return defaults
+
+        return {
+            "db_connected": True,
+            "daily_close_count": row[0] or 0,
+            "splits_processed_count": row[1] or 0,
+            "ingestion_runs_count": row[2] or 0,
+            "ticker_count": row[3] or 0,
+            "last_run": str(row[4]) if row[4] is not None else None,
+            "schema_version": row[5] if row[5] is not None else SCHEMA_VERSION,
+        }
 
     # ------------------------------------------------------------------
     # Shutdown

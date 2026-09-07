@@ -16,6 +16,7 @@ import logging
 import os
 from datetime import datetime
 
+import pandas as pd
 import pyarrow.flight as flight
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,7 @@ class MarketDataFlightServer(flight.FlightServerBase):
         self.db = db_mgr
         self.engine = ingest_engine
         self.cfg = cfg
+        self._start_time = datetime.now()
 
     # ------------------------------------------------------------------
     # Read path
@@ -156,6 +158,52 @@ class MarketDataFlightServer(flight.FlightServerBase):
                         "report": report_data,
                         "duration_ms": duration_ms,
                     }
+                ).encode("utf-8")
+            )
+
+        elif action_type == "health_check":
+            health = self.db.get_health_info()
+            uptime_seconds = int(
+                (datetime.now() - self._start_time).total_seconds()
+            )
+            status = "SUCCESS" if health.get("db_connected") else "DEGRADED"
+            return flight.Result(
+                json.dumps(
+                    {
+                        "status": status,
+                        "db_connected": health.get("db_connected", False),
+                        "db_path": self.cfg.db_path,
+                        "ticker_count": health.get("ticker_count", 0),
+                        "last_run": health.get("last_run"),
+                        "uptime_seconds": uptime_seconds,
+                        "daily_close_count": health.get("daily_close_count", 0),
+                        "splits_processed_count": health.get(
+                            "splits_processed_count", 0
+                        ),
+                        "ingestion_runs_count": health.get(
+                            "ingestion_runs_count", 0
+                        ),
+                        "schema_version": health.get(
+                            "schema_version", 0
+                        ),
+                    }
+                ).encode("utf-8")
+            )
+
+        elif action_type == "get_run_history":
+            arrow_table = self.db.get_ingestion_runs()
+            # Convert the Arrow table to a JSON-serialisable list of rows.
+            # Uses pandas vectorised conversion; no Python row loops.
+            if arrow_table.num_rows > 0:
+                run_history_json = arrow_table.to_pandas().to_json(
+                    orient="records", date_format="iso"
+                )
+                run_history = json.loads(run_history_json)
+            else:
+                run_history = []
+            return flight.Result(
+                json.dumps(
+                    {"status": "SUCCESS", "run_history": run_history}
                 ).encode("utf-8")
             )
 
