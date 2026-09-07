@@ -680,7 +680,7 @@
     "title": "Critic: verify health_check + audit table + full regression",
     "role": "critic",
     "model": "swe",
-    "status": "todo",
+    "status": "in_progress",
     "depends_on": [
       "F7-T2",
       "F7-T2b"
