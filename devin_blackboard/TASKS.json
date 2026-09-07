@@ -740,7 +740,7 @@
     "title": "Executor: query timeout in do_get (120s default, no row limit)",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T2c"
     ],

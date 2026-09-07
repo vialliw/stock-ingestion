@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import queue
+import threading
 from datetime import datetime
 
 import pandas as pd
@@ -77,6 +79,41 @@ class MarketDataFlightServer(flight.FlightServerBase):
     # Read path
     # ------------------------------------------------------------------
 
+    def _execute_query_with_timeout(self, sql_query: str, timeout_seconds: float):
+        """Run ``sql_query`` through ``self.db`` with a hard timeout.
+
+        The query is handed to DuckDB unchanged (no LIMIT injection).  A
+        worker thread runs ``db.execute_query`` while a ``threading.Timer``
+        enforces the deadline.  If the timer fires first, ``TimeoutError``
+        is returned to the caller.
+        """
+        result_queue: queue.Queue = queue.Queue()
+
+        def _worker():
+            try:
+                result_queue.put(self.db.execute_query(sql_query))
+            except Exception as exc:
+                result_queue.put(exc)
+
+        def _timeout():
+            result_queue.put(
+                TimeoutError(
+                    f"Query exceeded {timeout_seconds} second timeout"
+                )
+            )
+
+        worker = threading.Thread(target=_worker, daemon=True)
+        timer = threading.Timer(timeout_seconds, _timeout)
+        worker.start()
+        timer.start()
+        try:
+            result = result_queue.get()
+        finally:
+            timer.cancel()
+        if isinstance(result, Exception):
+            raise result
+        return result
+
     def do_get(self, context, ticket):
         try:
             req = json.loads(ticket.ticket.decode("utf-8"))
@@ -85,10 +122,18 @@ class MarketDataFlightServer(flight.FlightServerBase):
                 raise flight.FlightServerError("Missing 'sql' field in ticket")
             _validate_select_only(sql_query)
             logger.info("Serving Arrow Flight query: %s", _truncate_sql(sql_query))
-            arrow_table = self.db.execute_query(sql_query)
+            timeout = getattr(self.cfg.server, "query_timeout_seconds", 120)
+            if not isinstance(timeout, (int, float)) or isinstance(timeout, bool):
+                timeout = 120
+            arrow_table = self._execute_query_with_timeout(sql_query, timeout)
             return flight.RecordBatchStream(arrow_table)
         except flight.FlightServerError:
             raise
+        except TimeoutError as e:
+            logger.warning("do_get query timed out after %s seconds", timeout)
+            raise flight.FlightServerError(
+                f"Query timed out after {timeout} seconds"
+            ) from e
         except ValueError as e:
             logger.warning("Rejected do_get query: %s", e)
             raise flight.FlightServerError(str(e))

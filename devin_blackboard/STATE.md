@@ -133,6 +133,6 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - Final: 177/177 tests pass, loop checker clean, schema version 3
 
 ## Cycle 3 — IN PROGRESS
-- [ ] F7-T3 (Executor): query timeout in do_get (120s default, no row limit)
+- [x] F7-T3 (Executor): query timeout in do_get (120s default, no row limit) — DONE (181 tests, loop checker clean)
 - [ ] F7-T3b (Challenger): review
 - [ ] F7-T3c (Critic): verify

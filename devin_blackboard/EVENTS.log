@@ -471,3 +471,79 @@ Evidence map:
 [ORCHESTRATOR] Cycle 3 started. Tasks written: F7-T3 (executor: query timeout 120s, no row limit), F7-T3b (challenger: review), F7-T3c (critic: verify). F7-T3 depends on F7-T2c (done). Spawning Agent B via MCP.
 
 [2026-09-07T20:04:13.838430+00:00] [EXECUTOR] claimed F7-T3
+[2026-09-07T20:07:23.034237+00:00] [EXECUTOR] completed F7-T3 -> Implemented query_timeout_seconds (default 120) in ServerConfig/config.yaml; do_get enforces timeout via threading.Timer worker+queue, raising FlightServerError on expiry; no LIMIT injected. Added tests/test_query_timeout.py. Full suite 181 passed, loop checker clean.
+Evidence map:
+[
+  {
+    "id": "AC-1",
+    "check": "loop_checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (11 files checked)\n"
+  },
+  {
+    "id": "AC-2",
+    "check": "loop_checker_strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (11 files checked)\n"
+  },
+  {
+    "id": "AC-3",
+    "check": "pytest_suite",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "===== warnings summary ===============================\ntests/test_db.py: 8 warnings\ntests/test_delisted_lifecycle.py: 3 warnings\ntests/test_health_check.py: 2 warnings\ntests/test_integration.py: 8 warnings\n  /home/ubuntu/repos/stock-ingestion/src/db.py:144: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n181 passed, 21 warnings in 2.86s\n"
+  },
+  {
+    "id": "AC-4",
+    "check": "query_timeout_config",
+    "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert hasattr(cfg.server, 'query_timeout_seconds'), 'query_timeout_seconds not in config'; print('query_timeout_seconds in config')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "query_timeout_seconds in config\n"
+  },
+  {
+    "id": "AC-5",
+    "check": "timeout_default_120",
+    "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert cfg.server.query_timeout_seconds == 120, f'expected 120, got {cfg.server.query_timeout_seconds}'; print('default timeout is 120')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "default timeout is 120\n"
+  },
+  {
+    "id": "AC-6",
+    "check": "do_get_timeout_enforced",
+    "command": "python -c \"src = open('src/flight_server.py').read(); assert 'timeout' in src.lower(), 'timeout not found in flight_server.py'; print('timeout enforcement found')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "timeout enforcement found\n"
+  },
+  {
+    "id": "AC-7",
+    "check": "no_row_limit",
+    "command": "python -c \"src = open('src/flight_server.py').read(); import re; limits = re.findall(r'LIMIT\\s+\\d+', src, re.IGNORECASE); assert len(limits) == 0, f'found LIMIT injection: {limits}'; print('no injected row limit')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "no injected row limit\n"
+  },
+  {
+    "id": "AC-8",
+    "check": "test_query_timeout_exists",
+    "command": "python -c \"import os; assert os.path.exists('tests/test_query_timeout.py'), 'tests/test_query_timeout.py not found'; print('test_query_timeout.py exists')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "test_query_timeout.py exists\n"
+  }
+]

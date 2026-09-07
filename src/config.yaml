@@ -18,6 +18,7 @@ ingestion:
 server:
   flight_host: "127.0.0.1"
   flight_port: 8815
+  query_timeout_seconds: 120
 
 logging:
   log_file: "C:\Intel\parquet\stock_ingestion.log"

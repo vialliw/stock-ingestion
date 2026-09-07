@@ -76,6 +76,7 @@ class ServerConfig(BaseModel):
 
     flight_host: str = "127.0.0.1"
     flight_port: int = 8815
+    query_timeout_seconds: int = Field(default=120, ge=1)
 
     @field_validator("flight_port", mode="before")
     @classmethod
