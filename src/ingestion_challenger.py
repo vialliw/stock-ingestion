@@ -291,12 +291,13 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin):
 
         ``exclude_tickers`` are filtered out at the earliest stage —
         they are never downloaded, never split-checked, and never
-        normalised.  Returns ``(df, succeeded, failed, errors)``.
+        normalised.  Any excluded ticker that still has data in the
+        DB is purged.  Returns ``(df, succeeded, failed, errors)``.
         """
         if not tickers:
             return pd.DataFrame(), [], [], {}
 
-        # --- Earliest-stage exclusion filter ---
+        # --- Earliest-stage exclusion filter + purge of stale data ---
         excluded = set(self.cfg.ingestion.exclude_tickers)
         effective_tickers = [t for t in tickers if t not in excluded]
         skipped = [t for t in tickers if t in excluded]
@@ -305,6 +306,15 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin):
                 "RUNTIME EVENT: Excluding tickers from download (in exclude_tickers): %s",
                 skipped,
             )
+            # Purge any excluded tickers that still have data in the DB
+            existing = self.db.get_existing_tickers()
+            for t in skipped:
+                if t in existing:
+                    logger.warning(
+                        "RUNTIME EVENT: Purging stale data for excluded ticker '%s'.",
+                        t,
+                    )
+                    self.db.purge_ticker(t)
         if not effective_tickers:
             return pd.DataFrame(), [], [], {}
 

@@ -8,7 +8,10 @@ ingestion:
     - "AVB"
     - "MSFT"
     - "NVDA"
-    - "CRNX"
+    - "BHAT"
+    - "GTI"
+    - "BOWN"
+    - "CERO"
   exclude_tickers:
     - "AVB"
 
