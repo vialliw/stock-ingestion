@@ -209,72 +209,60 @@ Add `AUTO_MODE: true|false` to `STATE.md`:
 
 ---
 
-## Tier 3: Schedules + Exponential Backoff
+## Tier 3: Schedules + Exponential Backoff — SKIPPED
 
-### Step 1: Create scheduled sessions
+### Status: Not implemented (optional)
 
-Use `devin_schedule_manage` (or Devin UI at Settings > Schedules) to create:
+Tier 3 was evaluated and skipped:
 
-#### Nightly regression suite
-```
-Name: stock-ingestion-nightly-regression
-Frequency: Every day at 02:00 (your timezone)
-Agent: Devin (standard)
-Playbook: stock-ingestion-critic
-Prompt: "Run the full test suite: python -m pytest tests/ -q. Report any failures."
-ACU limit: 5
-```
+| Item | Status | Reason |
+|---|---|---|
+| D1: Nightly regression schedule | Not created | Optional — can be added later via Devin UI (Settings > Schedules) or `devin_schedule_manage` MCP tool |
+| D2: Weekly loop check schedule | Not created | Optional — same as above |
+| D3: Exponential backoff | Obsolete | Replaced by MCP `notify_on_response` push notifications in Tier 1 — no polling means no backoff needed |
 
-#### Weekly loop check
-```
-Name: stock-ingestion-weekly-loop-check
-Frequency: Every Monday at 09:00
-Agent: Devin (standard)
-Playbook: stock-ingestion-critic
-Prompt: "Run python scripts/check_loops.py --src-dir src --strict. Report any violations."
-ACU limit: 2
-```
+### How to create schedules later (if desired)
 
-### Step 2: Exponential backoff for background watcher
+Use `devin_schedule_manage` MCP tool or Devin UI at Settings > Schedules:
 
-If keeping the polling-based watcher (non-Dynamic-Workflow mode), update the watcher subagent prompt:
+**Nightly regression:**
+- Name: stock-ingestion-nightly-regression
+- Frequency: Every day at 02:00
+- Playbook: stock-ingestion-critic
+- Prompt: "Run the full test suite: python -m pytest tests/ -q. Report any failures."
+- ACU limit: 5
 
-```
-Poll TASKS.json with exponential backoff:
-- If any task is in_progress: poll every 60s
-- If all tasks are waiting/todo: poll every 120s, then 180s, then 300s (max)
-- Reset to 60s immediately when any task status changes
-- Return immediately when a task changes status
-```
-
-### Step 3: Cost guardrail
-
-For scheduled sessions, set:
-- ACU limit per scheduled run: max 5
-- 1 task per scheduled run
-- Pause schedule if 3 consecutive runs fail
+**Weekly loop check:**
+- Name: stock-ingestion-weekly-loop-check
+- Frequency: Every Monday at 09:00
+- Playbook: stock-ingestion-critic
+- Prompt: "Run python scripts/check_loops.py --src-dir src --strict. Report any violations."
+- ACU limit: 2
 
 ---
 
 ## Verification Checklist
 
 ### Tier 1
-- [ ] Devin MCP server configured in `.devin/config.local.json`
-- [ ] `devin mcp list` (or equivalent) shows "devin" server
-- [ ] 4 playbooks created (orchestrator, executor, challenger, critic)
-- [ ] `devin_playbook_manage` (list) shows all 4 playbooks
-- [ ] Agent sessions can be created via `devin_session_create` with playbook reference
+- [x] Devin MCP server configured in `.devin/config.local.json`
+- [x] `mcp_list_servers` shows "devin" server
+- [x] 4 playbooks created (orchestrator, executor, challenger, critic)
+- [x] `devin_playbook_manage` (list) shows all 4 playbooks
+- [x] Agent sessions can be created via `devin_session_create` with playbook reference
+- [x] Orchestrator playbook updated with MCP Session Management section
+- [x] Model limitation documented (Option B — org default model, devin_mode proxy)
 
 ### Tier 2
-- [ ] Dynamic Workflows enabled (if enterprise)
-- [ ] `scripts/workflow_phase2.py` exists and is valid Python
-- [ ] Test run: "Use a workflow to run scripts/workflow_phase2.py" succeeds
-- [ ] Challenger and Critic run in parallel (verified via session timestamps)
-- [ ] `challenger_required: false` tasks skip the challenger phase
-- [ ] `AUTO_MODE` flag in STATE.md controls auto-creation
+- [ ] Dynamic Workflows enabled (if enterprise) — optional
+- [x] `scripts/workflow_phase2.py` exists and is valid Python (sequential B → C → D)
+- [ ] Test run: "Use a workflow to run scripts/workflow_phase2.py" — optional, not required
+- [x] Sequential mode chosen over parallel (critic sees challenger findings)
+- [x] `challenger_required: false` tasks skip the challenger phase (in workflow script)
+- [ ] `AUTO_MODE` flag in STATE.md — optional, not yet set
+- [x] MCP session linking verified (create → gather → get_messages → sleep)
 
-### Tier 3
-- [ ] Nightly regression schedule created and active
-- [ ] Weekly loop check schedule created and active
-- [ ] Background watcher uses exponential backoff (60s → 120s → 300s)
-- [ ] ACU limits set on all scheduled sessions
+### Tier 3 — SKIPPED
+- [ ] Nightly regression schedule — optional, can be created later
+- [ ] Weekly loop check schedule — optional, can be created later
+- [x] Exponential backoff — obsolete (replaced by MCP notify_on_response)
+- [ ] ACU limits on scheduled sessions — N/A (no schedules created)
