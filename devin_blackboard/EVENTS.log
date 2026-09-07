@@ -469,3 +469,5 @@ Evidence map:
 [ORCHESTRATOR] BUGFIX: commit_blackboard() in poll_tasks.py was missing git push. Root cause: --claim/--done/--blocked committed locally but never pushed to origin. Agent C's commit (77489b2) stayed on the Linux VM and was never visible to the orchestrator. Agent B and D happened to push manually, which is why their commits appeared. Fix: added 'git push origin HEAD' to commit_blackboard(). This ensures all spawned agent sessions push their commits automatically.
 
 [ORCHESTRATOR] Cycle 3 started. Tasks written: F7-T3 (executor: query timeout 120s, no row limit), F7-T3b (challenger: review), F7-T3c (critic: verify). F7-T3 depends on F7-T2c (done). Spawning Agent B via MCP.
+
+[2026-09-07T20:04:13.838430+00:00] [EXECUTOR] claimed F7-T3
