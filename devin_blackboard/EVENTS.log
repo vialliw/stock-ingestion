@@ -638,3 +638,4 @@ Evidence map:
     "output": "no row limit injection\n"
   }
 ]
+[ORCHESTRATOR] Cycle 3 COMPLETE. F7-T3 (executor) + F7-T3b (challenger) + F7-T3c (critic) all done. 181/181 tests pass. Query timeout (120s default, no row limit) implemented and verified. All agent sessions pushed automatically (git push fix from Cycle 2 worked).
