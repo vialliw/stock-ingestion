@@ -641,7 +641,7 @@
     "title": "Challenger: review health_check + audit table implementation",
     "role": "challenger",
     "model": "glm",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T2"
     ],
