@@ -117,24 +117,33 @@ Tags: stock-ingestion, critic, agent-d
 
 Content: Copy the body of `docs/workflow_idea/agent_d_prompt.md`.
 
-### Step 5: Update orchestrator to use MCP
+### Step 5: Update orchestrator to use MCP — DONE
 
-After playbooks are created, update `agent_a_prompt.md` to replace manual user nudging with MCP session creation:
+The orchestrator prompt (`docs/workflow_idea/agent_a_prompt.md`) has been updated with a full MCP Session Management section. The playbook on the Devin platform has been synced.
 
-**Before (current):**
+**What changed:**
+- Added "MCP Session Management" section with playbook ID table
+- Replaced Step 3 (background watcher subagent) with MCP-based child session spawning:
+  - `devin_session_create` with `playbook_id` + `notify_on_response: true`
+  - `devin_session_gather` to wait for child sessions to settle
+  - `devin_session_interact` to message/nudge/retrieve agent output
+- Replaced Step 4 (user-relay nudging) with direct MCP messaging
+- Updated Rules section to mandate MCP tools over background subagents
+- Added session tracking in STATE.md under "Active Sessions"
+
+**Before (old pattern):**
 > Tell user: "Cycle N complete. Cycle N+1 tasks written. Please tell Agent B to poll."
 
-**After (with MCP):**
-> Create Agent B session:
-> ```
-> devin_session_create(
->   playbook="stock-ingestion-executor",
->   prompt="Poll for ready tasks: python scripts/poll_tasks.py B. Claim and execute any READY task.",
->   title="Agent B — Cycle N+1",
->   tags=["stock-ingestion", "cycle-N+1", "agent-b"]
-> )
-> ```
-> Then use `devin_session_gather` to wait for B's session to finish.
+**After (MCP pattern):**
+> Create Agent B session via `devin_session_create` with `playbook_id: "playbook-5ef9c6712be6463eb0f052ae22888886"` and `notify_on_response: true`. Wait via `devin_session_gather`. When B settles, spawn C. When C settles, spawn D. When D settles, cycle is complete.
+
+**Playbook IDs (for reference):**
+| Role | Playbook ID |
+|---|---|
+| Orchestrator | `playbook-70ba545fd0be45e180c7c9e06841611e` |
+| Executor | `playbook-5ef9c6712be6463eb0f052ae22888886` |
+| Challenger | `playbook-9addf6496feb44bbbd8b44f88a970a25` |
+| Critic | `playbook-f0577debe6014f4d9b3276c88fef0ce7` |
 
 ---
 

@@ -51,9 +51,42 @@ F7-T<N>b    (challenger)  assigned_to="C"  depends_on=["F7-T<N>"]
 F7-T<N>c    (critic)      assigned_to="D"  depends_on=["F7-T<N>", "F7-T<N>b"]
 ```
 
-## Orchestration Workflow (event-driven, NOT foreground polling)
+## MCP Session Management (Devin Platform Integration)
 
-**CRITICAL:** Do NOT run `Start-Sleep` or foreground polling loops. They block the user's messages. Instead, use a **background watcher subagent** to detect state changes.
+The orchestrator uses Devin MCP tools to create, monitor, and message child sessions. This replaces the old background-watcher subagent pattern.
+
+### Playbook IDs
+
+| Role | Playbook | ID |
+|---|---|---|
+| Agent A (this session) | stock-ingestion-orchestrator | `playbook-70ba545fd0be45e180c7c9e06841611e` |
+| Agent B (Executor) | stock-ingestion-executor | `playbook-5ef9c6712be6463eb0f052ae22888886` |
+| Agent C (Challenger) | stock-ingestion-challenger | `playbook-9addf6496feb44bbbd8b44f88a970a25` |
+| Agent D (Critic) | stock-ingestion-critic | `playbook-f0577debe6014f4d9b3276c88fef0ce7` |
+
+### MCP tools used
+
+| Tool | Purpose |
+|---|---|
+| `devin_session_create` | Spawn Agent B/C/D sessions with their playbook |
+| `devin_session_gather` | Wait for child sessions to settle (replaces background watcher) |
+| `devin_session_interact` | Message a child session, get its status, retrieve messages |
+| `devin_session_search` | Find sessions by tag/status |
+
+### Session tracking
+
+When you create child sessions, record their session IDs in STATE.md under "Active Sessions":
+
+```
+## Active Sessions
+- Agent B (Executor): devin-abc123...  (status: running)
+- Agent C (Challenger): devin-def456...  (status: suspended)
+- Agent D (Critic): devin-ghi789...  (status: running)
+```
+
+## Orchestration Workflow (MCP event-driven, NOT foreground polling)
+
+**CRITICAL:** Do NOT run `Start-Sleep` or foreground polling loops. They block the user's messages. Use MCP tools (`devin_session_create`, `devin_session_gather`, `devin_session_interact`) to manage child sessions.
 
 ### Step 1: Initial state check
 
@@ -70,7 +103,7 @@ python scripts/poll_tasks.py D
 Assess the current cycle state:
 - All 3 tasks "done" → cycle complete, go to Step 2 (write next cycle)
 - Any task "blocked" → go to Step 4 (handle blocker)
-- Tasks "todo" or "in_progress" → go to Step 3 (spawn watcher)
+- Tasks "todo" or "in_progress" → go to Step 3 (spawn or message child sessions)
 
 ### Step 2: Write next cycle tasks (when current cycle is complete)
 
@@ -80,50 +113,154 @@ c. For each task include: id, title, role, model, status="todo", depends_on, inp
 d. Append to EVENTS.log: `[ORCHESTRATOR] Cycle N tasks written: <task IDs>. Agents check TASKS.json.`
 e. Update STATE.md: update "Current Cycle" section
 f. `git add -A && git commit -m "Cycle N complete. Cycle N+1 tasks written."`
-g. Tell the user: "Cycle N complete. Cycle N+1 tasks written. Please tell Agent B to poll."
-h. Go to Step 3 (spawn watcher)
+g. Go to Step 3 (spawn Agent B session first — C and D depend on B)
 
-### Step 3: Spawn background watcher (when tasks are in progress)
+### Step 3: Spawn and monitor child sessions via MCP
 
-Spawn a background subagent using `run_subagent` with `is_background=true`:
+#### 3a: Create Agent B (Executor) session
 
+Use `devin_session_create` to spawn the executor with its playbook:
+
+```json
+{
+  "sessions": [
+    {
+      "prompt": "You are Agent B (Executor) for stock_ingestion. Poll for your assigned task and execute it.\n\ncd to C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\ngit pull\npython scripts/poll_tasks.py B\n\nFollow the Poll-Execute-Done workflow. Claim the READY task, implement it, verify, and mark done.",
+      "playbook_id": "playbook-5ef9c6712be6463eb0f052ae22888886",
+      "title": "Agent B — Executor — Cycle N",
+      "tags": ["stock-ingestion", "agent-B", "executor", "cycle-N"],
+      "notify_on_response": true
+    }
+  ],
+  "repos": ["vialliw/stock-ingestion"]
+}
 ```
-Task: "Watch TASKS.json for state changes in the stock_ingestion project.
-cd to C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion.
-Every 60 seconds: git pull, then check TASKS.json for tasks assigned to B, C, or D.
-Compare current statuses to the previous poll.
-Return immediately when ANY of these events occur:
-- A task status changes from 'in_progress' to 'done'
-- A task status changes from 'in_progress' to 'blocked'
-- A task status changes from 'todo' to 'in_progress'
-- All tasks in the current cycle are 'done'
-Report: which task(s) changed, old status, new status, and any new EVENTS.log entries.
-Do NOT edit any files. Do NOT claim tasks. Only observe and report."
+
+**Key fields:**
+- `playbook_id` — loads the full Agent B prompt automatically
+- `notify_on_response: true` — you get woken when Agent B settles (finishes/blocks/exits)
+- `repos` — restricts the session to the stock-ingestion repo
+- `tags` — enables searching for the session later via `devin_session_search`
+
+Record the returned session ID in STATE.md under "Active Sessions".
+
+#### 3b: Wait for Agent B to finish
+
+Use `devin_session_gather` to wait for Agent B to settle:
+
+```json
+{
+  "session_ids": ["devin-<agent-b-session-id>"],
+  "timeout_seconds": 590,
+  "poll_interval_seconds": 30
+}
 ```
 
-When the watcher returns and notifies you:
-- If a task moved to "done": check if the cycle is complete (all 3 tasks done)
-  - If yes: go to Step 2 (write next cycle)
-  - If no: tell user which task completed, spawn new watcher
-- If a task moved to "blocked": go to Step 4 (handle blocker)
-- If a task moved to "in_progress": just note it, spawn new watcher
+When Agent B settles, check its status via `devin_session_interact`:
 
-**Your main session stays free.** When the user sends a message, respond immediately. When the watcher notifies you, take orchestrator action.
+```json
+{
+  "action": "get",
+  "session_id": "devin-<agent-b-session-id>"
+}
+```
+
+Then `git pull` and check TASKS.json for the task status:
+- If B's task is "done" → spawn Agent C (challenger) session
+- If B's task is "blocked" → go to Step 4 (handle blocker)
+
+#### 3c: Create Agent C (Challenger) session
+
+```json
+{
+  "sessions": [
+    {
+      "prompt": "You are Agent C (Challenger) for stock_ingestion. Poll for your assigned task and review the executor's work.\n\ncd to C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\ngit pull\npython scripts/poll_tasks.py C\n\nFollow the Poll-Review-Done workflow. Claim the READY task, review it, and mark done.",
+      "playbook_id": "playbook-9addf6496feb44bbbd8b44f88a970a25",
+      "title": "Agent C — Challenger — Cycle N",
+      "tags": ["stock-ingestion", "agent-C", "challenger", "cycle-N"],
+      "notify_on_response": true
+    }
+  ],
+  "repos": ["vialliw/stock-ingestion"]
+}
+```
+
+Wait via `devin_session_gather`, then check status. When C is done, spawn Agent D.
+
+#### 3d: Create Agent D (Critic) session
+
+```json
+{
+  "sessions": [
+    {
+      "prompt": "You are Agent D (Critic) for stock_ingestion. Poll for your assigned task and verify acceptance criteria.\n\ncd to C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\ngit pull\npython scripts/poll_tasks.py D\n\nFollow the Poll-Verify-Done workflow. Claim the READY task, run --verify, and mark done with evidence.",
+      "playbook_id": "playbook-f0577debe6014f4d9b3276c88fef0ce7",
+      "title": "Agent D — Critic — Cycle N",
+      "tags": ["stock-ingestion", "agent-D", "critic", "cycle-N"],
+      "notify_on_response": true
+    }
+  ],
+  "repos": ["vialliw/stock-ingestion"]
+}
+```
+
+Wait via `devin_session_gather`. When D is done, the cycle is complete — go to Step 2 (write next cycle).
+
+#### 3e: Nudge a stuck agent
+
+If an agent is `suspended` (sleeping) and needs to poll again, send a message:
+
+```json
+{
+  "action": "message",
+  "session_id": "devin-<agent-session-id>",
+  "message": "Please poll for your next task: git pull && python scripts/poll_tasks.py <role>",
+  "notify_on_response": true
+}
+```
+
+The `notify_on_response: true` ensures you are woken when the agent next settles.
+
+#### 3f: Retrieve agent output
+
+To see what an agent reported:
+
+```json
+{
+  "action": "get_messages",
+  "session_id": "devin-<agent-session-id>",
+  "first": 20
+}
+```
+
+For a specific message's full content, note its `event_id` and use `devin_session_events`:
+
+```json
+{
+  "action": "details",
+  "session_id": "devin-<agent-session-id>",
+  "event_id": "<event-id>"
+}
+```
+
+**Your main session stays free.** `devin_session_gather` blocks until children settle, but `notify_on_response` on individual sessions wakes you on any settle event. When the user sends a message, respond immediately.
 
 ### Step 4: Handle blockers (when any task is "blocked")
 
 a. Read STATE.md "Active Blockers" section
 b. Read EVENTS.log for blocker evidence
-c. Investigate root cause:
-   - If agent misunderstood task → clarify acceptance_criteria, set status back to "todo"
+c. Check the blocked agent's messages via `devin_session_interact` action="get_messages"
+d. Investigate root cause:
+   - If agent misunderstood task → clarify acceptance_criteria, set status back to "todo", message the agent to re-poll
    - If genuine technical blocker → create BUG task or revise plan
    - If agent conflict (B vs C) → adjudicate, document decision in EVENTS.log
-d. Update TASKS.json: set blocked task back to "todo" (or create new task)
-e. Append to EVENTS.log: `[ORCHESTRATOR] resolved blocker <task_id> -> <decision>`
-f. Update STATE.md: remove from "Active Blockers", document resolution
-g. `git add -A && git commit -m "Resolved blocker <task_id>"`
-h. Tell user: "Blocker resolved. Please tell Agent <X> to poll."
-i. Go to Step 3 (spawn watcher)
+e. Update TASKS.json: set blocked task back to "todo" (or create new task)
+f. Append to EVENTS.log: `[ORCHESTRATOR] resolved blocker <task_id> -> <decision>`
+g. Update STATE.md: remove from "Active Blockers", document resolution
+h. `git add -A && git commit -m "Resolved blocker <task_id>"`
+i. Message the blocked agent via `devin_session_interact` action="message" to re-poll
+j. Go to Step 3 (wait for the agent to settle again)
 
 ## Task Writing Guidelines
 
@@ -179,11 +316,13 @@ Add `"challenger_required": true|false` to every task:
 - NEVER run tests — that's Agent D's job
 - NEVER commit secrets
 - NEVER run foreground polling loops (`Start-Sleep`) — they block user messages
-- ALWAYS use background subagent for watching task state changes
+- ALWAYS use MCP tools (`devin_session_create`, `devin_session_gather`, `devin_session_interact`) to manage child sessions
+- Use `notify_on_response: true` when creating/messaging sessions so you get push notifications
 - Always `git pull` before committing to avoid conflicts with agents
 - When adjudicating conflicts, document the decision and rationale in EVENTS.log
 - When a cycle is complete, review the critic's evidence in EVENTS.log before writing next cycle
-- Keep STATE.md "Current Cycle" section updated
+- Keep STATE.md "Current Cycle" and "Active Sessions" sections updated
 - Keep EVENTS.log entries prefixed with "[ORCHESTRATOR]"
-- When telling the user to nudge an agent, be specific: "Please tell Agent B to poll"
+- To nudge an agent, use `devin_session_interact` action="message" (not user relay)
 - Use `python scripts/poll_tasks.py --clean-stale` if a task appears stuck in in_progress
+- Terminate completed child sessions via `devin_session_interact` action="terminate" to free resources
