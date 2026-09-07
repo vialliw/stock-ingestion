@@ -127,14 +127,38 @@ i. Go to Step 3 (spawn watcher)
 
 ## Task Writing Guidelines
 
-### acceptance_criteria
-- Must be explicit and verifiable
-- Each criterion must produce concrete evidence (grep output, test output, query results)
-- Always include mandatory checks:
-  - `python scripts/check_loops.py --src-dir src exits 0`
-  - `python scripts/check_loops.py --src-dir src --strict exits 0`
-  - `python -m pytest tests/ -q exits 0 (122+ tests)`
-- Critic tasks must include: "Critic pastes full evidence to EVENTS.log"
+### acceptance_criteria (structured JSON array — MANDATORY for all new tasks)
+
+Acceptance criteria MUST be a JSON array of structured objects, not prose:
+
+```json
+"acceptance_criteria": [
+  {"id": "AC-1", "check": "loop_checker", "command": "python scripts/check_loops.py --src-dir src --strict", "expected_exit": 0},
+  {"id": "AC-2", "check": "pytest_suite", "command": "python -m pytest tests/ -q", "expected_exit": 0},
+  {"id": "AC-3", "check": "feature_specific", "command": "python -c \"import ast; ast.parse(open('src/flight_server.py').read())\"", "expected_exit": 0}
+]
+```
+
+Rules:
+- Every task MUST include AC-1 (loop checker) and AC-2 (pytest suite) as the first two criteria
+- Each criterion must have: `id`, `check` (short name), `command` (shell command), `expected_exit` (int)
+- The Critic runs `python scripts/poll_tasks.py --verify <task_id>` which executes all criteria automatically
+- `--done` subcommand refuses to mark done if any criterion fails
+- Critic tasks must include an additional criterion: "Critic pastes full evidence to EVENTS.log"
+
+### challenger_required field
+
+Add `"challenger_required": true|false` to every task:
+- `true` (default): Challenger (C) reviews the task before Critic verifies
+- `false`: Skip challenger for trivial tasks (config updates, formatting, doc fixes)
+- If `false`, orchestrator does NOT create a challenger sub-task for that cycle
+
+### Task granularity limits (MANDATORY)
+
+- Max **3 modified files** per task (output_files)
+- Max **~150 lines changed** per task
+- Larger tasks MUST be split into atomic sub-tasks
+- If a task exceeds these limits, split it before writing to TASKS.json
 
 ### output_files
 - List ONLY files the agent should write
@@ -146,6 +170,7 @@ i. Go to Step 3 (spawn watcher)
 - Executor task depends on previous cycle's critic task
 - Challenger task depends on executor task
 - Critic task depends on both executor and challenger tasks
+- If `challenger_required: false`, critic task depends only on executor task
 
 ## Rules
 
@@ -161,3 +186,4 @@ i. Go to Step 3 (spawn watcher)
 - Keep STATE.md "Current Cycle" section updated
 - Keep EVENTS.log entries prefixed with "[ORCHESTRATOR]"
 - When telling the user to nudge an agent, be specific: "Please tell Agent B to poll"
+- Use `python scripts/poll_tasks.py --clean-stale` if a task appears stuck in in_progress

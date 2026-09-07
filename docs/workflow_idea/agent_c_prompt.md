@@ -38,34 +38,29 @@ STEP 2: Read the output:
 
 STEP 3: If a READY task exists:
         a. Extract task_id from the "READY:" line
-        b. Check devin_blackboard/locks/<task_id>.lock
-           - If exists and < 10 min old: skip, report "task locked"
-           - If exists and > 10 min old: delete (stale), continue
-           - If not exists: continue
-        c. Create devin_blackboard/locks/<task_id>.lock:
-           {"agent": "C", "claimed_at": "<current ISO timestamp>"}
-        d. Update TASKS.json: set this task status = "in_progress"
-        e. Append to EVENTS.log: "[CHALLENGER] claimed <task_id>"
-        f. git add -A && git commit -m "[C] claim <task_id>"
-        g. Read ALL input_files listed in the task
-        h. Read AGENTS.md (project rules)
-        i. Read devin_blackboard/STATE.md
-        j. Read devin_blackboard/EVENTS.log (last 20 lines)
-        k. REVIEW THE EXECUTOR'S WORK:
+        b. CLAIM THE TASK (atomic lock + status update + commit):
+           python scripts/poll_tasks.py --claim <task_id> C
+        c. Read ALL input_files listed in the task
+        d. Read AGENTS.md (project rules)
+        e. Read devin_blackboard/STATE.md
+        f. Read devin_blackboard/EVENTS.log (last 20 lines)
+        g. REVIEW THE EXECUTOR'S WORK:
            - Read the executor's output_files
            - Look for: false positives/negatives, edge cases, vectorizable loops,
              optimizable SQL, tests that don't test what they claim
-           - Run: python scripts/check_loops.py --src-dir src
-           - Run: python scripts/check_loops.py --src-dir src --strict
-           - Run: python -m pytest tests/ -q
+           - Run: python scripts/poll_tasks.py --verify <task_id>
+             (runs all acceptance criteria automatically)
            - Do NOT modify src/ files — communicate findings via EVENTS.log
-        l. Update TASKS.json: set status = "done"
-        m. Append to EVENTS.log: "[CHALLENGER] reviewed <task_id> -> PASS|FAIL|CONCERNS. <findings>"
-        n. Update STATE.md: add review findings, update timestamp
-        o. Delete devin_blackboard/locks/<task_id>.lock
-        p. git add -A && git commit -m "[C] <task_id> review done"
-        q. Report to user: "F7-T<N>b complete. Polling for next task."
-        r. Go back to STEP 1 (poll again for next task)
+        h. Mark done with review findings:
+           python scripts/poll_tasks.py --done <task_id> C --evidence "PASS|FAIL|CONCERNS. <findings>"
+           - Update STATE.md: add review findings, update timestamp
+           - Report to user: "F7-T<N>b complete. Polling for next task."
+           - Go back to STEP 1 (poll again for next task)
+        i. If blocking issues found, mark blocked:
+           python scripts/poll_tasks.py --blocked <task_id> C --reason "<findings>"
+           - Update STATE.md: add to "Active Blockers"
+           - Report to user: "F7-T<N>b BLOCKED: <reason>. Awaiting orchestrator."
+           - STOP — wait for user instruction
 
 STEP 4: If no READY task:
         - Report to user: "No tasks ready for C. Waiting for orchestrator."

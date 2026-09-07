@@ -38,42 +38,43 @@ STEP 2: Read the output:
 
 STEP 3: If a READY task exists:
         a. Extract task_id from the "READY:" line
-        b. Check devin_blackboard/locks/<task_id>.lock
-           - If exists and < 10 min old: skip, report "task locked by another agent"
-           - If exists and > 10 min old: delete (stale), continue
-           - If not exists: continue
-        c. Create devin_blackboard/locks/<task_id>.lock:
-           {"agent": "B", "claimed_at": "<current ISO timestamp>"}
-        d. Update TASKS.json: set this task status = "in_progress"
-        e. Append to EVENTS.log: "[EXECUTOR] claimed <task_id>"
-        f. git add -A && git commit -m "[B] claim <task_id>"
-        g. Read ALL input_files listed in the task
-        h. Read AGENTS.md (project rules)
-        i. Read devin_blackboard/STATE.md
-        j. Read devin_blackboard/EVENTS.log (last 20 lines)
-        k. IMPLEMENT THE TASK:
+        b. CLAIM THE TASK (atomic lock + status update + commit, all in one command):
+           python scripts/poll_tasks.py --claim <task_id> B
+           - This atomically creates the lock file (os.O_CREAT | os.O_EXCL)
+           - Sets status="in_progress" in TASKS.json
+           - Appends to EVENTS.log
+           - Commits to git
+           - If it fails (race condition or lock exists), report and stop
+        c. Read ALL input_files listed in the task
+        d. Read AGENTS.md (project rules)
+        e. Read devin_blackboard/STATE.md
+        f. Read devin_blackboard/EVENTS.log (last 20 lines)
+        g. IMPLEMENT THE TASK:
            - Write to output_files ONLY
            - Follow SQL > vectorized > loop hierarchy
            - Any unavoidable loop: add "# justified: <reason>" comment
            - Do NOT edit files not in output_files
-        l. VERIFY:
-           - python scripts/check_loops.py --src-dir src  (must exit 0)
-           - python scripts/check_loops.py --src-dir src --strict  (must exit 0)
-           - python -m pytest tests/ -q  (must exit 0)
-        m. If verification passes:
-           - Update TASKS.json: set status = "done"
-           - Append to EVENTS.log: "[EXECUTOR] completed <task_id> -> <output_files>. <full evidence>"
+        h. VERIFY (run acceptance criteria automatically):
+           python scripts/poll_tasks.py --verify <task_id>
+           - This runs all structured acceptance_criteria commands
+           - Outputs a JSON evidence map
+           - Exits 0 if all pass, exits 1 if any fail
+        i. If verification passes, mark done (atomic status + evidence + lock cleanup + commit):
+           python scripts/poll_tasks.py --done <task_id> B --evidence "<summary of what was done + test results>"
+           - Sets status="done" in TASKS.json
+           - Appends full evidence (including verification map) to EVENTS.log
+           - Deletes the lock file
+           - Commits to git
            - Update STATE.md: add to "What's Done", update timestamp
-           - Delete devin_blackboard/locks/<task_id>.lock
-           - git add -A && git commit -m "[B] <task_id> done"
            - Report to user: "F7-T<N> complete. Polling for next task."
            - Go back to STEP 1 (poll again for next task)
-        n. If verification fails:
-           - Update TASKS.json: set status = "blocked"
-           - Append to EVENTS.log: "[EXECUTOR] blocked <task_id> -> <failure reason>"
+        j. If verification fails, mark blocked:
+           python scripts/poll_tasks.py --blocked <task_id> B --reason "<failure description>"
+           - Sets status="blocked" in TASKS.json
+           - Appends failure to EVENTS.log
+           - Deletes the lock file
+           - Commits to git
            - Update STATE.md: add to "Active Blockers"
-           - Delete lock file
-           - git add -A && git commit -m "[B] <task_id> blocked"
            - Report to user: "F7-T<N> BLOCKED: <reason>. Awaiting orchestrator guidance."
            - STOP — wait for user instruction
 

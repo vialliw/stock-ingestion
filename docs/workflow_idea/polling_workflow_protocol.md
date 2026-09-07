@@ -50,6 +50,19 @@ todo  -->  in_progress  -->  done
 
 **CRITICAL:** Agents MUST use the canonical polling script `scripts/poll_tasks.py`. Agents MUST NOT write their own polling scripts.
 
+**CRITICAL:** Agents MUST use the subcommands (`--claim`, `--done`, `--blocked`, `--verify`) instead of manually editing TASKS.json. This ensures atomic locks, structured criteria verification, and consistent commit messages.
+
+### poll_tasks.py subcommands
+
+| Command | Purpose |
+|---|---|
+| `python scripts/poll_tasks.py <role>` | Poll for ready tasks (backward compatible) |
+| `python scripts/poll_tasks.py --claim <task_id> <role>` | Atomically claim a task (lock + status + commit) |
+| `python scripts/poll_tasks.py --verify <task_id>` | Run all acceptance criteria, output evidence map |
+| `python scripts/poll_tasks.py --done <task_id> <role> --evidence <text>` | Mark done (verifies criteria, sets status, deletes lock, commits) |
+| `python scripts/poll_tasks.py --blocked <task_id> <role> --reason <text>` | Mark blocked (sets status, deletes lock, commits) |
+| `python scripts/poll_tasks.py --clean-stale` | Remove stale locks (>10 min old), reset tasks to todo |
+
 ### When instructed to poll (by user or after finishing a task):
 
 ```
@@ -63,18 +76,18 @@ STEP 2: Read output:
         - "No tasks" = nothing to do, stop and report
 
 STEP 3: If READY task exists:
-        a. Check lock file (skip if < 10 min old, delete if stale)
-        b. Create lock file
-        c. Set status = "in_progress" in TASKS.json
-        d. Append to EVENTS.log: "[<ROLE>] claimed <task_id>"
-        e. git commit
-        f. Read input_files, AGENTS.md, STATE.md, EVENTS.log
-        g. EXECUTE the task (write to output_files ONLY)
-        h. VERIFY (loop checker + pytest must exit 0)
-        i. If pass: set status="done", append evidence to EVENTS.log, update STATE.md, delete lock, commit
+        a. CLAIM (atomic lock + status update + commit, all in one command):
+           python scripts/poll_tasks.py --claim <task_id> <role>
+        b. Read input_files, AGENTS.md, STATE.md, EVENTS.log
+        c. EXECUTE the task (write to output_files ONLY)
+        d. VERIFY acceptance criteria:
+           python scripts/poll_tasks.py --verify <task_id>
+        e. If pass, mark done:
+           python scripts/poll_tasks.py --done <task_id> <role> --evidence "<summary + evidence>"
            -> Report to user: "<task_id> complete. Polling for next task."
            -> Go back to STEP 1 (poll once more for next task)
-        j. If fail: set status="blocked", append failure to EVENTS.log, update STATE.md, delete lock, commit
+        f. If fail, mark blocked:
+           python scripts/poll_tasks.py --blocked <task_id> <role> --reason "<failure>"
            -> Report to user: "<task_id> BLOCKED: <reason>. Awaiting orchestrator."
            -> STOP — wait for user instruction
 
@@ -151,13 +164,14 @@ If any check fails: set status="blocked", file blocker in STATE.md, append to EV
 
 ---
 
-## Lock File Protocol
+## Lock File Protocol (atomic)
 
 - Location: `devin_blackboard/locks/<task_id>.lock`
 - Contents: `{"agent": "B", "claimed_at": "2026-09-07T20:00:00Z"}`
-- Created: before setting status="in_progress"
-- Deleted: after setting status="done" (or "blocked")
-- Stale lock: if lock exists AND task status is NOT "in_progress" for >10 minutes, any agent can delete and claim
+- Created: atomically via `os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)` — eliminates TOCTOU race condition
+- Created by: `python scripts/poll_tasks.py --claim <task_id> <role>` (not manual file creation)
+- Deleted: after setting status="done" (or "blocked") — handled by `--done` and `--blocked` subcommands
+- Stale lock: if lock exists AND `claimed_at` is >10 minutes old, `python scripts/poll_tasks.py --clean-stale` removes it and resets task to `todo`
 
 ---
 

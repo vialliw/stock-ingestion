@@ -38,41 +38,27 @@ STEP 2: Read the output:
 
 STEP 3: If a READY task exists:
         a. Extract task_id from the "READY:" line
-        b. Check devin_blackboard/locks/<task_id>.lock
-           - If exists and < 10 min old: skip, report "task locked"
-           - If exists and > 10 min old: delete (stale), continue
-           - If not exists: continue
-        c. Create devin_blackboard/locks/<task_id>.lock:
-           {"agent": "D", "claimed_at": "<current ISO timestamp>"}
-        d. Update TASKS.json: set this task status = "in_progress"
-        e. Append to EVENTS.log: "[CRITIC] claimed <task_id>"
-        f. git add -A && git commit -m "[D] claim <task_id>"
-        g. Read ALL input_files listed in the task
-        h. Read AGENTS.md (project rules)
-        i. Read devin_blackboard/STATE.md
-        j. Read devin_blackboard/EVENTS.log (last 20 lines)
-        k. MANDATORY CHECKS (run ALL):
-           1. python scripts/check_loops.py --src-dir src  (MUST exit 0)
-           2. python scripts/check_loops.py --src-dir src --strict  (MUST exit 0)
-           3. python -m pytest tests/ -q  (MUST exit 0)
-        l. VERIFY EACH ACCEPTANCE CRITERION:
-           - Read acceptance_criteria from TASKS.json
-           - Collect concrete evidence for each criterion
-           - Paste ALL evidence to EVENTS.log
-        m. If ALL checks pass:
-           - Update TASKS.json: set status = "done"
-           - Append to EVENTS.log: "[CRITIC] tested <task_id> -> PASS" + full evidence
+        b. CLAIM THE TASK (atomic lock + status update + commit):
+           python scripts/poll_tasks.py --claim <task_id> D
+        c. Read ALL input_files listed in the task
+        d. Read AGENTS.md (project rules)
+        e. Read devin_blackboard/STATE.md
+        f. Read devin_blackboard/EVENTS.log (last 20 lines)
+        g. RUN ACCEPTANCE CRITERIA VERIFICATION:
+           python scripts/poll_tasks.py --verify <task_id>
+           - This runs ALL structured acceptance_criteria commands automatically
+           - Outputs a JSON evidence map with pass/fail for each criterion
+           - Exits 0 if all pass, exits 1 if any fail
+           - Paste the full evidence map into your --done evidence text
+        h. If ALL criteria pass, mark done (atomic status + evidence + lock cleanup + commit):
+           python scripts/poll_tasks.py --done <task_id> D --evidence "ALL PASS. <paste evidence map summary>"
+           - The --done command also runs --verify internally and refuses if any criterion fails
            - Update STATE.md: add verification result, update timestamp
-           - Delete devin_blackboard/locks/<task_id>.lock
-           - git add -A && git commit -m "[D] <task_id> verified PASS"
            - Report to user: "F7-T<N>c complete. Polling for next task."
            - Go back to STEP 1 (poll again for next task)
-        n. If ANY check fails:
-           - Update TASKS.json: set status = "blocked"
-           - Append to EVENTS.log: "[CRITIC] blocked <task_id> -> <failure + evidence>"
+        i. If ANY criterion fails, mark blocked:
+           python scripts/poll_tasks.py --blocked <task_id> D --reason "<failed criteria + evidence>"
            - Update STATE.md: add to "Active Blockers"
-           - Delete lock file
-           - git add -A && git commit -m "[D] <task_id> BLOCKED"
            - Report to user: "F7-T<N>c BLOCKED: <reason>. Awaiting orchestrator."
            - STOP — wait for user instruction
 
