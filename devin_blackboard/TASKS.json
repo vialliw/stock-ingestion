@@ -85,7 +85,7 @@
     "title": "Fix executor config edge cases: bool port coercion, null tickers, malformed YAML TypeError",
     "role": "executor",
     "model": "swe",
-    "status": "todo",
+    "status": "done",
     "depends_on": [],
     "input_files": [
       "/src/config.py",

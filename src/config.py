@@ -40,13 +40,26 @@ class IngestionConfig(BaseModel):
     tickers: List[str] = Field(default_factory=list)
     exclude_tickers: List[str] = Field(default_factory=list)
 
-    @field_validator("tickers", "exclude_tickers")
+    @field_validator("tickers", "exclude_tickers", mode="before")
     @classmethod
-    def normalize_tickers(cls, v: List[str]) -> List[str]:
-        """Uppercase, strip whitespace, deduplicate, preserve order."""
+    def normalize_tickers(cls, v) -> List[str]:
+        """Uppercase, strip whitespace, deduplicate, preserve order.
+
+        ``None`` (YAML ``null``) is treated as an empty list — null means
+        "no value" and the default is ``[]``.  A bare scalar string is
+        rejected (tickers must be a list).  Non-string elements are rejected.
+        """
+        if v is None:
+            return []
+        if isinstance(v, str):
+            raise ValueError("tickers must be a list, got a string scalar")
+        if not isinstance(v, (list, tuple)):
+            raise ValueError(f"tickers must be a list, got {type(v).__name__}")
         seen: set[str] = set()
         result: List[str] = []
         for t in v:
+            if not isinstance(t, str):
+                raise ValueError(f"ticker must be a string, got {type(t).__name__} {t!r}")
             upper = t.strip().upper()
             if upper and upper not in seen:
                 seen.add(upper)
@@ -60,10 +73,19 @@ class ServerConfig(BaseModel):
     flight_host: str = "127.0.0.1"
     flight_port: int = 8815
 
-    @field_validator("flight_port")
+    @field_validator("flight_port", mode="before")
     @classmethod
-    def validate_port(cls, v: int) -> int:
-        """Ensure the Flight port is within the valid 1-65535 range."""
+    def validate_port(cls, v) -> int:
+        """Ensure the Flight port is an int in the valid 1-65535 range.
+
+        Booleans are rejected explicitly — in YAML ``true`` is a bool, not
+        a port integer, and Pydantic's lax mode would silently coerce it
+        to ``1``.
+        """
+        if isinstance(v, bool):
+            raise ValueError(f"flight_port must be an integer 1-65535, got bool {v}")
+        if not isinstance(v, int):
+            raise ValueError(f"flight_port must be an integer 1-65535, got {type(v).__name__} {v}")
         if not 1 <= v <= 65535:
             raise ValueError(f"flight_port must be 1-65535, got {v}")
         return v
@@ -126,6 +148,11 @@ class PipelineConfig(BaseModel):
         # Windows paths are treated literally instead of as escape chars.
         raw = _DOUBLE_QUOTED_TO_SINGLE.sub(r"'\1'", raw)
         data = yaml.safe_load(raw) or {}
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"Configuration file must contain a YAML mapping at the top level, "
+                f"got {type(data).__name__}"
+            )
         return cls(**data)
 
 
