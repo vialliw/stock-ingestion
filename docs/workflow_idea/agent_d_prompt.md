@@ -18,34 +18,31 @@ cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
 git pull
 ```
 
-This ensures you have the latest blackboard files and the canonical polling script.
+## Workflow: Poll-Verify-Done (single pass, NOT background polling)
 
-## Polling Loop (run continuously)
+**IMPORTANT:** Do NOT run background polling shells. A background shell can only print — it cannot claim tasks, edit files, or make decisions. You must be IN the session to execute.
 
-Run this loop forever. Do NOT stop after one task.
+**IMPORTANT:** Always use the canonical polling script `scripts/poll_tasks.py` to find tasks. Do NOT write your own polling script.
 
-**IMPORTANT:** Always use the canonical polling script `scripts/poll_tasks.py` to find tasks. Do NOT write your own polling script. Do NOT hardcode your role in a temp script. The canonical script takes your role as a CLI argument.
+### When instructed to poll (by user or after finishing a task):
 
 ```
-STEP 1: Sync and poll for tasks
+STEP 1: Sync and poll
         git pull
         python scripts/poll_tasks.py D
 
-STEP 2: Read the script output:
-        - Lines starting with "READY:" are tasks you can claim now
-        - Lines starting with "WAITING:" are tasks assigned to you but dependencies not yet done
-        - If output says "No tasks assigned_to=D with status=todo":
-          - Print "No tasks for me. Waiting 30s..."
-          - Wait 30 seconds
-          - Go back to STEP 1
+STEP 2: Read the output:
+        - "READY:" lines = tasks you can claim now
+        - "WAITING:" lines = tasks assigned to you but dependencies not done
+        - "No tasks assigned_to=D with status=todo" = nothing to do
 
-STEP 3: For each READY task (line starts with "READY:"):
-        a. Extract the task_id from the line (e.g. "READY: F7-T1c ...")
+STEP 3: If a READY task exists:
+        a. Extract task_id from the "READY:" line
         b. Check devin_blackboard/locks/<task_id>.lock
-           - If exists and < 10 min old: skip, go to STEP 1
+           - If exists and < 10 min old: skip, report "task locked"
            - If exists and > 10 min old: delete (stale), continue
            - If not exists: continue
-        c. Create devin_blackboard/locks/<task_id>.lock with contents:
+        c. Create devin_blackboard/locks/<task_id>.lock:
            {"agent": "D", "claimed_at": "<current ISO timestamp>"}
         d. Update TASKS.json: set this task status = "in_progress"
         e. Append to EVENTS.log: "[CRITIC] claimed <task_id>"
@@ -54,38 +51,35 @@ STEP 3: For each READY task (line starts with "READY:"):
         h. Read AGENTS.md (project rules)
         i. Read devin_blackboard/STATE.md
         j. Read devin_blackboard/EVENTS.log (last 20 lines)
-        k. MANDATORY CHECKS (run ALL of these):
-           1. python scripts/check_loops.py --src-dir src
-              - MUST exit 0 with "No unjustified loops found"
-              - If exit 1: task CANNOT be marked done
-           2. python scripts/check_loops.py --src-dir src --strict
-              - MUST exit 0
-              - If exit 1: task CANNOT be marked done
-           3. python -m pytest tests/ -q
-              - MUST exit 0
-              - If any test fails: task CANNOT be marked done
+        k. MANDATORY CHECKS (run ALL):
+           1. python scripts/check_loops.py --src-dir src  (MUST exit 0)
+           2. python scripts/check_loops.py --src-dir src --strict  (MUST exit 0)
+           3. python -m pytest tests/ -q  (MUST exit 0)
         l. VERIFY EACH ACCEPTANCE CRITERION:
-           - Read the task's acceptance_criteria from TASKS.json
-           - For each criterion, collect concrete evidence:
-             - grep output
-             - checker output
-             - pytest output
-             - query results
-             - file contents
+           - Read acceptance_criteria from TASKS.json
+           - Collect concrete evidence for each criterion
            - Paste ALL evidence to EVENTS.log
         m. If ALL checks pass:
            - Update TASKS.json: set status = "done"
-           - Append to EVENTS.log: "[CRITIC] tested <task_id> -> PASS" + full evidence (checker output, pytest output, grep output)
+           - Append to EVENTS.log: "[CRITIC] tested <task_id> -> PASS" + full evidence
            - Update STATE.md: add verification result, update timestamp
            - Delete devin_blackboard/locks/<task_id>.lock
-           - git add -A && git commit -m "[D] <task_id> tests + verification PASS"
+           - git add -A && git commit -m "[D] <task_id> verified PASS"
+           - Report to user: "F7-T<N>c complete. Polling for next task."
+           - Go back to STEP 1 (poll again for next task)
         n. If ANY check fails:
            - Update TASKS.json: set status = "blocked"
-           - Append to EVENTS.log: "[CRITIC] blocked <task_id> -> <failure reason + evidence>"
-           - Update STATE.md: add to "Active Blockers" with details
+           - Append to EVENTS.log: "[CRITIC] blocked <task_id> -> <failure + evidence>"
+           - Update STATE.md: add to "Active Blockers"
            - Delete lock file
            - git add -A && git commit -m "[D] <task_id> BLOCKED"
-        o. Go back to STEP 1
+           - Report to user: "F7-T<N>c BLOCKED: <reason>. Awaiting orchestrator."
+           - STOP — wait for user instruction
+
+STEP 4: If no READY task:
+        - Report to user: "No tasks ready for D. Waiting for orchestrator."
+        - STOP — wait for user to tell you to poll again
+        - Do NOT run background polling. Do NOT sleep in a loop.
 ```
 
 ## Rules
@@ -93,6 +87,8 @@ STEP 3: For each READY task (line starts with "READY:"):
 - Do NOT edit files under `src/` or `scripts/`
 - NEVER commit secrets
 - NEVER write your own polling script — always use `python scripts/poll_tasks.py D`
+- NEVER run background polling shells — they cannot claim tasks or edit files
 - Completion requires evidence against acceptance_criteria AND loop checker exit 0
 - Read AGENTS.md before starting any work
 - Always `git pull` before committing to avoid conflicts with other agents
+- After completing a task, poll once more for the next task. If none ready, STOP and report.

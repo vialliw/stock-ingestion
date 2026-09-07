@@ -1,20 +1,20 @@
-# Multi-Agent Workflow Protocol — Polling-Based Coordination
+# Multi-Agent Workflow Protocol — Event-Driven Coordination
 
 **Status:** ACTIVE
 **Date:** 2026-09-07
-**Version:** 2.0 — revised for dedicated agent sessions with proper LLMs
+**Version:** 3.0 — event-driven watcher (no foreground polling)
 
 ---
 
 ## Overview
 
-Four Devin sessions, each with a dedicated LLM, coordinate through the blackboard files in `devin_blackboard/`. The Orchestrator (Session A) writes tasks; Agents B/C/D poll for their assigned tasks and execute autonomously.
+Four Devin sessions, each with a dedicated LLM, coordinate through the blackboard files in `devin_blackboard/`. The Orchestrator (Session A) writes tasks and uses a **background watcher subagent** to detect state changes. Agents B/C/D poll once when instructed, execute, and report back.
 
 ## Sessions
 
 | Session | Role | LLM | Responsibility |
 |---|---|---|---|
-| A | Orchestrator (PM) | GLM-5.2 High | Plans, writes tasks to TASKS.json, reviews evidence, approves completion, resolves blockers |
+| A | Orchestrator (PM) | GLM-5.2 High | Plans, writes tasks, spawns background watcher, reviews evidence, resolves blockers |
 | B | Executor | SWE-1.7 Medium | Implements features, fixes bugs, writes code in src/ |
 | C | Challenger | GLM-5.2 High | Independent review, alternative implementations, false-positive/negative analysis |
 | D | Critic | SWE-1.7 Medium | Tests, verifies acceptance criteria, regression checks, loop checker enforcement |
@@ -44,124 +44,134 @@ todo  -->  in_progress  -->  done
 
 ---
 
-## Polling Protocol (Agents B/C/D)
+## Agent Protocol (B/C/D) — Poll-Execute-Done (single pass)
 
-Each agent session runs this loop continuously.
+**CRITICAL:** Agents do NOT run background polling shells. A background shell can only print — it cannot claim tasks, edit files, or make decisions. The agent must be IN the session to execute.
 
-**IMPORTANT:** Agents MUST use the canonical polling script `scripts/poll_tasks.py` to find tasks. Agents MUST NOT write their own polling scripts or hardcode their role in temp scripts. The canonical script takes the role as a CLI argument.
+**CRITICAL:** Agents MUST use the canonical polling script `scripts/poll_tasks.py`. Agents MUST NOT write their own polling scripts.
+
+### When instructed to poll (by user or after finishing a task):
 
 ```
-LOOP:
-  1. git pull
-  2. python scripts/poll_tasks.py <B|C|D>
-  3. Read script output:
-     - "READY:" lines = tasks you can claim now
-     - "WAITING:" lines = tasks assigned to you but dependencies not yet done
-     - "No tasks assigned_to=<role> with status=todo" = nothing to do
-  4. If no READY task:
-     - Print "No tasks for me. Waiting 30s..."
-     - Sleep 30 seconds
-     - Go back to step 1
-  5. For each READY task:
-     a. Extract task_id from the "READY:" line
-     b. Check devin_blackboard/locks/<task_id>.lock
-        - If lock file exists AND was created < 10 minutes ago: skip, go to step 1
-        - If lock file exists AND was created > 10 minutes ago: delete it (stale lock), continue
-        - If no lock file: continue
-     c. Create devin_blackboard/locks/<task_id>.lock with contents:
-        {"agent": "<B/C/D>", "claimed_at": "<ISO timestamp>"}
-     d. Update TASKS.json: set task status = "in_progress"
-     e. Append to EVENTS.log: "[<ROLE>] claimed <task_id>"
-     f. Commit blackboard changes: git add -A && git commit -m "[<B/C/D>] claim <task_id>"
-     g. Read all input_files for the task
-     h. Read AGENTS.md for project rules (SQL > vectorized > loop)
-     i. Read devin_blackboard/STATE.md and devin_blackboard/EVENTS.log (last 20 lines)
-     j. Execute the task (read input_files, write output_files)
-     k. Verify (see verification section below)
-     l. Update TASKS.json: set task status = "done"
-     m. Append to EVENTS.log: "[<ROLE>] completed <task_id> -> <output_files>. <evidence>"
-     n. Update STATE.md: add to "What's Done", update timestamp
-     o. Delete lock file: devin_blackboard/locks/<task_id>.lock
-     p. Commit all changes: git add -A && git commit -m "[<B/C/D>] <task_id> <description>"
-     q. Go back to step 1
+STEP 1: Sync and poll
+        git pull
+        python scripts/poll_tasks.py <B|C|D>
+
+STEP 2: Read output:
+        - "READY:" = claim and execute now
+        - "WAITING:" = dependencies not done, stop and report
+        - "No tasks" = nothing to do, stop and report
+
+STEP 3: If READY task exists:
+        a. Check lock file (skip if < 10 min old, delete if stale)
+        b. Create lock file
+        c. Set status = "in_progress" in TASKS.json
+        d. Append to EVENTS.log: "[<ROLE>] claimed <task_id>"
+        e. git commit
+        f. Read input_files, AGENTS.md, STATE.md, EVENTS.log
+        g. EXECUTE the task (write to output_files ONLY)
+        h. VERIFY (loop checker + pytest must exit 0)
+        i. If pass: set status="done", append evidence to EVENTS.log, update STATE.md, delete lock, commit
+           -> Report to user: "<task_id> complete. Polling for next task."
+           -> Go back to STEP 1 (poll once more for next task)
+        j. If fail: set status="blocked", append failure to EVENTS.log, update STATE.md, delete lock, commit
+           -> Report to user: "<task_id> BLOCKED: <reason>. Awaiting orchestrator."
+           -> STOP — wait for user instruction
+
+STEP 4: If no READY task:
+        - Report to user: "No tasks ready for <role>. Waiting for orchestrator."
+        - STOP — wait for user to tell you to poll again
+        - Do NOT run background polling. Do NOT sleep in a loop.
 ```
 
 ---
 
-## Verification (MANDATORY before setting status="done")
+## Orchestrator Protocol (Session A) — Event-Driven with Background Watcher
 
-Every agent must run these before marking a task done:
+**CRITICAL:** Do NOT run foreground polling loops (`Start-Sleep`). They block user messages. Use a background watcher subagent instead.
+
+### Step 1: Initial state check
+```
+git pull
+python scripts/poll_tasks.py B
+python scripts/poll_tasks.py C
+python scripts/poll_tasks.py D
+```
+Assess:
+- All cycle tasks "done" → Step 2 (write next cycle)
+- Any task "blocked" → Step 4 (handle blocker)
+- Tasks "todo" or "in_progress" → Step 3 (spawn watcher)
+
+### Step 2: Write next cycle tasks
+a. Read `docs/dev_plan/phase2_dev_plan.md` for next cycle spec
+b. Write 3 task objects to TASKS.json (executor, challenger, critic)
+c. Append to EVENTS.log, update STATE.md, commit
+d. Tell user: "Cycle N complete. Cycle N+1 tasks written. Please tell Agent B to poll."
+e. Go to Step 3
+
+### Step 3: Spawn background watcher
+Spawn a background subagent (`run_subagent` with `is_background=true`):
+
+```
+Watch TASKS.json for state changes.
+cd to C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion.
+Every 60 seconds: git pull, check TASKS.json for tasks assigned to B/C/D.
+Compare current statuses to previous poll.
+Return immediately when ANY task changes status (todo→in_progress, in_progress→done, in_progress→blocked).
+Report: which task(s) changed, old status, new status, new EVENTS.log entries.
+Do NOT edit files. Do NOT claim tasks. Only observe and report.
+```
+
+When watcher notifies:
+- Task → "done": check if cycle complete → Step 2 or spawn new watcher
+- Task → "blocked": → Step 4
+- Task → "in_progress": note it, spawn new watcher
+
+**Main session stays free.** Respond to user messages immediately.
+
+### Step 4: Handle blockers
+a. Read STATE.md "Active Blockers" + EVENTS.log evidence
+b. Investigate, adjudicate, document decision
+c. Update TASKS.json (set back to "todo" or create new task)
+d. Append to EVENTS.log, update STATE.md, commit
+e. Tell user: "Blocker resolved. Please tell Agent <X> to poll."
+f. Go to Step 3
+
+---
+
+## Verification (MANDATORY before status="done")
 
 ```powershell
-# 1. Loop checker (must exit 0)
-python scripts/check_loops.py --src-dir src
-python scripts/check_loops.py --src-dir src --strict
-
-# 2. Full test suite (must exit 0)
-python -m pytest tests/ -q
-
-# 3. Task-specific acceptance criteria (read from TASKS.json)
+python scripts/check_loops.py --src-dir src          # must exit 0
+python scripts/check_loops.py --src-dir src --strict  # must exit 0
+python -m pytest tests/ -q                            # must exit 0
 ```
 
-If any check fails:
-- Do NOT set status to "done"
-- Set status to "blocked"
-- File blocker in STATE.md under "Active Blockers"
-- Append to EVENTS.log with failure evidence
-- Delete lock file
-
----
-
-## Orchestrator Protocol (Session A)
-
-```
-1. Plan the next cycle (write task definitions to TASKS.json)
-2. For each task:
-   - Set id, title, role, model, status="todo", assigned_to="B"/"C"/"D"
-   - Set depends_on (list of task IDs that must be done first)
-   - Set input_files, output_files, acceptance_criteria
-3. Append to EVENTS.log: "[ORCHESTRATOR] Cycle N tasks written. Agents check TASKS.json."
-4. Commit
-5. Poll TASKS.json every 60s:
-   - Check if all tasks in current cycle have status="done"
-   - If any task has status="blocked": review blocker, resolve, set back to "todo"
-6. When all cycle tasks are "done":
-   - Review evidence in EVENTS.log
-   - If acceptable: write next cycle tasks
-   - If not acceptable: create BUG tasks or reassign
-```
+If any check fails: set status="blocked", file blocker in STATE.md, append to EVENTS.log, delete lock file.
 
 ---
 
 ## Lock File Protocol
 
-Lock files prevent two sessions from working on the same task.
-
 - Location: `devin_blackboard/locks/<task_id>.lock`
 - Contents: `{"agent": "B", "claimed_at": "2026-09-07T20:00:00Z"}`
 - Created: before setting status="in_progress"
 - Deleted: after setting status="done" (or "blocked")
-- Stale lock: if lock file exists AND task status is NOT "in_progress" for >10 minutes, any agent can delete the stale lock and claim the task
-
----
-
-## Dependency Rules
-
-- A task with `depends_on: ["F7-T0"]` will NOT be picked up until F7-T0 has `status: "done"`
-- The polling loop checks all dependencies before claiming
-- If a dependency is "blocked", the dependent task stays "todo" (not picked up)
+- Stale lock: if lock exists AND task status is NOT "in_progress" for >10 minutes, any agent can delete and claim
 
 ---
 
 ## Communication Rules
 
-1. **No agent-to-agent chat.** All communication is through blackboard files.
+1. **No agent-to-agent chat.** All communication through blackboard files.
 2. **EVENTS.log is append-only.** Never edit or delete previous entries.
 3. **STATE.md is updateable.** Each agent updates their own section.
 4. **TASKS.json is updateable.** Agents only update `status` for their own tasks.
 5. **Git commits are the durability layer.** Every blackboard change is committed immediately.
-6. **Never commit secrets.** R2 credentials come from environment variables, not the repo.
-7. **Pull before push.** Always `git pull` before committing to avoid conflicts with other agents.
+6. **Never commit secrets.** R2 credentials come from environment variables.
+7. **Pull before commit.** Always `git pull` before committing to avoid conflicts.
+8. **No background polling by agents B/C/D.** They poll once when instructed, then execute or stop.
+9. **No foreground polling by orchestrator.** Use background watcher subagent instead.
 
 ---
 
