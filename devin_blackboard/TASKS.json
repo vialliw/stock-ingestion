@@ -364,5 +364,41 @@
     ],
     "acceptance_criteria": "src/__init__.py updated to export from production modules: from src.config import PipelineConfig, from src.db import DatabaseManager, from src.ingestion import IngestionEngine, from src.flight_server import MarketDataFlightServer. Challenger variants (config_challenger.py, db_challenger.py, ingestion_challenger.py, flight_server_challenger.py) remain in repo for reference but are NOT imported by __init__.py. python -c \"from src import PipelineConfig, DatabaseManager, IngestionEngine, MarketDataFlightServer; print('OK')\" exits 0 with output 'OK'. Full test suite: python -m pytest tests/ -v exits 0 (excluding test_config_breaking.py which has known BUG-F1-T2 failures). Critic pastes selection rationale + pytest output to EVENTS.log.",
     "assigned_to": null
+  },
+  {
+    "id": "F6-T1",
+    "title": "Executor: create AST loop checker (scripts/check_loops.py) + pre-commit hook + fix vectorizable loops in src/",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": ["F5-T3"],
+    "input_files": ["/src/*.py", "/AGENTS.md"],
+    "output_files": ["/scripts/check_loops.py", "/scripts/pre_commit_check_loops.py", "/.git/hooks/pre-commit", "/src/config.py", "/src/config_challenger.py", "/src/db.py", "/src/db_challenger.py", "/src/ingestion.py", "/src/ingestion_challenger.py"],
+    "acceptance_criteria": "scripts/check_loops.py: AST-based checker that scans src/*.py for unjustified for-loops. Exempts range/enumerate/zip/.items()/.values()/.keys()/constant literals. Accepts '# justified: <reason>' comments within 6 lines above the for. scripts/pre_commit_check_loops.py + .git/hooks/pre-commit: blocks commits with unjustified loops. 6 vectorizable loops replaced with vectorized ops or dict comprehensions. 7 remaining loops annotated with '# justified:' comments. python scripts/check_loops.py --src-dir src exits 0 with 'No unjustified loops found'. Full suite: python -m pytest tests/ -q exits 0.",
+    "assigned_to": null
+  },
+  {
+    "id": "F6-T2",
+    "title": "Challenger: review AST checker for false positives/negatives, suggest improvements",
+    "role": "challenger",
+    "model": "glm",
+    "status": "done",
+    "depends_on": ["F5-T3"],
+    "input_files": ["/scripts/check_loops.py", "/AGENTS.md"],
+    "output_files": [],
+    "acceptance_criteria": "Review scripts/check_loops.py for: (1) false positives — exempt patterns that are incorrectly flagged; (2) false negatives — data-iteration loops that are incorrectly exempted; (3) edge cases — nested loops, comprehensions, while loops. Document findings in EVENTS.log. No code changes required unless a critical false negative is found.",
+    "assigned_to": null
+  },
+  {
+    "id": "F6-T3",
+    "title": "Critic: verify checker passes on all src/ files + full test suite + AGENTS.md updated",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": ["F6-T1", "F6-T2"],
+    "input_files": ["/scripts/check_loops.py", "/src/*.py", "/AGENTS.md"],
+    "output_files": ["/AGENTS.md"],
+    "acceptance_criteria": "python scripts/check_loops.py --src-dir src exits 0. python -m pytest tests/ -q exits 0 (122+ tests). AGENTS.md updated with enforcement mechanism documentation: checker script, pre-commit hook, Critic mandatory checklist. Critic pastes checker output + pytest output to EVENTS.log.",
+    "assigned_to": null
   }
 ]
