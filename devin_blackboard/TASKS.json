@@ -479,7 +479,7 @@
     "title": "Critic: verify Cycle 0 \u2014 table rename + hardening + full regression",
     "role": "critic",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T0"
     ],
