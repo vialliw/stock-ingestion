@@ -68,6 +68,9 @@ def _normalize_tickers(tickers: Any) -> List[str]:
     seen: set[str] = set()
     result: List[str] = []
     for t in tickers:
+        # justified: per-element type validation cannot be vectorized —
+        # we must raise TypeError on the first non-string element with
+        # its value in the message.
         if not isinstance(t, str):
             raise TypeError(f"ticker must be a str, got {type(t).__name__}")
         upper = t.strip().upper()

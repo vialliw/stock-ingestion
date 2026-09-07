@@ -53,6 +53,9 @@ class IngestionEngine:
         window.
         """
         for t in tickers:
+            # justified: yfinance has no batch split API — yf.Ticker(t).splits
+            # must be called per-ticker. This is an external API constraint,
+            # not a choice we can vectorize away.
             try:
                 stock = yf.Ticker(t)
                 splits = stock.splits
@@ -70,6 +73,10 @@ class IngestionEngine:
                     continue
 
                 # Record all unprocessed splits for idempotency
+                # justified: db.record_split is a per-row SQL INSERT with
+                # idempotency (ON CONFLICT DO NOTHING). No batch INSERT method
+                # exists in the DatabaseManager API. Splits are rare (1-5 per
+                # ticker per decade) so the loop is negligible.
                 for split_date_str, factor in unprocessed:
                     self.db.record_split(t, split_date_str, factor)
 
@@ -148,6 +155,10 @@ class IngestionEngine:
         errors: Dict[str, str] = {}
 
         for t in tickers:
+            # justified: yf.download returns MultiIndex columns per ticker.
+            # Each ticker's sub-frame needs individual dropna + schema
+            # normalization. pandas doesn't support vectorized per-key
+            # dropna on a MultiIndex DataFrame.
             try:
                 if df.columns.nlevels == 2:
                     # Multi-ticker: columns are (ticker, field)
@@ -240,12 +251,9 @@ class IngestionEngine:
         # --- Batch pricing download ---
         raw_df = self._batch_download(effective_tickers, start_date, end_date)
         if raw_df.empty:
-            # All tickers returned nothing
-            failed: List[str] = []
-            errors: Dict[str, str] = {}
-            for t in effective_tickers:
-                failed.append(t)
-                errors[t] = "Empty dataset from yf.download"
+            # All tickers returned nothing — vectorized dict comprehension
+            failed: List[str] = list(effective_tickers)
+            errors: Dict[str, str] = {t: "Empty dataset from yf.download" for t in effective_tickers}
             return pd.DataFrame(), [], failed, errors
 
         return self._normalize_batch_df(raw_df, effective_tickers)

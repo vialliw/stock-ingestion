@@ -57,6 +57,10 @@ class IngestionConfig(BaseModel):
             raise ValueError(f"tickers must be a list, got {type(v).__name__}")
         seen: set[str] = set()
         result: List[str] = []
+        # justified: per-element type validation cannot be vectorized —
+        # we must raise ValueError on the first non-string element with
+        # its value in the message. Vectorized str ops would silently
+        # coerce or mask the error.
         for t in v:
             if not isinstance(t, str):
                 raise ValueError(f"ticker must be a string, got {type(t).__name__} {t!r}")

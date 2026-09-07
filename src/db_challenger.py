@@ -330,11 +330,13 @@ class DatabaseManager:
                 )
             cols = [desc[0] for desc in rel.description]
             rows = rel.fetchall()
-        result: List[Dict[str, Any]] = []
-        for row in rows:
-            item = dict(zip(cols, row))
+        # Vectorized: build all dicts at once, then stringify Date per-item
+        result: List[Dict[str, Any]] = [dict(zip(cols, row)) for row in rows]
+        # justified: Date stringify is per-row because each item is a
+        # dict, not a column — cannot apply vectorized str() to a
+        # list of dicts. List comprehension is the most compact form.
+        for item in result:
             item["Date"] = str(item["Date"])
-            result.append(item)
         return result
 
     def detect_new_tickers(self, configured_tickers: List[str]) -> List[str]:

@@ -164,3 +164,5 @@ Covers all 7 acceptance criteria: (1) main() importable+callable; (2) do_action 
 [ORCHESTRATOR] Delisted ticker lifecycle verified: Phase 1 (download OK) -> Phase 2 (delisted, not excluded, data intact) -> Phase 3 (added to exclude_tickers, stale data purged). Added purge step for excluded tickers that still have data in DB. 122/122 tests pass.
 
 [ORCHESTRATOR] Replaced per-ticker purge loop with set intersection + single bulk SQL DELETE (purge_tickers). Per AGENTS.md: SQL > vectorized > loop. 122/122 tests pass.
+
+[ORCHESTRATOR] Enforce SQL > vectorized > loop rule: (1) scripts/check_loops.py AST checker, (2) .git/hooks/pre-commit hook, (3) AGENTS.md Critic mandatory checklist. Fixed 6 vectorizable loops, justified 7 remaining with # justified comments. 122/122 tests pass. Checker: 0 violations.

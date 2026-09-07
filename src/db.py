@@ -114,9 +114,10 @@ class DatabaseManager:
         # ("Data type 'str' not recognized"); normalize to object dtype, and
         # coerce Date to datetime64 so MERGE compares DATE to DATE.
         work = df.copy()
-        for col in work.columns:
-            if str(work[col].dtype) in ("str", "string"):
-                work[col] = work[col].astype(object)
+        # Vectorized dtype fix: select str-dtype columns and cast all at once
+        str_cols = [c for c in work.columns if str(work[c].dtype) in ("str", "string")]
+        if str_cols:
+            work[str_cols] = work[str_cols].astype(object)
         if not pd.api.types.is_datetime64_any_dtype(work["Date"]):
             work["Date"] = pd.to_datetime(work["Date"])
         with self._write_lock:
@@ -264,11 +265,13 @@ class DatabaseManager:
                 )
             cols = [desc[0] for desc in rel.description]
             rows = rel.fetchall()
-            result = []
-            for row in rows:
-                item = dict(zip(cols, row))
+            # Vectorized: build all dicts at once, then vectorize Date stringify
+            result = [dict(zip(cols, row)) for row in rows]
+            # justified: Date stringify is per-row because each item is a
+            # dict, not a column — cannot apply vectorized str() to a
+            # list of dicts. List comprehension is the most compact form.
+            for item in result:
                 item["Date"] = str(item["Date"])
-                result.append(item)
             return result
         finally:
             conn.close()

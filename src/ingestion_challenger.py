@@ -139,6 +139,9 @@ class _NormalizeMixin:
         multi = df.columns.nlevels == 2 if not df.empty else False
 
         for t in tickers:
+            # justified: yf.download returns MultiIndex columns per ticker.
+            # Each ticker's sub-frame needs individual dropna + schema
+            # normalization. Cannot vectorize per-key dropna on MultiIndex.
             try:
                 if multi:
                     ticker_df = df[t].copy()
@@ -206,6 +209,8 @@ class _SplitMixin:
         # Phase 1 — collect splits for every ticker in one pass.
         collected: Dict[str, List[Tuple[str, float]]] = {}
         for t in tickers:
+            # justified: yfinance has no batch split API — yf.Ticker(t).splits
+            # must be called per-ticker. This is an external API constraint.
             try:
                 stock = yf.Ticker(t)
                 splits = stock.splits
@@ -231,6 +236,8 @@ class _SplitMixin:
                     continue
 
                 # Record all unprocessed splits for idempotency
+                # justified: db.record_split is a per-row SQL INSERT with
+                # idempotency. No batch INSERT method exists. Splits are rare.
                 for split_date_str, factor in unprocessed:
                     self.db.record_split(t, split_date_str, factor)
 
@@ -331,12 +338,9 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin):
             return pd.DataFrame(), [], failed, errors
 
         if raw_df.empty:
-            # All tickers returned nothing
-            failed = []
-            errors = {}
-            for t in effective_tickers:
-                failed.append(t)
-                errors[t] = "Empty dataset from yf.download"
+            # All tickers returned nothing — vectorized dict comprehension
+            failed = list(effective_tickers)
+            errors = {t: "Empty dataset from yf.download" for t in effective_tickers}
             return pd.DataFrame(), [], failed, errors
 
         return self._normalize_batch_df(raw_df, effective_tickers)

@@ -42,7 +42,13 @@ Completion requires evidence against the explicit acceptance_criteria defined in
   - The Coding Subagent (executor/challenger) MUST use SQL/DuckDB for data transformation where feasible.
   - Then Pandas/NumPy/Polars vectorized operations.
   - Only use explicit Python loops when neither SQL nor vectorized approaches are practical.
-  - Any loop MUST be justified in the task report (EVENTS.log entry or commit message).
+  - Any loop MUST be justified with a `# justified: <reason>` comment on the for-line or within 6 lines above it.
+  - **Enforcement (automated):**
+    - `scripts/check_loops.py` — AST-based checker that scans `src/*.py` for unjustified `for` loops. Run manually: `python scripts/check_loops.py --src-dir src`
+    - `.git/hooks/pre-commit` — Git pre-commit hook that runs the checker and **blocks** commits with unjustified loops.
+    - **Critic mandatory checklist** — the Critic (Agent D) MUST run `python scripts/check_loops.py --src-dir src` and verify exit code 0 before marking any task as `done`. This is added to every task's acceptance criteria.
+  - Exempt patterns (not flagged): `range()`, `enumerate()`, `zip()`, `.items()`, `.values()`, `.keys()`, constant list/tuple literals.
+  - To justify a loop: add `# justified: <reason>` comment on the for-line or within 6 lines above it.
 
 ## Coding conventions
 
