@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-07T20:45:00Z
+Last Updated: 2026-09-07T22:30:00Z
 Current Branch: main
 
 ## Goal
@@ -109,3 +109,14 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - `store_csv(symbol, date, csv_bytes) -> int` returns the generated row id.
 - APPEND semantics: a second write for the same (symbol, date) persists as a NEW row and returns a strictly greater id. No upsert / no overwrite. This is what the Critic's breaking test verifies.
 - Duel shape: Executor (T2, src/store.py) and Challenger (T3, src/store_challenger.py) implement independently in separate files using separate default DB paths to avoid clobbering; Critic (T4) parametrizes tests over both.
+
+## Tier 1 Platform Integration — COMPLETE
+- [x] Devin MCP server configured and verified (devin server connected, 20+ tools available)
+- [x] 4 playbooks created on Devin platform (orchestrator, executor, challenger, critic)
+- [x] Orchestrator prompt updated with MCP Session Management section (devin_session_create/gather/interact)
+- [x] Orchestrator playbook synced on Devin platform with MCP content
+- [x] Model decision: Option B chosen — all agent sessions created via MCP with org default model. Manual webapp tabs B/C/D closed. LLM field in playbooks is documentation, not enforced. devin_mode proxy available (normal/ultra) for capability differentiation.
+- [x] Manual user-relay nudging eliminated — orchestrator messages agents directly via devin_session_interact
+
+## Active Sessions
+- None currently. Sessions will be created via devin_session_create when Cycle 2 begins.

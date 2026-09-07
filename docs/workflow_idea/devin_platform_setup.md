@@ -145,6 +145,26 @@ The orchestrator prompt (`docs/workflow_idea/agent_a_prompt.md`) has been update
 | Challenger | `playbook-9addf6496feb44bbbd8b44f88a970a25` |
 | Critic | `playbook-f0577debe6014f4d9b3276c88fef0ce7` |
 
+### Model assignment limitation and decision (Option B)
+
+The MCP `devin_session_create` API does NOT support per-session LLM selection (e.g. SWE-1.7 vs GLM-5.2). It only supports `devin_mode` tiers: `normal`, `fast`, `lite`, `ultra`, `fusion`.
+
+**Three options were considered:**
+- **Option A:** Keep manual webapp tabs with correct LLMs, use user as relay — rejected (manual relay was the original bottleneck)
+- **Option B:** Use MCP-created sessions with org default model, full programmatic control — **CHOSEN**
+- **Option C:** Hybrid (keep tabs for now, switch to MCP later) — not needed
+
+**Decision:** Option B. All agent sessions are created via MCP with the org default model. The playbook provides role identification and workflow instructions. The `LLM` field in each playbook is documentation of the intended model, not an enforced setting.
+
+**Optional `devin_mode` proxy for capability differentiation:**
+| Agent | `devin_mode` | Rationale |
+|---|---|---|
+| B (Executor) | `normal` | Writes code, standard capability |
+| C (Challenger) | `ultra` | Deeper reasoning for edge-case analysis |
+| D (Critic) | `normal` | Runs checks, standard capability |
+
+Note: `devin_mode` is batch-level only. Use separate `devin_session_create` calls per mode.
+
 ---
 
 ## Tier 2: Dynamic Workflows + Parallel C+D

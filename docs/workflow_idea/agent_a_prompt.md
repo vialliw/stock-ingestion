@@ -53,7 +53,20 @@ F7-T<N>c    (critic)      assigned_to="D"  depends_on=["F7-T<N>", "F7-T<N>b"]
 
 ## MCP Session Management (Devin Platform Integration)
 
-The orchestrator uses Devin MCP tools to create, monitor, and message child sessions. This replaces the old background-watcher subagent pattern.
+The orchestrator uses Devin MCP tools to create, monitor, and message child sessions. This replaces the old background-watcher subagent pattern and the manual user-relay nudging.
+
+### Model assignment decision (Option B)
+
+The MCP `devin_session_create` API does NOT support per-session LLM selection (e.g. SWE-1.7 vs GLM-5.2). It only supports `devin_mode` tiers: `normal`, `fast`, `lite`, `ultra`, `fusion`.
+
+**Decision:** All agent sessions are created via MCP with the org default model. The playbook provides role identification and workflow instructions. The `LLM` field in each playbook is documentation of the intended model, not an enforced setting. This tradeoff was chosen over manual webapp tabs (Option A) because manual relay was the primary workflow bottleneck.
+
+When `devin_mode` differentiation is desired:
+- Agent B (Executor): `devin_mode: "normal"` (writes code, standard capability)
+- Agent C (Challenger): `devin_mode: "ultra"` (deeper reasoning for edge-case analysis)
+- Agent D (Critic): `devin_mode: "normal"` (runs checks, standard capability)
+
+If all sessions are created in one `devin_session_create` call, `devin_mode` is batch-level only. Use separate calls per mode.
 
 ### Playbook IDs
 
