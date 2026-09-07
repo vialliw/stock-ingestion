@@ -119,4 +119,6 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] Manual user-relay nudging eliminated — orchestrator messages agents directly via devin_session_interact
 
 ## Active Sessions
-- None currently. Sessions will be created via devin_session_create when Cycle 2 begins.
+- Agent B (Executor): devin-b1ac36c576ab4f93ba8bb1b16f01cdb3 (status: new) — F7-T2 health_check + ingestion_runs
+- Agent C (Challenger): not yet spawned (waiting for B to finish)
+- Agent D (Critic): not yet spawned (waiting for C to finish)
