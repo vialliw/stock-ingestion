@@ -523,7 +523,7 @@
     "title": "Challenger: review JSON logging implementation for edge cases",
     "role": "challenger",
     "model": "glm",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T1"
     ],
@@ -542,7 +542,7 @@
     "title": "Critic: verify JSON logging + log_file path + full regression",
     "role": "critic",
     "model": "swe",
-    "status": "todo",
+    "status": "in_progress",
     "depends_on": [
       "F7-T1",
       "F7-T1b"
