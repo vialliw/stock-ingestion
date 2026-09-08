@@ -942,3 +942,52 @@ Evidence map:
   }
 ]
 [2026-09-08T20:21:18.028718+00:00] [CRITIC] claimed F7-T5c
+[2026-09-08T20:22:32.673301+00:00] [CRITIC] completed F7-T5c -> ALL PASS. AC-1/AC-2 loop checker clean (14 files, 0 unjustified loops); AC-3 pytest suite 205 passed, 21 warnings; AC-4 test_scheduler.py 9 passed; AC-5 scheduler tests use mocks. Non-blocking concerns retained: _create_db_manager retries on any Exception, shutdown(wait=False), timezone not pre-validated before scheduler.start().
+Evidence map:
+[
+  {
+    "id": "AC-1",
+    "check": "loop_checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (14 files checked)\n"
+  },
+  {
+    "id": "AC-2",
+    "check": "loop_checker_strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (14 files checked)\n"
+  },
+  {
+    "id": "AC-3",
+    "check": "pytest_suite",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "===== warnings summary ===============================\ntests/test_db.py: 8 warnings\ntests/test_delisted_lifecycle.py: 3 warnings\ntests/test_health_check.py: 2 warnings\ntests/test_integration.py: 8 warnings\n  /home/ubuntu/repos/stock-ingestion/src/db.py:144: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n205 passed, 21 warnings in 3.23s\n"
+  },
+  {
+    "id": "AC-4",
+    "check": "scheduler_tests_pass",
+    "command": "python -m pytest tests/test_scheduler.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ".........                                                                [100%]\n9 passed in 0.61s\n"
+  },
+  {
+    "id": "AC-5",
+    "check": "scheduler_uses_mocks",
+    "command": "python -c \"src = open('tests/test_scheduler.py').read(); assert 'mock' in src.lower() or 'patch' in src.lower(), 'no mocking found in scheduler tests'; print('scheduler tests use mocks')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "scheduler tests use mocks\n"
+  }
+]
