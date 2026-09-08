@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-08T20:34:58+00:00
+Last Updated: 2026-09-08T20:45:37+00:00
 Current Branch: main
 
 ## Goal
@@ -45,6 +45,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
   - test_logging.py  (critic tests, 18 tests for JSON/text logging + log_file path + log_format validation — F7-T1c)
   - test_health_check.py  (critic tests for health_check + get_run_history actions + ingestion_runs audit table — F7-T2)
   - test_r2_sync.py  (critic tests for R2 DuckDB sync — F7-T4c)
+  - test_phase2_integration.py  (Phase 2 end-to-end integration tests — F7-T7)
   - test_scheduler.py  (critic tests for PipelineScheduler/APScheduler/DuckDB lock retry — F7-T5)
 
 ## Decisions Made (do NOT change without PM approval)
@@ -157,6 +158,10 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] F7-T6 (Executor): `MarketDataFlightServer.do_put` accepts external Arrow record batches into `daily_close`. Schema validation enforces 7 columns (Date, Ticker, Open, High, Low, Close, Volume) and raises `FlightServerError` on mismatch; `exclude_tickers` filtered with warning log; upserts via `DatabaseManager.upsert_dataframe` in one vectorized operation.
 - [x] F7-T6b (Challenger): review of F7-T6 — PASS WITH CONCERNS. 213/213 tests pass, `check_loops --strict` clean. Concern: `do_put` uses `reader.read_all()` instead of the `pyarrow.Table.from_batches()` wording in the phase 2 dev plan; functionally equivalent and vectorized, but not an explicit `from_batches()` call.
 - [x] F7-T6c (Critic): verified do_put + full regression — DONE. 213/213 tests pass, `check_loops --strict` clean, all 5 structured acceptance criteria pass. Renamed two schema-rejection test cases in `tests/test_do_put.py` so the `-k schema` filter matches. Non-blocking challenger concern (read_all vs from_batches) accepted as functionally equivalent.
+- [x] F7-T7: Executor wrote end-to-end Phase 2 integration tests in `tests/test_phase2_integration.py` (4 tests). Covers scheduler -> daily_load -> ingestion_runs audit -> R2 sync -> health_check, do_put -> do_get Flight roundtrip, sync_to_r2 Flight action, and APScheduler cron job registration. All external services mocked (yfinance, boto3, APScheduler); no real network calls. 217/217 tests pass, `check_loops --src-dir src` and `--strict` clean, all 5 F7-T7 acceptance criteria verified.
 
 ## Cycle 6 — COMPLETE
 Final: 213/213 tests pass, loop checker `--strict` clean, do_put schema/filter/upsert behavior verified.
+
+## Cycle 7 — COMPLETE
+- [x] F7-T7 (Executor): end-to-end Phase 2 integration tests in `tests/test_phase2_integration.py` — DONE. 217/217 tests pass, `check_loops --src-dir src` and `--strict` clean, all 5 acceptance criteria pass.
