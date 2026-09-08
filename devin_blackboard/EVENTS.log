@@ -1192,3 +1192,4 @@ Evidence map:
     "output": "se2_integration.py::test_scheduler_end_to_end_daily_load_audit_r2_and_health_check\ntests/test_phase2_integration.py::test_do_put_do_get_roundtrip\ntests/test_phase2_integration.py::test_do_put_do_get_roundtrip\n  /home/ubuntu/repos/stock-ingestion/src/db.py:144: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n4 passed, 4 warnings in 0.68s\n"
   }
 ]
+[2026-09-08T20:48:13.795161+00:00] [CRITIC] claimed F7-T7b

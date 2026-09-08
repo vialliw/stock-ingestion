@@ -1488,7 +1488,7 @@
     "title": "Critic: full regression + Phase 2 acceptance",
     "role": "critic",
     "model": "swe",
-    "status": "todo",
+    "status": "in_progress",
     "depends_on": [
       "F7-T7"
     ],
