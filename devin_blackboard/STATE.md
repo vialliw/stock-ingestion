@@ -123,7 +123,14 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] Manual user-relay nudging eliminated — orchestrator messages agents directly via devin_session_interact
 
 ## Active Sessions
-- None — Cycle 3 complete. All agent sessions settled.
+- Agent B (Executor): spawning — F7-T4 R2 sync
+- Agent C (Challenger): not yet spawned (waiting for B)
+- Agent D (Critic): not yet spawned (waiting for C)
+
+## Cycle 4 — IN PROGRESS
+- [ ] F7-T4 (Executor): R2 sync — upload DuckDB file directly + auto after daily_load + manual Flight action
+- [ ] F7-T4b (Challenger): review
+- [ ] F7-T4c (Critic): verify
 
 ## Cycle 2 — COMPLETE
 - [x] F7-T2 (Executor): health_check Flight action + ingestion_runs audit table — DONE (175 tests)
