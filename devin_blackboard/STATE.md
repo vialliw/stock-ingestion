@@ -152,3 +152,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
 
 ## Cycle 5 — COMPLETE
 - [x] F7-T5 (Executor): standalone scheduler process — src/scheduler.py + src/scheduler_main.py + SchedulerConfig in src/config.py + scheduler section in src/config.yaml + tests/test_scheduler.py. APScheduler BackgroundScheduler triggers daily_load at configurable time (default 16:30 ET). Scheduler checks NYSE market calendar, opens its own read-write DuckDB connection with lock retry/backoff, and shuts down cleanly on SIGINT/SIGTERM. All 8 acceptance criteria pass; 205/205 tests pass; loop checker --strict clean.
+
+## Cycle 6 — do_put — IN REVIEW
+- [x] F7-T6 (Executor): `MarketDataFlightServer.do_put` accepts external Arrow record batches into `daily_close`. Schema validation enforces 7 columns (Date, Ticker, Open, High, Low, Close, Volume) and raises `FlightServerError` on mismatch; `exclude_tickers` filtered with warning log; upserts via `DatabaseManager.upsert_dataframe` in one vectorized operation.
+- [x] F7-T6b (Challenger): review of F7-T6 — PASS WITH CONCERNS. 213/213 tests pass, `check_loops --strict` clean. Concern: `do_put` uses `reader.read_all()` instead of the `pyarrow.Table.from_batches()` wording in the phase 2 dev plan; functionally equivalent and vectorized, but not an explicit `from_batches()` call.
