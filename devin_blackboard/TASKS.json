@@ -1275,7 +1275,7 @@
     "title": "Executor: do_put in Flight server — accept external batch data into daily_close",
     "role": "executor",
     "model": "swe",
-    "status": "todo",
+    "status": "in_progress",
     "depends_on": [
       "F7-T5c"
     ],
