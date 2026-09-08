@@ -1432,7 +1432,7 @@
     "title": "Executor: integration tests for all Phase 2 features",
     "role": "executor",
     "model": "swe",
-    "status": "todo",
+    "status": "in_progress",
     "depends_on": [
       "F7-T6c"
     ],
