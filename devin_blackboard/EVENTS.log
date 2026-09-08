@@ -833,3 +833,79 @@ Evidence map:
 [ORCHESTRATOR] Cycles 5-7 tasks written: F7-T5/T5b/T5c (scheduler), F7-T6/T6b/T6c (do_put), F7-T7/T7b (integration). Starting Cycle 5 first. F7-T5 depends on F7-T4c (done).
 
 [2026-09-08T20:11:36.851546+00:00] [EXECUTOR] claimed F7-T5
+[2026-09-08T20:15:10.993922+00:00] [EXECUTOR] completed F7-T5 -> scheduler.py PipelineScheduler + scheduler_main.py standalone entrypoint, SchedulerConfig in config.py, config.yaml scheduler section, tests/test_scheduler.py. 205/205 pytest pass, loop checker strict clean, all 8 AC pass
+Evidence map:
+[
+  {
+    "id": "AC-1",
+    "check": "loop_checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (14 files checked)\n"
+  },
+  {
+    "id": "AC-2",
+    "check": "loop_checker_strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (14 files checked)\n"
+  },
+  {
+    "id": "AC-3",
+    "check": "pytest_suite",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "===== warnings summary ===============================\ntests/test_db.py: 8 warnings\ntests/test_delisted_lifecycle.py: 3 warnings\ntests/test_health_check.py: 2 warnings\ntests/test_integration.py: 8 warnings\n  /home/ubuntu/repos/stock-ingestion/src/db.py:144: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n205 passed, 21 warnings in 2.99s\n"
+  },
+  {
+    "id": "AC-4",
+    "check": "scheduler_module_exists",
+    "command": "python -c \"from src.scheduler import PipelineScheduler; print('PipelineScheduler importable')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "PipelineScheduler importable\n"
+  },
+  {
+    "id": "AC-5",
+    "check": "scheduler_main_exists",
+    "command": "python -c \"import os; assert os.path.exists('src/scheduler_main.py'), 'src/scheduler_main.py not found'; print('scheduler_main.py exists')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "scheduler_main.py exists\n"
+  },
+  {
+    "id": "AC-6",
+    "check": "scheduler_config",
+    "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert hasattr(cfg, 'scheduler'), 'scheduler config section not found'; assert cfg.scheduler.enabled == False, 'scheduler.enabled should default to False'; print('scheduler config exists, enabled=False')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "scheduler config exists, enabled=False\n"
+  },
+  {
+    "id": "AC-7",
+    "check": "apscheduler_in_requirements",
+    "command": "python -c \"reqs = open('requirements.txt').read(); assert 'APScheduler' in reqs or 'apscheduler' in reqs, 'APScheduler not in requirements.txt'; print('APScheduler in requirements.txt')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "APScheduler in requirements.txt\n"
+  },
+  {
+    "id": "AC-8",
+    "check": "test_scheduler_exists",
+    "command": "python -c \"import os; assert os.path.exists('tests/test_scheduler.py'), 'tests/test_scheduler.py not found'; print('test_scheduler.py exists')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "test_scheduler.py exists\n"
+  }
+]

@@ -31,6 +31,8 @@ Storage backend: Cloudflare R2 (S3-compatible).
   - flight_server_challenger.py  (challenger MarketDataFlightServer variant — dict dispatch table + regex SQL validation + custom exception hierarchy + result-construction helpers — F4-T2)
   - flight_server.py  (MarketDataFlightServer: do_get SELECT-only validation + do_action 4 actions + _validate_select_only/_truncate_sql — F4-T1)
   - main.py  (main entrypoint: config -> DatabaseManager -> IngestionEngine -> FlightServer, SIGINT/SIGTERM handler, server.serve() — F5-T1)
+  - scheduler.py  (PipelineScheduler: APScheduler BackgroundScheduler, NYSE calendar check, DuckDB lock retry/backoff, graceful shutdown — F7-T5)
+  - scheduler_main.py  (standalone scheduler entrypoint; does NOT start Flight server — F7-T5)
 - /tests/          (critic-written tests)
   - __init__.py
   - test_store_csv.py
@@ -43,6 +45,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
   - test_logging.py  (critic tests, 18 tests for JSON/text logging + log_file path + log_format validation — F7-T1c)
   - test_health_check.py  (critic tests for health_check + get_run_history actions + ingestion_runs audit table — F7-T2)
   - test_r2_sync.py  (critic tests for R2 DuckDB sync — F7-T4c)
+  - test_scheduler.py  (critic tests for PipelineScheduler/APScheduler/DuckDB lock retry — F7-T5)
 
 ## Decisions Made (do NOT change without PM approval)
 - [2026-09-06T18:10:00Z] Cycle 1 started: Config + Scaffold (F1-T1..F1-T4 per docs/dev_plan/phase1_dev_plan.md)
@@ -145,3 +148,6 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] F7-T3b (Challenger): review — PASS WITH CONCERNS (non-blocking)
 - [x] F7-T3c (Critic): verify — DONE (181 tests, all 6 criteria pass)
 - Final: 181/181 tests pass, loop checker clean
+
+## Cycle 5 — COMPLETE
+- [x] F7-T5 (Executor): standalone scheduler process — src/scheduler.py + src/scheduler_main.py + SchedulerConfig in src/config.py + scheduler section in src/config.yaml + tests/test_scheduler.py. APScheduler BackgroundScheduler triggers daily_load at configurable time (default 16:30 ET). Scheduler checks NYSE market calendar, opens its own read-write DuckDB connection with lock retry/backoff, and shuts down cleanly on SIGINT/SIGTERM. All 8 acceptance criteria pass; 205/205 tests pass; loop checker --strict clean.

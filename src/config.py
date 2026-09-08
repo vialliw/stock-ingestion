@@ -121,6 +121,31 @@ class R2Config(BaseModel):
     prefix: str = "stock-ingestion/"
 
 
+class SchedulerConfig(BaseModel):
+    """APScheduler daily-load settings.
+
+    The scheduler is opt-in via ``enabled``.  When enabled, it triggers
+    ``IngestionEngine.run_daily_load`` once per trading day at
+    ``schedule_time`` in the configured ``timezone``.
+    """
+
+    enabled: bool = False
+    schedule_time: str = "16:30"
+    timezone: str = "America/New_York"
+
+    @field_validator("schedule_time", mode="before")
+    @classmethod
+    def validate_schedule_time(cls, v) -> str:
+        """Ensure ``schedule_time`` is a string in ``HH:MM`` 24-hour form."""
+        if v is None:
+            return "16:30"
+        if not isinstance(v, str):
+            raise ValueError(f"schedule_time must be a string, got {type(v).__name__}")
+        if not re.fullmatch(r"^(?:[01]\d|2[0-3]):[0-5]\d$", v):
+            raise ValueError(f"schedule_time must be in HH:MM 24-hour format, got {v!r}")
+        return v
+
+
 class PipelineConfig(BaseModel):
     """Top-level pipeline configuration aggregating all sub-configs."""
 
@@ -130,6 +155,7 @@ class PipelineConfig(BaseModel):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     reports: ReportsConfig = Field(default_factory=ReportsConfig)
     r2: R2Config = Field(default_factory=R2Config)
+    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
 
     @property
     def db_path(self) -> str:

@@ -31,3 +31,8 @@ r2:
   enabled: false
   bucket_name: ""
   prefix: "stock-ingestion/"
+
+scheduler:
+  enabled: false
+  schedule_time: "16:30"
+  timezone: "America/New_York"

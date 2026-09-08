@@ -1104,7 +1104,7 @@
     "title": "Executor: standalone scheduler process (src/scheduler_main.py)",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T4c"
     ],
