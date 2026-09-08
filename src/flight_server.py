@@ -19,6 +19,7 @@ import threading
 from datetime import datetime
 
 import pandas as pd
+import pyarrow as pa
 import pyarrow.flight as flight
 
 from src.r2_sync import R2SyncManager
@@ -51,6 +52,36 @@ def _truncate_sql(sql: str, max_len: int = 200) -> str:
     if len(sql) <= max_len:
         return sql
     return sql[:max_len] + "...[truncated]"
+
+
+# Expected Arrow schema for do_put uploads to the daily_close table.
+_DAILY_CLOSE_SCHEMA = pa.schema(
+    [
+        pa.field("Date", pa.date32()),
+        pa.field("Ticker", pa.string()),
+        pa.field("Open", pa.float64()),
+        pa.field("High", pa.float64()),
+        pa.field("Low", pa.float64()),
+        pa.field("Close", pa.float64()),
+        pa.field("Volume", pa.float64()),
+    ]
+)
+
+
+def _validate_daily_close_schema(schema: pa.Schema) -> None:
+    """Raise ``FlightServerError`` if ``schema`` does not exactly match
+    the ``daily_close`` column layout and types."""
+    expected_names = _DAILY_CLOSE_SCHEMA.names
+    if schema.names != expected_names:
+        raise flight.FlightServerError(
+            f"Schema mismatch: expected columns {expected_names}, got {schema.names}"
+        )
+    for field, expected in zip(schema, _DAILY_CLOSE_SCHEMA):
+        if not field.type.equals(expected.type):
+            raise flight.FlightServerError(
+                f"Schema mismatch for {field.name}: expected {expected.type}, "
+                f"got {field.type}"
+            )
 
 
 # =====================================================================
@@ -261,9 +292,59 @@ class MarketDataFlightServer(flight.FlightServerBase):
         else:
             raise flight.FlightServerError(f"Unknown action: {action_type}")
 
+    # ------------------------------------------------------------------
+    # Write path
+    # ------------------------------------------------------------------
+
+    def do_put(self, context, descriptor, reader, writer):
+        """Receive an Arrow stream and upsert it into ``daily_close``.
+
+        The stream is read in full, validated against the ``daily_close``
+        schema, filtered for any tickers in ``cfg.ingestion.exclude_tickers``,
+        and then upserted in a single vectorized operation via
+        ``DatabaseManager.upsert_dataframe``.
+        """
+        try:
+            table = reader.read_all()
+        except Exception as e:
+            logger.error("Failed to read Arrow Flight do_put stream: %s", e)
+            raise flight.FlightServerError(
+                f"Failed to read do_put stream: {e}"
+            ) from e
+
+        try:
+            _validate_daily_close_schema(table.schema)
+        except flight.FlightServerError:
+            raise
+
+        df = table.to_pandas()
+
+        exclude_tickers = []
+        ingestion_cfg = getattr(self.cfg, "ingestion", None)
+        if ingestion_cfg is not None:
+            raw_excluded = getattr(ingestion_cfg, "exclude_tickers", None)
+            if isinstance(raw_excluded, (list, tuple, set)):
+                exclude_tickers = list(raw_excluded)
+
+        if exclude_tickers:
+            mask = df["Ticker"].isin(exclude_tickers)
+            excluded_count = int(mask.sum())
+            if excluded_count:
+                logger.warning(
+                    "do_put filtered %s row(s) for excluded tickers %s",
+                    excluded_count,
+                    exclude_tickers,
+                )
+                df = df.loc[~mask].copy()
+
+        rows_upserted = self.db.upsert_dataframe(df)
+        logger.info("do_put upserted %s rows into daily_close", rows_upserted)
+
 
 __all__ = [
     "MarketDataFlightServer",
     "_validate_select_only",
     "_truncate_sql",
+    "_validate_daily_close_schema",
+    "_DAILY_CLOSE_SCHEMA",
 ]

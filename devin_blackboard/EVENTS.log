@@ -992,3 +992,70 @@ Evidence map:
   }
 ]
 [2026-09-08T20:23:41.328901+00:00] [EXECUTOR] claimed F7-T6
+[2026-09-08T20:27:38.062147+00:00] [EXECUTOR] completed F7-T6 -> do_put implemented in src/flight_server.py; tests/test_do_put.py added; all 7 AC pass; full pytest suite 213 passed; loop checker clean
+Evidence map:
+[
+  {
+    "id": "AC-1",
+    "check": "loop_checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (14 files checked)\n"
+  },
+  {
+    "id": "AC-2",
+    "check": "loop_checker_strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (14 files checked)\n"
+  },
+  {
+    "id": "AC-3",
+    "check": "pytest_suite",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "=====================\ntests/test_db.py: 8 warnings\ntests/test_delisted_lifecycle.py: 3 warnings\ntests/test_do_put.py: 6 warnings\ntests/test_health_check.py: 2 warnings\ntests/test_integration.py: 8 warnings\n  /home/ubuntu/repos/stock-ingestion/src/db.py:144: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n213 passed, 27 warnings in 3.34s\n"
+  },
+  {
+    "id": "AC-4",
+    "check": "do_put_exists",
+    "command": "python -c \"src = open('src/flight_server.py').read(); assert 'do_put' in src, 'do_put not found in flight_server.py'; print('do_put found')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "do_put found\n"
+  },
+  {
+    "id": "AC-5",
+    "check": "schema_validation",
+    "command": "python -c \"src = open('src/flight_server.py').read(); assert 'schema' in src.lower(), 'no schema validation found in do_put'; print('schema validation found')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "schema validation found\n"
+  },
+  {
+    "id": "AC-6",
+    "check": "exclude_tickers_filter",
+    "command": "python -c \"src = open('src/flight_server.py').read(); assert 'exclude_tickers' in src, 'exclude_tickers filter not found in do_put'; print('exclude_tickers filter found')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "exclude_tickers filter found\n"
+  },
+  {
+    "id": "AC-7",
+    "check": "test_do_put_exists",
+    "command": "python -c \"import os; assert os.path.exists('tests/test_do_put.py'), 'tests/test_do_put.py not found'; print('test_do_put.py exists')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "test_do_put.py exists\n"
+  }
+]
