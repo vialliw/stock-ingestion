@@ -770,3 +770,61 @@ Evidence map:
   }
 ]
 [2026-09-08T18:36:15.795173+00:00] [CRITIC] claimed F7-T4c
+[2026-09-08T18:40:54.683969+00:00] [CRITIC] completed F7-T4c -> ALL PASS. Added 8 edge-case tests to tests/test_r2_sync.py (now 15 tests total). AC-1/2 loop checker clean, AC-3 full suite 196 passed, AC-4 test_r2_sync 15 passed, AC-5/6 no real R2 calls and no hardcoded keys. Coverage now includes sync_to_r2 Flight action, raw error propagation, run_daily_load auto-sync triggers (enabled/disabled/market closed/PARTIAL with zero rows), and cross-platform key building. Non-blocking concerns retained from F7-T4b: sync_to_r2 action does not wrap credential/file/bucket exceptions in FlightServerError; run_daily_load auto-syncs on PARTIAL even when total_rows==0; _build_key relies on os.path.basename and will not split Windows backslash paths when running on Linux.
+Evidence map:
+[
+  {
+    "id": "AC-1",
+    "check": "loop_checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (12 files checked)\n"
+  },
+  {
+    "id": "AC-2",
+    "check": "loop_checker_strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (12 files checked)\n"
+  },
+  {
+    "id": "AC-3",
+    "check": "pytest_suite",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "===== warnings summary ===============================\ntests/test_db.py: 8 warnings\ntests/test_delisted_lifecycle.py: 3 warnings\ntests/test_health_check.py: 2 warnings\ntests/test_integration.py: 8 warnings\n  /home/ubuntu/repos/stock-ingestion/src/db.py:144: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n196 passed, 21 warnings in 2.99s\n"
+  },
+  {
+    "id": "AC-4",
+    "check": "r2_sync_tests_pass",
+    "command": "python -m pytest tests/test_r2_sync.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "...............                                                          [100%]\n15 passed in 0.58s\n"
+  },
+  {
+    "id": "AC-5",
+    "check": "no_real_r2_calls",
+    "command": "python -c \"src = open('tests/test_r2_sync.py').read(); assert 'mock' in src.lower() or 'patch' in src.lower(), 'no mocking found in R2 tests \u2014 tests may make real R2 calls'; print('R2 tests use mocks/patches')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "R2 tests use mocks/patches\n"
+  },
+  {
+    "id": "AC-6",
+    "check": "no_hardcoded_credentials_test",
+    "command": "python -c \"import os; src = open('tests/test_r2_sync.py').read(); assert 'AKIA' not in src and 'cog_' not in src, 'possible hardcoded credentials in test'; print('no hardcoded credentials in tests')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "no hardcoded credentials in tests\n"
+  }
+]

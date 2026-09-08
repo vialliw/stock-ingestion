@@ -42,6 +42,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
   - test_integration.py  (critic integration tests, 7 tests using EXECUTOR's production modules only — F5-T2)
   - test_logging.py  (critic tests, 18 tests for JSON/text logging + log_file path + log_format validation — F7-T1c)
   - test_health_check.py  (critic tests for health_check + get_run_history actions + ingestion_runs audit table — F7-T2)
+  - test_r2_sync.py  (critic tests for R2 DuckDB sync — F7-T4c)
 
 ## Decisions Made (do NOT change without PM approval)
 - [2026-09-06T18:10:00Z] Cycle 1 started: Config + Scaffold (F1-T1..F1-T4 per docs/dev_plan/phase1_dev_plan.md)
@@ -97,6 +98,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] F7-T2c: Critic verified health_check + audit table + full regression. Corrected F7-T2c acceptance-criteria commands (TASKS.json) that referenced a non-existent `StockFlightServer` / invalid `do_action` signatures and a Windows-only DB path; added `test_database_schema_version_is_three` and `test_get_ingestion_runs_returns_arrow_table` to tests/test_health_check.py. All 6 structured acceptance criteria pass: check_loops clean, check_loops --strict clean, pytest 177 passed, health_check JSON keys verified, schema version 3 verified, get_ingestion_runs returns a pyarrow Table. Non-blocking concerns noted: `record_ingestion_run` stores status "UNKNOWN" for successful runs because run result dicts omit a `status` key; `do_get` SQL validation is prefix-only; `fetch_arrow_table()` is deprecated (DuckDB 1.5.5 warning) — use `to_arrow_table()` in a future cleanup.
 - [x] F7-T3c: Critic verified query timeout (120s default, no row limit) + full regression. All 6 structured acceptance criteria pass: check_loops clean, check_loops --strict clean, pytest 181 passed, tests/test_query_timeout.py 4 passed, timeout filter 4 passed, no LIMIT injection in src/flight_server.py. Verified default timeout is 120s from ServerConfig and config.yaml; do_get does not append LIMIT; timeout fires and raises FlightServerError. Edge-case findings (non-blocking): Pydantic lax mode coerces YAML `query_timeout_seconds: true` to 1s int, bypassing the flight_server bool guard; `_validate_select_only` is prefix-only so `SELECT ...; DROP TABLE ...` is accepted and DuckDB executes the trailing statement; the daemon query worker continues running after the Timer timeout returns.
 - [x] F7-T4: Executor implemented R2 sync — `src/r2_sync.py` with `R2SyncManager` (boto3 S3 client, env-var credentials, direct DuckDB upload), `r2` config section in `src/config.py`/`src/config.yaml` (enabled=False, bucket_name="", prefix="stock-ingestion/"), auto-sync after `run_daily_load` SUCCESS/PARTIAL, manual `sync_to_r2` Flight action, `tests/test_r2_sync.py` (mocked boto3), `boto3` and `python-json-logger` in `requirements.txt`. Acceptance criteria: 10/10 PASS, `python scripts/check_loops.py --src-dir src` clean, `python -m pytest tests/ -q` 188 passed.
+- [x] F7-T4c: Critic verified R2 sync + full regression. Added 8 edge-case tests to `tests/test_r2_sync.py` covering `sync_to_r2` Flight action, raw error propagation, `run_daily_load` auto-sync (enabled/disabled/market closed/PARTIAL with zero rows), and cross-platform key building (POSIX + simulated ntpath). All 6 structured acceptance criteria pass: check_loops clean, check_loops --strict clean, `python -m pytest tests/ -q` 196 passed, `python -m pytest tests/test_r2_sync.py -q` 15 passed, R2 tests use mocks/patches, no hardcoded credentials. Non-blocking concerns retained from F7-T4b: `sync_to_r2` action does not wrap credential/file/bucket exceptions in `FlightServerError`; `run_daily_load` auto-syncs on `PARTIAL` even when `total_rows==0`; `_build_key` relies on `os.path.basename` and will not split Windows backslash paths when running on Linux.
 
 ## Active Blockers
 - None blocking Cycle 2. The 5 config edge-case bugs (D1-D5) are filed as BUG-F1-T2 and BUG-F1-T3 tasks (low priority, can be fixed in parallel with Cycle 2 or deferred).
@@ -126,12 +128,12 @@ Storage backend: Cloudflare R2 (S3-compatible).
 ## Active Sessions
 - Agent B (Executor): F7-T4 R2 sync — completed
 - Agent C (Challenger): F7-T4b review — completed, non-blocking concerns logged
-- Agent D (Critic): ready to spawn for F7-T4c
+- Agent D (Critic): F7-T4c verification — completed
 
 ## Cycle 4 — IN PROGRESS
 - [x] F7-T4 (Executor): R2 sync — upload DuckDB file directly + auto after daily_load + manual Flight action
 - [x] F7-T4b (Challenger): review — PASS WITH CONCERNS (188 tests, loop checker clean)
-- [ ] F7-T4c (Critic): verify
+- [x] F7-T4c (Critic): verify — DONE (196 tests, all 6 criteria pass)
 
 ## Cycle 2 — COMPLETE
 - [x] F7-T2 (Executor): health_check Flight action + ingestion_runs audit table — DONE (175 tests)
