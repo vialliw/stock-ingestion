@@ -738,3 +738,34 @@ Evidence map:
   }
 ]
 [2026-09-08T18:32:01.186708+00:00] [CHALLENGER] claimed F7-T4b
+[2026-09-08T18:34:29.169179+00:00] [CHALLENGER] completed F7-T4b -> PASS WITH CONCERNS. AC-1/2/3 pass: check_loops clean, check_loops --strict clean, pytest 188 passed. Reviewed src/r2_sync.py, src/config.py, src/config.yaml, src/flight_server.py, src/ingestion.py, tests/test_r2_sync.py. Verified: R2 credentials from env vars only (no hardcoded keys); R2Config opt-in; upload_file uses local DuckDB path; auto-sync only in run_daily_load after processing/status set to SUCCESS/PARTIAL and not on SKIPPED; manual sync_to_r2 Flight action present; no R2 writes during intermediate processing; tests mock src.r2_sync.boto3.client and patch env, no real R2 calls. Non-blocking concerns: (1) sync_to_r2 action does not wrap missing-credential/file/bucket exceptions in FlightServerError, so Flight clients may see raw Python errors; (2) run_daily_load auto-syncs on PARTIAL even when all tickers failed and total_rows may be 0; (3) tests/test_r2_sync.py covers the manager only, not the Flight action or auto-sync trigger (Critic F7-T4c can add); (4) _build_key uses os.path.basename, which will not split a Windows backslash path if code runs on Linux.
+Evidence map:
+[
+  {
+    "id": "AC-1",
+    "check": "loop_checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (12 files checked)\n"
+  },
+  {
+    "id": "AC-2",
+    "check": "loop_checker_strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (12 files checked)\n"
+  },
+  {
+    "id": "AC-3",
+    "check": "pytest_suite",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "===== warnings summary ===============================\ntests/test_db.py: 8 warnings\ntests/test_delisted_lifecycle.py: 3 warnings\ntests/test_health_check.py: 2 warnings\ntests/test_integration.py: 8 warnings\n  /home/ubuntu/repos/stock-ingestion/src/db.py:144: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n188 passed, 21 warnings in 2.98s\n"
+  }
+]
