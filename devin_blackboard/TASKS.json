@@ -130,7 +130,7 @@
     "output_files": [
       "/src/db.py"
     ],
-    "acceptance_criteria": "src/db.py defines DatabaseManager with all methods from spec \u00a710: _init_schema (creates daily_quotes with Volume DOUBLE, splits_processed, schema_version tables), _read_only_conn, execute_query (returns pa.Table), upsert_dataframe (MERGE INTO, returns int row count), purge_ticker, is_split_processed, record_split, delete_ticker_data, get_existing_tickers, get_aligned_start_date, detect_new_tickers, generate_top_20_dollar_volume, close (CHECKPOINT). Uses threading.Lock for all writes. Read-only conn for reads. python -c \"from src.db import DatabaseManager; print('OK')\" exits 0 with output 'OK'.",
+    "acceptance_criteria": "src/db.py defines DatabaseManager with all methods from spec §10: _init_schema (creates daily_quotes with Volume DOUBLE, splits_processed, schema_version tables), _read_only_conn, execute_query (returns pa.Table), upsert_dataframe (MERGE INTO, returns int row count), purge_ticker, is_split_processed, record_split, delete_ticker_data, get_existing_tickers, get_aligned_start_date, detect_new_tickers, generate_top_20_dollar_volume, close (CHECKPOINT). Uses threading.Lock for all writes. Read-only conn for reads. python -c \"from src.db import DatabaseManager; print('OK')\" exits 0 with output 'OK'.",
     "assigned_to": null
   },
   {
@@ -189,7 +189,7 @@
     "output_files": [
       "/src/ingestion.py"
     ],
-    "acceptance_criteria": "src/ingestion.py defines IngestionEngine with all methods from spec \u00a710: __init__(db_mgr, cfg), _check_and_apply_splits (per-ticker split detection via yf.Ticker.splits, DELETE + re-download from aligned start with auto_adjust=True), _batch_download (yf.download with end+1 day fix, auto_adjust=True, group_by='ticker'), _normalize_batch_df (handles multi-ticker and single-ticker, drops NaN, purges excluded empty tickers, warns on non-excluded empty), fetch_and_clean (split check + batch download + normalize), run_initial_load (6-year default, returns dict with rows_upserted/tickers_succeeded/tickers_failed/errors/duration_ms), run_daily_load (NYSE calendar check via pandas_market_calendars, new ticker detection + backfill from aligned start, trailing 4-day refresh, returns dict), run_on_request_load (custom tickers+dates, returns dict). python -c \"from src.ingestion import IngestionEngine; print('OK')\" exits 0 with output 'OK'.",
+    "acceptance_criteria": "src/ingestion.py defines IngestionEngine with all methods from spec §10: __init__(db_mgr, cfg), _check_and_apply_splits (per-ticker split detection via yf.Ticker.splits, DELETE + re-download from aligned start with auto_adjust=True), _batch_download (yf.download with end+1 day fix, auto_adjust=True, group_by='ticker'), _normalize_batch_df (handles multi-ticker and single-ticker, drops NaN, purges excluded empty tickers, warns on non-excluded empty), fetch_and_clean (split check + batch download + normalize), run_initial_load (6-year default, returns dict with rows_upserted/tickers_succeeded/tickers_failed/errors/duration_ms), run_daily_load (NYSE calendar check via pandas_market_calendars, new ticker detection + backfill from aligned start, trailing 4-day refresh, returns dict), run_on_request_load (custom tickers+dates, returns dict). python -c \"from src.ingestion import IngestionEngine; print('OK')\" exits 0 with output 'OK'.",
     "assigned_to": null
   },
   {
@@ -252,7 +252,7 @@
     "output_files": [
       "/src/flight_server.py"
     ],
-    "acceptance_criteria": "src/flight_server.py defines MarketDataFlightServer(flight.FlightServerBase) with: __init__(location, db_mgr, ingest_engine, cfg), do_get (parse JSON ticket, validate SELECT-only via _validate_select_only, execute via db.execute_query, return RecordBatchStream, truncate SQL in logs to 200 chars via _truncate_sql), do_action (4 action types: initial_load, daily_load, on_request_load, daily_report \u2014 each returns flight.Result with JSON containing status SUCCESS/PARTIAL/SKIPPED + rows_upserted/tickers_succeeded/tickers_failed/errors/duration_ms; daily_report writes JSON to cfg.reports.report_dir). Also defines _validate_select_only(sql) and _truncate_sql(sql, max_len=200) as module-level functions. python -c \"from src.flight_server import MarketDataFlightServer; print('OK')\" exits 0 with output 'OK'.",
+    "acceptance_criteria": "src/flight_server.py defines MarketDataFlightServer(flight.FlightServerBase) with: __init__(location, db_mgr, ingest_engine, cfg), do_get (parse JSON ticket, validate SELECT-only via _validate_select_only, execute via db.execute_query, return RecordBatchStream, truncate SQL in logs to 200 chars via _truncate_sql), do_action (4 action types: initial_load, daily_load, on_request_load, daily_report — each returns flight.Result with JSON containing status SUCCESS/PARTIAL/SKIPPED + rows_upserted/tickers_succeeded/tickers_failed/errors/duration_ms; daily_report writes JSON to cfg.reports.report_dir). Also defines _validate_select_only(sql) and _truncate_sql(sql, max_len=200) as module-level functions. python -c \"from src.flight_server import MarketDataFlightServer; print('OK')\" exits 0 with output 'OK'.",
     "assigned_to": null
   },
   {
@@ -318,12 +318,12 @@
     "output_files": [
       "/src/main.py"
     ],
-    "acceptance_criteria": "src/main.py defines main() function that: (1) loads config via PipelineConfig.from_yaml('src/config.yaml'); (2) creates DatabaseManager(config.db_path); (3) creates IngestionEngine(db_manager, config); (4) sets up SIGINT/SIGTERM signal handler that calls db_manager.close() and exits; (5) creates MarketDataFlightServer with location string grpc://{host}:{port}; (6) calls server.serve(). Also has if __name__=='__main__': main(). Uses the EXECUTOR's production modules (config.py, db.py, ingestion.py, flight_server.py) \u2014 NOT the challenger variants. python -c \"from src.main import main; print('OK')\" exits 0 with output 'OK'.",
+    "acceptance_criteria": "src/main.py defines main() function that: (1) loads config via PipelineConfig.from_yaml('src/config.yaml'); (2) creates DatabaseManager(config.db_path); (3) creates IngestionEngine(db_manager, config); (4) sets up SIGINT/SIGTERM signal handler that calls db_manager.close() and exits; (5) creates MarketDataFlightServer with location string grpc://{host}:{port}; (6) calls server.serve(). Also has if __name__=='__main__': main(). Uses the EXECUTOR's production modules (config.py, db.py, ingestion.py, flight_server.py) — NOT the challenger variants. python -c \"from src.main import main; print('OK')\" exits 0 with output 'OK'.",
     "assigned_to": null
   },
   {
     "id": "F5-T2",
-    "title": "Critic: integration test \u2014 assemble all modules, verify end-to-end flow with mocked yfinance",
+    "title": "Critic: integration test — assemble all modules, verify end-to-end flow with mocked yfinance",
     "role": "critic",
     "model": "swe",
     "status": "done",
@@ -406,7 +406,7 @@
       "/AGENTS.md"
     ],
     "output_files": [],
-    "acceptance_criteria": "Review scripts/check_loops.py for: (1) false positives \u2014 exempt patterns that are incorrectly flagged; (2) false negatives \u2014 data-iteration loops that are incorrectly exempted; (3) edge cases \u2014 nested loops, comprehensions, while loops. Document findings in EVENTS.log. No code changes required unless a critical false negative is found.",
+    "acceptance_criteria": "Review scripts/check_loops.py for: (1) false positives — exempt patterns that are incorrectly flagged; (2) false negatives — data-iteration loops that are incorrectly exempted; (3) edge cases — nested loops, comprehensions, while loops. Document findings in EVENTS.log. No code changes required unless a critical false negative is found.",
     "assigned_to": null
   },
   {
@@ -471,12 +471,12 @@
       "/docs/tech_spec/gemini_tech_spec.1.0.2.md",
       "/scripts/check_loops.py"
     ],
-    "acceptance_criteria": "(1) Table renamed: grep -ri daily_quotes src/ tests/ docs/ returns 0 matches. All SQL uses daily_close (lowercase). (2) Schema migration: DatabaseManager.__init__ checks schema_version; if version 1 and daily_quotes exists, executes ALTER TABLE daily_quotes RENAME TO daily_close; bumps SCHEMA_VERSION to 2. (3) SQL CAST: generate_top_20_dollar_volume query uses CAST(Date AS VARCHAR) \u2014 no Python loop for Date stringify in db.py or db_challenger.py. (4) batch_record_splits: DatabaseManager.batch_record_splits(splits: List[Tuple[str, str, float]]) does single SQL INSERT with ON CONFLICT DO NOTHING. ingestion.py and ingestion_challenger.py use it instead of per-split loop. (5) check_loops --strict: flags # justified: comments with empty reason text. (6) python scripts/check_loops.py --src-dir src exits 0. (7) python scripts/check_loops.py --src-dir src --strict exits 0. (8) python -m pytest tests/ -q exits 0 (122+ tests). (9) Existing production DB at C:\\Intel\\parquet\\stock_ingestion.duckdb can be opened and daily_close table exists with correct row counts.",
+    "acceptance_criteria": "(1) Table renamed: grep -ri daily_quotes src/ tests/ docs/ returns 0 matches. All SQL uses daily_close (lowercase). (2) Schema migration: DatabaseManager.__init__ checks schema_version; if version 1 and daily_quotes exists, executes ALTER TABLE daily_quotes RENAME TO daily_close; bumps SCHEMA_VERSION to 2. (3) SQL CAST: generate_top_20_dollar_volume query uses CAST(Date AS VARCHAR) — no Python loop for Date stringify in db.py or db_challenger.py. (4) batch_record_splits: DatabaseManager.batch_record_splits(splits: List[Tuple[str, str, float]]) does single SQL INSERT with ON CONFLICT DO NOTHING. ingestion.py and ingestion_challenger.py use it instead of per-split loop. (5) check_loops --strict: flags # justified: comments with empty reason text. (6) python scripts/check_loops.py --src-dir src exits 0. (7) python scripts/check_loops.py --src-dir src --strict exits 0. (8) python -m pytest tests/ -q exits 0 (122+ tests). (9) Existing production DB at C:\\Intel\\parquet\\stock_ingestion.duckdb can be opened and daily_close table exists with correct row counts.",
     "assigned_to": "B"
   },
   {
     "id": "F7-T0e",
-    "title": "Critic: verify Cycle 0 \u2014 table rename + hardening + full regression",
+    "title": "Critic: verify Cycle 0 — table rename + hardening + full regression",
     "role": "critic",
     "model": "swe",
     "status": "done",
@@ -515,7 +515,7 @@
       "/src/main.py",
       "/src/config.yaml"
     ],
-    "acceptance_criteria": "(1) Add log_format field to LoggingConfig in src/config.py: Literal['text', 'json'] default 'text'. (2) main.py configures logging.FileHandler writing to cfg.logging.log_file (currently broken \u2014 basicConfig doesn't use configured path). (3) Also configure console handler (StreamHandler) for visible output. (4) When log_format='json', use pythonjsonlogger.jsonlogger.JsonFormatter \u2014 all existing logger.* calls work unchanged. (5) When log_format='text', use existing plain text formatter. (6) Log file parent directory created if absent (os.makedirs(exist_ok=True)). (7) Add log_format: 'text' to src/config.yaml logging section. (8) New dependency python-json-logger installed via pip. (9) python scripts/check_loops.py --src-dir src exits 0. (10) python scripts/check_loops.py --src-dir src --strict exits 0. (11) python -m pytest tests/ -q exits 0 (122+ tests). (12) New test tests/test_logging.py verifies: text format produces plain text, json format produces valid JSON lines, log file is written to configured path.",
+    "acceptance_criteria": "(1) Add log_format field to LoggingConfig in src/config.py: Literal['text', 'json'] default 'text'. (2) main.py configures logging.FileHandler writing to cfg.logging.log_file (currently broken — basicConfig doesn't use configured path). (3) Also configure console handler (StreamHandler) for visible output. (4) When log_format='json', use pythonjsonlogger.jsonlogger.JsonFormatter — all existing logger.* calls work unchanged. (5) When log_format='text', use existing plain text formatter. (6) Log file parent directory created if absent (os.makedirs(exist_ok=True)). (7) Add log_format: 'text' to src/config.yaml logging section. (8) New dependency python-json-logger installed via pip. (9) python scripts/check_loops.py --src-dir src exits 0. (10) python scripts/check_loops.py --src-dir src --strict exits 0. (11) python -m pytest tests/ -q exits 0 (122+ tests). (12) New test tests/test_logging.py verifies: text format produces plain text, json format produces valid JSON lines, log file is written to configured path.",
     "assigned_to": "B"
   },
   {
@@ -909,7 +909,7 @@
   },
   {
     "id": "F7-T4",
-    "title": "Executor: R2 sync \u2014 upload DuckDB file directly + auto after daily_load + manual Flight action",
+    "title": "Executor: R2 sync — upload DuckDB file directly + auto after daily_load + manual Flight action",
     "role": "executor",
     "model": "swe",
     "status": "done",
@@ -1086,7 +1086,7 @@
       {
         "id": "AC-5",
         "check": "no_real_r2_calls",
-        "command": "python -c \"src = open('tests/test_r2_sync.py').read(); assert 'mock' in src.lower() or 'patch' in src.lower(), 'no mocking found in R2 tests \u2014 tests may make real R2 calls'; print('R2 tests use mocks/patches')\"",
+        "command": "python -c \"src = open('tests/test_r2_sync.py').read(); assert 'mock' in src.lower() or 'patch' in src.lower(), 'no mocking found in R2 tests — tests may make real R2 calls'; print('R2 tests use mocks/patches')\"",
         "expected_exit": 0
       },
       {
@@ -1104,7 +1104,7 @@
     "title": "Executor: standalone scheduler process (src/scheduler_main.py)",
     "role": "executor",
     "model": "swe",
-    "status": "todo",
+    "status": "in_progress",
     "depends_on": [
       "F7-T4c"
     ],
@@ -1272,7 +1272,7 @@
   },
   {
     "id": "F7-T6",
-    "title": "Executor: do_put in Flight server \u2014 accept external batch data into daily_close",
+    "title": "Executor: do_put in Flight server — accept external batch data into daily_close",
     "role": "executor",
     "model": "swe",
     "status": "todo",
