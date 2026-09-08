@@ -158,7 +158,7 @@ def test_do_put_updates_existing_rows(server, db):
     assert close == 2.5
 
 
-def test_do_put_rejects_missing_column(server):
+def test_do_put_rejects_missing_schema_column(server):
     """A schema missing a required column raises FlightServerError."""
     bad_schema = pa.schema(
         [
@@ -185,7 +185,7 @@ def test_do_put_rejects_missing_column(server):
         server.do_put(None, None, _make_reader(bad_table), MagicMock())
 
 
-def test_do_put_rejects_wrong_type(server):
+def test_do_put_rejects_wrong_schema_type(server):
     """A schema with a wrong column type raises FlightServerError."""
     bad_schema = pa.schema(
         [
