@@ -109,6 +109,18 @@ class ReportsConfig(BaseModel):
     report_dir: str = "./data/reports"
 
 
+class R2Config(BaseModel):
+    """Cloudflare R2 sync settings.
+
+    Syncing is opt-in via ``enabled``.  Credentials are never stored here;
+    they are read from environment variables at sync time.
+    """
+
+    enabled: bool = False
+    bucket_name: str = ""
+    prefix: str = "stock-ingestion/"
+
+
 class PipelineConfig(BaseModel):
     """Top-level pipeline configuration aggregating all sub-configs."""
 
@@ -117,6 +129,7 @@ class PipelineConfig(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     reports: ReportsConfig = Field(default_factory=ReportsConfig)
+    r2: R2Config = Field(default_factory=R2Config)
 
     @property
     def db_path(self) -> str:

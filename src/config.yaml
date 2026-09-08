@@ -26,3 +26,8 @@ logging:
 
 reports:
   report_dir: "C:\Intel\parquet"
+
+r2:
+  enabled: false
+  bucket_name: ""
+  prefix: "stock-ingestion/"

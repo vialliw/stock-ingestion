@@ -20,6 +20,7 @@ import yfinance as yf
 
 from src.config import PipelineConfig
 from src.db import DatabaseManager
+from src.r2_sync import R2SyncManager
 
 logger = logging.getLogger(__name__)
 
@@ -377,14 +378,27 @@ class IngestionEngine:
         all_errors.update(err)
 
         duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+        status = "PARTIAL" if all_failed else "SUCCESS"
         result = {
             "rows_upserted": total_rows,
             "tickers_succeeded": list(set(all_succeeded)),
             "tickers_failed": list(set(all_failed)),
             "errors": all_errors if all_failed else {},
             "duration_ms": duration_ms,
+            "status": status,
         }
         self.db.record_ingestion_run("daily_load", result, started_at=start_time)
+
+        # Sync the canonical DuckDB file to R2 only after successful processing.
+        if self.cfg.r2.enabled:
+            try:
+                sync_result = R2SyncManager(self.cfg).sync(self.cfg.db_path)
+                result["r2_sync"] = sync_result
+                logger.info("Daily load R2 sync result: %s", sync_result)
+            except Exception as exc:
+                result["r2_sync"] = {"status": "FAILED", "error": str(exc)}
+                logger.error("Daily load R2 sync failed: %s", exc)
+
         logger.info("Daily load complete. Total rows upserted: %s.", total_rows)
         return result
 

@@ -643,3 +643,97 @@ Evidence map:
 [ORCHESTRATOR] Cycle 4 started. Tasks written: F7-T4 (executor: R2 sync DuckDB file direct), F7-T4b (challenger: review), F7-T4c (critic: verify mocked). F7-T4 depends on F7-T3c (done). Spawning Agent B via MCP.
 
 [2026-09-08T18:25:12.974384+00:00] [EXECUTOR] claimed F7-T4
+[2026-09-08T18:28:44.576020+00:00] [EXECUTOR] completed F7-T4 -> R2 sync implemented: src/r2_sync.py (boto3 S3 env-var credentials, direct DuckDB upload), r2 config section, auto-sync after daily_load SUCCESS/PARTIAL, sync_to_r2 Flight action, tests/test_r2_sync.py. 188/188 tests pass; loop checker clean.
+Evidence map:
+[
+  {
+    "id": "AC-1",
+    "check": "loop_checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (12 files checked)\n"
+  },
+  {
+    "id": "AC-2",
+    "check": "loop_checker_strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (12 files checked)\n"
+  },
+  {
+    "id": "AC-3",
+    "check": "pytest_suite",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "===== warnings summary ===============================\ntests/test_db.py: 8 warnings\ntests/test_delisted_lifecycle.py: 3 warnings\ntests/test_health_check.py: 2 warnings\ntests/test_integration.py: 8 warnings\n  /home/ubuntu/repos/stock-ingestion/src/db.py:144: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n188 passed, 21 warnings in 2.92s\n"
+  },
+  {
+    "id": "AC-4",
+    "check": "r2_sync_module_exists",
+    "command": "python -c \"from src.r2_sync import R2SyncManager; print('R2SyncManager importable')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "R2SyncManager importable\n"
+  },
+  {
+    "id": "AC-5",
+    "check": "r2_config_section",
+    "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert hasattr(cfg, 'r2'), 'r2 config section not found'; assert cfg.r2.enabled == False, 'r2.enabled should default to False'; print('r2 config section exists, enabled=False')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "r2 config section exists, enabled=False\n"
+  },
+  {
+    "id": "AC-6",
+    "check": "sync_to_r2_action",
+    "command": "python -c \"src = open('src/flight_server.py').read(); assert 'sync_to_r2' in src, 'sync_to_r2 action not found'; print('sync_to_r2 action found')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "sync_to_r2 action found\n"
+  },
+  {
+    "id": "AC-7",
+    "check": "auto_sync_after_daily_load",
+    "command": "python -c \"src = open('src/ingestion.py').read(); assert 'r2' in src.lower() or 'sync' in src.lower(), 'no R2 sync reference in ingestion.py'; print('auto-sync reference found in ingestion.py')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "auto-sync reference found in ingestion.py\n"
+  },
+  {
+    "id": "AC-8",
+    "check": "no_hardcoded_credentials",
+    "command": "python -c \"src = open('src/r2_sync.py').read(); assert 'R2_ACCESS_KEY_ID' in src or 'os.environ' in src, 'no env var reference found'; assert 'cog_' not in src and 'AKIA' not in src, 'possible hardcoded key'; print('credentials from env vars, no hardcoded keys')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "credentials from env vars, no hardcoded keys\n"
+  },
+  {
+    "id": "AC-9",
+    "check": "boto3_in_requirements",
+    "command": "python -c \"reqs = open('requirements.txt').read(); assert 'boto3' in reqs, 'boto3 not in requirements.txt'; print('boto3 in requirements.txt')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "boto3 in requirements.txt\n"
+  },
+  {
+    "id": "AC-10",
+    "check": "test_r2_sync_exists",
+    "command": "python -c \"import os; assert os.path.exists('tests/test_r2_sync.py'), 'tests/test_r2_sync.py not found'; print('test_r2_sync.py exists')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "test_r2_sync.py exists\n"
+  }
+]

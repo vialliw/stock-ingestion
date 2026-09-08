@@ -21,6 +21,8 @@ from datetime import datetime
 import pandas as pd
 import pyarrow.flight as flight
 
+from src.r2_sync import R2SyncManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -251,6 +253,10 @@ class MarketDataFlightServer(flight.FlightServerBase):
                     {"status": "SUCCESS", "run_history": run_history}
                 ).encode("utf-8")
             )
+
+        elif action_type == "sync_to_r2":
+            result = R2SyncManager(self.cfg).sync(self.cfg.db_path)
+            return flight.Result(json.dumps(result).encode("utf-8"))
 
         else:
             raise flight.FlightServerError(f"Unknown action: {action_type}")

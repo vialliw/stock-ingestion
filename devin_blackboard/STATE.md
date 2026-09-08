@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-07T20:11:25+00:00
+Last Updated: 2026-09-08T18:35:00+00:00
 Current Branch: main
 
 ## Goal
@@ -96,6 +96,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] F7-T2: Executor added health_check + get_run_history Flight actions and ingestion_runs audit table. src/db.py: added ingestion_runs table in _init_schema, SCHEMA_VERSION 3, record_ingestion_run(), get_ingestion_runs() (Arrow), get_health_info(). src/ingestion.py: records a single audit row after each run of run_initial_load, run_daily_load, run_on_request_load. src/flight_server.py: do_action routes health_check (returns DB connectivity, row counts, last_run, schema_version, uptime) and get_run_history (returns ingestion_runs as Arrow-encoded JSON). tests/test_health_check.py: 4 tests covering success, degraded, non-empty run_history, empty run_history. All 8 acceptance criteria pass; check_loops and check_loops --strict clean; pytest 175 passed; real DB at C:\Intel\parquet\stock_ingestion.duckdb has ingestion_runs table and schema_version 3. poll_tasks.py --done F7-T2 B committed.
 - [x] F7-T2c: Critic verified health_check + audit table + full regression. Corrected F7-T2c acceptance-criteria commands (TASKS.json) that referenced a non-existent `StockFlightServer` / invalid `do_action` signatures and a Windows-only DB path; added `test_database_schema_version_is_three` and `test_get_ingestion_runs_returns_arrow_table` to tests/test_health_check.py. All 6 structured acceptance criteria pass: check_loops clean, check_loops --strict clean, pytest 177 passed, health_check JSON keys verified, schema version 3 verified, get_ingestion_runs returns a pyarrow Table. Non-blocking concerns noted: `record_ingestion_run` stores status "UNKNOWN" for successful runs because run result dicts omit a `status` key; `do_get` SQL validation is prefix-only; `fetch_arrow_table()` is deprecated (DuckDB 1.5.5 warning) — use `to_arrow_table()` in a future cleanup.
 - [x] F7-T3c: Critic verified query timeout (120s default, no row limit) + full regression. All 6 structured acceptance criteria pass: check_loops clean, check_loops --strict clean, pytest 181 passed, tests/test_query_timeout.py 4 passed, timeout filter 4 passed, no LIMIT injection in src/flight_server.py. Verified default timeout is 120s from ServerConfig and config.yaml; do_get does not append LIMIT; timeout fires and raises FlightServerError. Edge-case findings (non-blocking): Pydantic lax mode coerces YAML `query_timeout_seconds: true` to 1s int, bypassing the flight_server bool guard; `_validate_select_only` is prefix-only so `SELECT ...; DROP TABLE ...` is accepted and DuckDB executes the trailing statement; the daemon query worker continues running after the Timer timeout returns.
+- [x] F7-T4: Executor implemented R2 sync — `src/r2_sync.py` with `R2SyncManager` (boto3 S3 client, env-var credentials, direct DuckDB upload), `r2` config section in `src/config.py`/`src/config.yaml` (enabled=False, bucket_name="", prefix="stock-ingestion/"), auto-sync after `run_daily_load` SUCCESS/PARTIAL, manual `sync_to_r2` Flight action, `tests/test_r2_sync.py` (mocked boto3), `boto3` and `python-json-logger` in `requirements.txt`. Acceptance criteria: 10/10 PASS, `python scripts/check_loops.py --src-dir src` clean, `python -m pytest tests/ -q` 188 passed.
 
 ## Active Blockers
 - None blocking Cycle 2. The 5 config edge-case bugs (D1-D5) are filed as BUG-F1-T2 and BUG-F1-T3 tasks (low priority, can be fixed in parallel with Cycle 2 or deferred).
@@ -123,12 +124,12 @@ Storage backend: Cloudflare R2 (S3-compatible).
 - [x] Manual user-relay nudging eliminated — orchestrator messages agents directly via devin_session_interact
 
 ## Active Sessions
-- Agent B (Executor): spawning — F7-T4 R2 sync
-- Agent C (Challenger): not yet spawned (waiting for B)
-- Agent D (Critic): not yet spawned (waiting for C)
+- Agent B (Executor): F7-T4 R2 sync — completed, pending `poll_tasks.py --done`
+- Agent C (Challenger): ready to spawn for F7-T4b
+- Agent D (Critic): ready to spawn for F7-T4c
 
 ## Cycle 4 — IN PROGRESS
-- [ ] F7-T4 (Executor): R2 sync — upload DuckDB file directly + auto after daily_load + manual Flight action
+- [x] F7-T4 (Executor): R2 sync — upload DuckDB file directly + auto after daily_load + manual Flight action
 - [ ] F7-T4b (Challenger): review
 - [ ] F7-T4c (Critic): verify
 
