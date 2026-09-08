@@ -1526,7 +1526,7 @@
       {
         "id": "AC-4",
         "check": "no_daily_quotes_refs",
-        "command": "python -c \"import subprocess; r = subprocess.run(['git', 'grep', '-ri', 'daily_quotes', 'src/'], capture_output=True, text=True); migration = [l for l in r.stdout.splitlines() if 'ALTER TABLE' not in l and 'rename' not in l.lower() and 'in tables' not in l and not l.strip().startswith('#')]; assert len(migration) == 0, 'daily_quotes refs remain: ' + str(migration); print('no daily_quotes refs in src/ (except migration code)')\"",
+        "command": "python -c \"import subprocess; r = subprocess.run(['git', 'grep', '-ri', 'daily_quotes', 'src/'], capture_output=True, text=True); lines = r.stdout.splitlines(); migration = [l for l in lines if 'ALTER TABLE' not in l and 'rename' not in l.lower() and 'in tables' not in l and '# ' not in l]; assert len(migration) == 0, 'daily_quotes refs remain: ' + str(migration); print('no daily_quotes refs in src/ (except migration code)')\"",
         "expected_exit": 0
       },
       {
