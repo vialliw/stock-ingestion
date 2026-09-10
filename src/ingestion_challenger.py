@@ -200,20 +200,23 @@ class _SplitMixin:
     """
 
     def _check_and_apply_splits(self, tickers: List[str]) -> None:
-        """Per-ticker split detection.
+        """Per-ticker split detection, batched re-download.
 
         Splits dated before the ticker's earliest stored row are ignored:
         they are already baked into the ``auto_adjust=True`` prices at
         download time.  Tickers with no stored data are skipped entirely.
-        If any unprocessed split on/after the earliest date is found,
-        record all such splits, delete the ticker's data, and re-download
-        from that earliest date (6-year default if unknown).
+
+        All tickers with unprocessed splits have their splits recorded, old
+        data deleted, and then are re-downloaded together in a single
+        ``yf.download`` batch from the minimum earliest date across the
+        affected tickers.
         """
         # Phase 1 — collect candidate splits for every ticker in one pass.
+        # justified: yfinance has no batch split API — yf.Ticker(t).splits
+        # must be called per-ticker. This is an external API constraint.
         collected: Dict[str, List[Tuple[str, float]]] = {}
+        earliest_by_ticker: Dict[str, str] = {}
         for t in tickers:
-            # justified: yfinance has no batch split API — yf.Ticker(t).splits
-            # must be called per-ticker. This is an external API constraint.
             try:
                 earliest_date = self.db.get_ticker_earliest_date(t)
                 if earliest_date is None:
@@ -221,6 +224,7 @@ class _SplitMixin:
                     # already reflect every historical split.
                     continue
 
+                earliest_by_ticker[t] = earliest_date
                 stock = yf.Ticker(t)
                 splits = stock.splits
                 if splits is None or splits.empty:
@@ -236,7 +240,8 @@ class _SplitMixin:
             except Exception as e:
                 logger.error("Failed fetching splits for ticker '%s': %s", t, e)
 
-        # Phase 2 — filter against DB and process only unprocessed splits.
+        # Phase 2 — filter against DB and collect affected tickers.
+        affected: List[Tuple[str, str, List[Tuple[str, float]]]] = []
         for t, split_list in collected.items():
             try:
                 unprocessed = [
@@ -246,39 +251,56 @@ class _SplitMixin:
                 ]
                 if not unprocessed:
                     continue
-
-                # Record all unprocessed splits for idempotency via a single
-                # batch INSERT (SQL > loop hierarchy).
-                self.db.batch_record_splits(
-                    [(t, ds, f) for ds, f in unprocessed]
-                )
-
-                # Delete all existing data for this ticker
-                self.db.delete_ticker_data(t)
-
-                # Re-download from the ticker's own earliest date with
-                # auto_adjust=True; fall back to a 6-year window if unknown.
-                aligned_start = self.db.get_ticker_earliest_date(t)
-                if aligned_start is None:
-                    end_dt = datetime.now()
-                    start_dt = end_dt - timedelta(days=6 * 365)
-                    aligned_start = start_dt.strftime("%Y-%m-%d")
-
-                today = datetime.now().strftime("%Y-%m-%d")
-                logger.warning(
-                    "RUNTIME EVENT: Stock split detected for '%s'. "
-                    "Deleted and re-downloading from %s to %s.",
-                    t,
-                    aligned_start,
-                    today,
-                )
-                df_redownload = self._batch_download([t], aligned_start, today)
-                df_norm, _, _, _ = self._normalize_batch_df(df_redownload, [t])
-                self.db.upsert_dataframe(df_norm)
-                logger.info("Re-download complete for '%s'.", t)
-
+                affected.append((t, earliest_by_ticker[t], unprocessed))
             except Exception as e:
-                logger.error("Failed checking splits for ticker '%s': %s", t, e)
+                logger.error("Failed filtering splits for ticker '%s': %s", t, e)
+
+        if not affected:
+            return
+
+        # Phase 3 — batch SQL writes: record splits and delete old data.
+        all_split_records = [
+            (t, split_date, factor)
+            for t, _earliest, unprocessed in affected
+            for split_date, factor in unprocessed
+        ]
+        self.db.batch_record_splits(all_split_records)
+
+        for t, _earliest, _unprocessed in affected:
+            # justified: delete_ticker_data is the existing per-ticker DB API;
+            # deletes are fast SQL and keeping the per-ticker call avoids
+            # breaking tests/downstream code that mock delete_ticker_data.
+            self.db.delete_ticker_data(t)
+
+        # Phase 4 — single batched re-download for all affected tickers.
+        min_start = min(earliest for _, earliest, _ in affected)
+        today = datetime.now().strftime("%Y-%m-%d")
+        affected_tickers = [t for t, _, _ in affected]
+
+        logger.warning(
+            "RUNTIME EVENT: Stock split(s) detected for %d ticker(s): %s. "
+            "Deleted and re-downloading from %s to %s in one batch.",
+            len(affected_tickers),
+            affected_tickers,
+            min_start,
+            today,
+        )
+
+        try:
+            df_redownload = self._batch_download(affected_tickers, min_start, today)
+            df_norm, _, _, _ = self._normalize_batch_df(df_redownload, affected_tickers)
+            self.db.upsert_dataframe(df_norm)
+            logger.info(
+                "Re-download complete for %d ticker(s): %s",
+                len(affected_tickers),
+                affected_tickers,
+            )
+        except Exception as e:
+            logger.error(
+                "Failed batch re-download for split tickers %s: %s",
+                affected_tickers,
+                e,
+            )
 
 
 # =====================================================================
