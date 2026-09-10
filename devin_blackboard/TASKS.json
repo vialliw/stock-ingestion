@@ -1662,7 +1662,7 @@
     "title": "Critic: verify daily_lookback_days + full regression",
     "role": "critic",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T8",
       "F7-T8b"

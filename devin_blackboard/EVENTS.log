@@ -1356,3 +1356,52 @@ Evidence map:
   }
 ]
 [2026-09-10T19:08:34.981212+00:00] [CRITIC] claimed F7-T8c
+[2026-09-10T19:10:08.450881+00:00] [CRITIC] completed F7-T8c -> ALL PASS. AC-1/AC-2 check_loops (plain+strict) exit 0, 14 files. AC-3 pytest 233 passed (217 + 16 new in tests/test_lookback_days.py). AC-4 config.yaml default daily_lookback_days=4 confirmed. AC-5 scheduler.py and ci_daily_load.py call run_daily_load(lookback_days=1). flight_server do_action(daily_load) forwards cfg.ingestion.daily_lookback_days. run_daily_load rejects 0/negative/float/str/None/bool; fetch window == lookback_days verified 1/4/10. Challenger concern 'no dedicated tests' addressed.
+Evidence map:
+[
+  {
+    "id": "AC-1",
+    "check": "loop_checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (14 files checked)\n"
+  },
+  {
+    "id": "AC-2",
+    "check": "loop_checker_strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (14 files checked)\n"
+  },
+  {
+    "id": "AC-3",
+    "check": "pytest_suite",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "nings\ntests/test_delisted_lifecycle.py: 3 warnings\ntests/test_do_put.py: 6 warnings\ntests/test_health_check.py: 2 warnings\ntests/test_integration.py: 8 warnings\ntests/test_phase2_integration.py: 4 warnings\n  /home/ubuntu/repos/stock-ingestion/src/db.py:144: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n233 passed, 31 warnings in 3.62s\n"
+  },
+  {
+    "id": "AC-4",
+    "check": "default_is_4",
+    "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert cfg.ingestion.daily_lookback_days == 4; print('default=4 OK')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "default=4 OK\n"
+  },
+  {
+    "id": "AC-5",
+    "check": "scheduler_uses_1",
+    "command": "python -c \"src = open('src/scheduler.py').read(); assert 'lookback_days=1' in src or 'lookback_days = 1' in src; print('scheduler=1 OK')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "scheduler=1 OK\n"
+  }
+]
