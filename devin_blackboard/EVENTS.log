@@ -1468,3 +1468,8 @@ Evidence map:
     "output": "no hardcoded date found\n"
   }
 ]
+[ORCHESTRATOR] Added Role boundaries and escalation rules to AGENTS.md.
+[ORCHESTRATOR] Reverted orchestrator-coded src/ and tests/ commits (698cdb9, 5b93b5c, be0ac80, ea7318f, 6ba7f3e, 52a3477). F7-T9 B code (20738e0) retained.
+[ORCHESTRATOR] Restored F7-T10 tasks to TASKS.json.
+[ORCHESTRATOR] Agent spawns blocked by org out_of_quota; stopping and awaiting user direction.
+

@@ -1,10 +1,20 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-10T19:10:23+00:00
+Last Updated: 2026-09-10T21:45:00+00:00
 Current Branch: main
 
 ## Goal
 Centralize stock-data ingestion and provide program interfaces.
 Storage backend: Cloudflare R2 (S3-compatible).
+
+## Orchestrator note
+
+The Orchestrator previously implemented F7-T9b, F7-T9c, and the full F7-T10 cycle directly, violating the role boundary. This has been corrected by:
+
+1. Adding explicit `Role boundaries and escalation` rules to `AGENTS.md`.
+2. Reverting the orchestrator-coded `src/` and `tests/` commits.
+3. Restoring F7-T9b, F7-T9c, and F7-T10 to the agent workflow.
+
+Agent B/C/D spawns are currently blocked by org `out_of_quota`. Awaiting user direction or quota restoration before resuming.
 
 ## File Tree (Agents MUST update this after every change)
 - /AGENTS.md
