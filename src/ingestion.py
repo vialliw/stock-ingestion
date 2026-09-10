@@ -135,6 +135,50 @@ class IngestionEngine:
                 e,
             )
 
+    def _record_historical_splits(self, tickers: List[str]) -> None:
+        """Record all historical splits for ``tickers`` as processed.
+
+        After a full historical download (initial load or backfill), the
+        data already reflects every historical split via
+        ``auto_adjust=True``.  Recording those splits in
+        ``splits_processed`` prevents the next incremental run from
+        treating them as new and re-downloading them unnecessarily.
+
+        Only splits on/after the ticker's earliest stored date are
+        recorded; earlier splits are already baked into the adjusted
+        prices and are irrelevant for the stored window.
+        """
+        all_split_records: List[Tuple[str, str, float]] = []
+        for t in tickers:
+            # justified: yfinance has no batch split API — yf.Ticker(t).splits
+            # must be called per-ticker. This is an external API constraint.
+            try:
+                earliest_date = self.db.get_ticker_earliest_date(t)
+                if earliest_date is None:
+                    continue
+
+                stock = yf.Ticker(t)
+                splits = stock.splits
+                if splits is None or splits.empty:
+                    continue
+
+                for split_dt, factor in splits.sort_index().items():
+                    split_date = split_dt.strftime("%Y-%m-%d")
+                    if split_date < earliest_date:
+                        continue
+                    all_split_records.append((t, split_date, float(factor)))
+
+            except Exception as e:
+                logger.error("Failed recording historical splits for '%s': %s", t, e)
+
+        if all_split_records:
+            self.db.batch_record_splits(all_split_records)
+            logger.info(
+                "Recorded %d historical split(s) for %d ticker(s) as processed.",
+                len(all_split_records),
+                len({t for t, _, _ in all_split_records}),
+            )
+
     # ------------------------------------------------------------------
     # Batch download
     # ------------------------------------------------------------------
@@ -307,6 +351,7 @@ class IngestionEngine:
             end_dt.strftime("%Y-%m-%d"),
         )
         rows = self.db.upsert_dataframe(df)
+        self._record_historical_splits(succeeded)
         duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
         result = {
             "rows_upserted": rows,
@@ -374,6 +419,7 @@ class IngestionEngine:
                     new_tickers, aligned_start, backfill_end
                 )
                 rows = self.db.upsert_dataframe(df_new)
+                self._record_historical_splits(succ)
                 total_rows += rows
                 all_succeeded.extend(succ)
                 all_failed.extend(fail)

@@ -1248,5 +1248,5 @@ r2:
   prefix: stock-ingestion/
 scheduler:
   enabled: true
-  schedule_time: '15:33'
+  schedule_time: '16:14'
   timezone: America/New_York
