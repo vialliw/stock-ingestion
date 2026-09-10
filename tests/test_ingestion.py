@@ -377,6 +377,63 @@ def test_multiple_splits_single_redownload(
 
 
 # ---------------------------------------------------------------------------
+# 5b. Historical splits before earliest stored row are ignored
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_historical_split_before_earliest_date_ignored(
+    engine, db, cfg, module_name
+):
+    """A split dated before the ticker's earliest stored row is ignored.
+
+    yfinance returns all historical splits (e.g., AAPL 1987).  Because
+    downloads use ``auto_adjust=True``, those old splits are already
+    reflected in the stored prices.  Only splits on/after the earliest
+    stored date should trigger re-download.
+    """
+    seed_df = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2020-09-11"]),
+            "Ticker": ["AAPL"],
+            "Open": [100.0],
+            "High": [101.0],
+            "Low": [99.0],
+            "Close": [100.5],
+            "Volume": [1000.0],
+        }
+    )
+    db.upsert_dataframe(seed_df)
+
+    # Two splits: one in 1987 (before our data) and one in 2024 (after).
+    splits = make_mock_splits(
+        factors=(2.0, 4.0), dates=("1987-06-16", "2024-06-10")
+    )
+    mock_ticker = MagicMock()
+    mock_ticker.splits = splits
+
+    normal_df = make_mock_download_df(
+        ["AAPL"], dates_range("2024-01-01", "2024-01-05")
+    )
+
+    with patch(f"{module_name}.yf.Ticker", return_value=mock_ticker), \
+         patch(f"{module_name}.yf.download", return_value=normal_df), \
+         patch.object(db, "is_split_processed", return_value=False) as mock_isp, \
+         patch.object(db, "delete_ticker_data") as mock_delete, \
+         patch.object(db, "batch_record_splits") as mock_batch:
+        engine.fetch_and_clean(["AAPL"], "2024-01-01", "2024-01-05")
+
+    # Only the 2024 split should be checked/recorded; 1987 ignored.
+    processed_dates = {
+        call.args[0][0][1] for call in mock_batch.call_args_list if call.args
+    }
+    assert processed_dates == {"2024-06-10"}
+    mock_delete.assert_called_once_with("AAPL")
+
+
+# ---------------------------------------------------------------------------
 # 6. Excluded ticker is filtered at earliest stage (never downloaded)
 # ---------------------------------------------------------------------------
 

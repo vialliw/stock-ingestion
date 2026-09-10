@@ -202,22 +202,34 @@ class _SplitMixin:
     def _check_and_apply_splits(self, tickers: List[str]) -> None:
         """Per-ticker split detection.
 
-        If any unprocessed split is found for a ticker, record all
-        unprocessed splits, delete all ticker data, and re-download from
-        the aligned start date with ``auto_adjust=True``.
+        Splits dated before the ticker's earliest stored row are ignored:
+        they are already baked into the ``auto_adjust=True`` prices at
+        download time.  Tickers with no stored data are skipped entirely.
+        If any unprocessed split on/after the earliest date is found,
+        record all such splits, delete the ticker's data, and re-download
+        from that earliest date (6-year default if unknown).
         """
-        # Phase 1 — collect splits for every ticker in one pass.
+        # Phase 1 — collect candidate splits for every ticker in one pass.
         collected: Dict[str, List[Tuple[str, float]]] = {}
         for t in tickers:
             # justified: yfinance has no batch split API — yf.Ticker(t).splits
             # must be called per-ticker. This is an external API constraint.
             try:
+                earliest_date = self.db.get_ticker_earliest_date(t)
+                if earliest_date is None:
+                    # No stored data: adjusted prices from future downloads
+                    # already reflect every historical split.
+                    continue
+
                 stock = yf.Ticker(t)
                 splits = stock.splits
                 if splits is None or splits.empty:
                     continue
                 for split_dt, factor in splits.sort_index().items():
                     split_date_str = split_dt.strftime("%Y-%m-%d")
+                    if split_date_str < earliest_date:
+                        # Historical split already reflected in auto_adjust=True
+                        continue
                     collected.setdefault(t, []).append(
                         (split_date_str, float(factor))
                     )
@@ -244,10 +256,10 @@ class _SplitMixin:
                 # Delete all existing data for this ticker
                 self.db.delete_ticker_data(t)
 
-                # Re-download from aligned start date with auto_adjust=True
-                aligned_start = self.db.get_aligned_start_date()
+                # Re-download from the ticker's own earliest date with
+                # auto_adjust=True; fall back to a 6-year window if unknown.
+                aligned_start = self.db.get_ticker_earliest_date(t)
                 if aligned_start is None:
-                    # DB is now empty after delete; use 6-year default
                     end_dt = datetime.now()
                     start_dt = end_dt - timedelta(days=6 * 365)
                     aligned_start = start_dt.strftime("%Y-%m-%d")

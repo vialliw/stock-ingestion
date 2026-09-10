@@ -320,6 +320,22 @@ class DatabaseManager:
             return str(result[0])
         return None
 
+    def get_ticker_earliest_date(self, ticker: str) -> Optional[str]:
+        """Earliest ``Date`` for ``ticker`` as an ISO string, or ``None``.
+
+        This is used by split detection to ignore historical splits that
+        occurred before we began storing data for the ticker; those splits
+        are already reflected in ``auto_adjust=True`` prices.
+        """
+        with self._reads.read() as conn:
+            result = conn.execute(
+                "SELECT MIN(Date) FROM daily_close WHERE Ticker = $ticker",
+                {"ticker": ticker},
+            ).fetchone()
+        if result and result[0]:
+            return str(result[0])
+        return None
+
     def is_split_processed(self, ticker: str, split_date: str) -> bool:
         with self._reads.read() as conn:
             row = conn.execute(
