@@ -1405,3 +1405,4 @@ Evidence map:
     "output": "scheduler=1 OK\n"
   }
 ]
+[2026-09-10T19:10:23.320283+00:00] [CRITIC] F7-T8c done — ALL 5 AC PASS; added tests/test_lookback_days.py (16 tests, suite 233 passed); STATE.md file tree updated

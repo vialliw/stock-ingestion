@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-10T19:07:13+00:00
+Last Updated: 2026-09-10T19:10:23+00:00
 Current Branch: main
 
 ## Goal
@@ -47,6 +47,7 @@ Storage backend: Cloudflare R2 (S3-compatible).
   - test_r2_sync.py  (critic tests for R2 DuckDB sync — F7-T4c)
   - test_phase2_integration.py  (Phase 2 end-to-end integration tests — F7-T7)
   - test_scheduler.py  (critic tests for PipelineScheduler/APScheduler/DuckDB lock retry — F7-T5)
+  - test_lookback_days.py  (critic tests for daily_lookback_days config default/validation, run_daily_load window + rejection, scheduler/CI=1, flight_server forwarding — F7-T8c)
 
 ## Decisions Made (do NOT change without PM approval)
 - [2026-09-06T18:10:00Z] Cycle 1 started: Config + Scaffold (F1-T1..F1-T4 per docs/dev_plan/phase1_dev_plan.md)
