@@ -1227,6 +1227,7 @@ ingestion:
   - CRNX
   - EA
   - EQR
+  - HLX
   - NFBK
   - NCSM
   - TWO
@@ -1246,6 +1247,6 @@ r2:
   bucket_name: ''
   prefix: stock-ingestion/
 scheduler:
-  enabled: false
-  schedule_time: '16:30'
+  enabled: true
+  schedule_time: '15:33'
   timezone: America/New_York

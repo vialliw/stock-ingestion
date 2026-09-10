@@ -1406,3 +1406,5 @@ Evidence map:
   }
 ]
 [2026-09-10T19:10:23.320283+00:00] [CRITIC] F7-T8c done — ALL 5 AC PASS; added tests/test_lookback_days.py (16 tests, suite 233 passed); STATE.md file tree updated
+
+[ORCHESTRATOR] Cycle 9 started: fix split detection false positives (stale splits_processed table). Tasks: F7-T9/T9b/T9c.
