@@ -45,13 +45,15 @@ class IngestionEngine:
     def _check_and_apply_splits(self, tickers: List[str]) -> None:
         """Per-ticker split detection.
 
-        For each ticker, query ``yf.Ticker(t).splits``.  If any
-        unprocessed split is found, record all unprocessed splits in
-        ``splits_processed`` (for idempotency), delete all existing data
-        for the ticker, and re-download from the aligned start date with
-        ``auto_adjust=True``.  If the database is empty after the delete
-        (aligned start is ``None``), fall back to a 6-year default
-        window.
+        For each ticker, query ``yf.Ticker(t).splits``.  Splits dated
+        before the ticker's earliest stored row are ignored: they were
+        already baked into the ``auto_adjust=True`` prices at download
+        time.  Tickers with no stored data are skipped entirely.  If any
+        unprocessed split on/after the earliest date is found, record
+        those splits in ``splits_processed`` (for idempotency), delete
+        all existing data for the ticker, and re-download from the
+        ticker's earliest date with ``auto_adjust=True`` (6-year default
+        window if no earliest date is known).
         """
         for t in tickers:
             # justified: yfinance has no batch split API — yf.Ticker(t).splits
@@ -63,12 +65,20 @@ class IngestionEngine:
                 if splits is None or splits.empty:
                     continue
 
-                # Find any unprocessed splits
+                earliest_date = self.db.get_ticker_earliest_date(t)
+                if earliest_date is None:
+                    # No stored data: adjusted prices downloaded from now on
+                    # already reflect every historical split.
+                    continue
+
+                # Find unprocessed splits on/after the ticker's earliest row
                 unprocessed: List[Tuple[str, float]] = []
                 for split_dt, factor in splits.sort_index().items():
-                    split_date_str = split_dt.strftime("%Y-%m-%d")
-                    if not self.db.is_split_processed(t, split_date_str):
-                        unprocessed.append((split_date_str, float(factor)))
+                    split_date = split_dt.strftime("%Y-%m-%d")
+                    if split_date < earliest_date:
+                        continue
+                    if not self.db.is_split_processed(t, split_date):
+                        unprocessed.append((split_date, float(factor)))
 
                 if not unprocessed:
                     continue
@@ -82,10 +92,9 @@ class IngestionEngine:
                 # Delete all existing data for this ticker
                 self.db.delete_ticker_data(t)
 
-                # Re-download from aligned start date with auto_adjust=True
-                aligned_start = self.db.get_aligned_start_date()
+                # Re-download from the ticker's own earliest date
+                aligned_start = earliest_date
                 if aligned_start is None:
-                    # DB is now empty after delete; use 6-year default
                     end_dt = datetime.now()
                     start_dt = end_dt - timedelta(days=6 * 365)
                     aligned_start = start_dt.strftime("%Y-%m-%d")

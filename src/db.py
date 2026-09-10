@@ -274,6 +274,20 @@ class DatabaseManager:
         finally:
             conn.close()
 
+    def get_ticker_earliest_date(self, ticker: str) -> Optional[str]:
+        """Return the earliest Date for ``ticker`` as ISO string, or None if
+        the ticker has no rows in ``daily_close``."""
+        conn = self._read_only_conn()
+        try:
+            result = conn.execute(
+                "SELECT MIN(Date) FROM daily_close WHERE Ticker = ?", [ticker]
+            ).fetchone()
+            if result and result[0]:
+                return str(result[0])
+            return None
+        finally:
+            conn.close()
+
     def detect_new_tickers(self, configured_tickers: List[str]) -> List[str]:
         existing = self.get_existing_tickers()
         return [t for t in configured_tickers if t not in existing]

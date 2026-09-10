@@ -1410,3 +1410,61 @@ Evidence map:
 [ORCHESTRATOR] Cycle 9 started: fix split detection false positives (stale splits_processed table). Tasks: F7-T9/T9b/T9c.
 
 [2026-09-10T19:45:02.169098+00:00] [EXECUTOR] claimed F7-T9
+[2026-09-10T19:46:47.876772+00:00] [EXECUTOR] completed F7-T9 -> Added DatabaseManager.get_ticker_earliest_date (SELECT MIN(Date) FROM daily_close WHERE Ticker=?). _check_and_apply_splits now fetches the ticker's earliest date before iterating splits, skips tickers with no stored data, ignores splits dated before the earliest date, and re-downloads from the ticker's earliest date (6-year fallback). batch_record_splits idempotency retained. Verify: 6/6 AC pass (loop checker + strict exit 0, pytest suite exit 0, get_ticker_earliest_date exists, split filtering present, no hardcoded 1987).
+Evidence map:
+[
+  {
+    "id": "AC-1",
+    "check": "loop_checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (14 files checked)\n"
+  },
+  {
+    "id": "AC-2",
+    "check": "loop_checker_strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (14 files checked)\n"
+  },
+  {
+    "id": "AC-3",
+    "check": "pytest_suite",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "nings\ntests/test_delisted_lifecycle.py: 3 warnings\ntests/test_do_put.py: 6 warnings\ntests/test_health_check.py: 2 warnings\ntests/test_integration.py: 8 warnings\ntests/test_phase2_integration.py: 4 warnings\n  /home/ubuntu/repos/stock-ingestion/src/db.py:144: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n233 passed, 31 warnings in 3.56s\n"
+  },
+  {
+    "id": "AC-4",
+    "check": "db_has_get_ticker_earliest_date",
+    "command": "python -c \"from src.db import DatabaseManager; assert hasattr(DatabaseManager, 'get_ticker_earliest_date'); print('get_ticker_earliest_date exists')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "get_ticker_earliest_date exists\n"
+  },
+  {
+    "id": "AC-5",
+    "check": "ingestion_filters_old_splits",
+    "command": "python -c \"import inspect; from src.ingestion import IngestionEngine; src = inspect.getsource(IngestionEngine._check_and_apply_splits); assert 'get_ticker_earliest_date' in src or 'earliest_date' in src, 'split check does not use earliest date'; assert 'split_date <' in src or 'split_date >=' in src or 'split_dt <' in src, 'splits are not filtered by date'; print('split filtering present')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "split filtering present\n"
+  },
+  {
+    "id": "AC-6",
+    "check": "no_hardcoded_delete",
+    "command": "python -c \"src = open('src/ingestion.py').read(); assert '1987' not in src, 'hardcoded 1987 reference found'; print('no hardcoded date found')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "no hardcoded date found\n"
+  }
+]
