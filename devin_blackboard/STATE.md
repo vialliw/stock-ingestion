@@ -1,6 +1,10 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-10T21:45:00+00:00
+Last Updated: 2026-09-10T22:00:00+00:00
 Current Branch: main
+
+## Active Blocker
+
+Agent spawns are blocked by Devin org `out_of_quota` (confirmed 2026-09-10 22:00 UTC). User selected option A (spawn agents), but `devin_session_create` returned HTTP 403. Awaiting quota restoration or explicit user override before resuming F7-T9b/F7-T9c/F7-T10.
 
 ## Goal
 Centralize stock-data ingestion and provide program interfaces.
