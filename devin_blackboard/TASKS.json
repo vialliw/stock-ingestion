@@ -1847,7 +1847,7 @@
       {
         "id": "AC-4",
         "check": "test_split_filtering",
-        "command": "python -m pytest tests/test_lookback_days.py tests/test_split_detection.py -q",
+        "command": "python -m pytest tests/test_ingestion.py -k split -q",
         "expected_exit": 0
       }
     ],

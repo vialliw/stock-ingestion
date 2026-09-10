@@ -377,6 +377,72 @@ def test_multiple_splits_single_redownload(
 
 
 # ---------------------------------------------------------------------------
+# 5c. Multiple split tickers re-downloaded in a single batch
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_batch_redownload_for_multiple_split_tickers(
+    engine, db, cfg, module_name
+):
+    """Tickers with unprocessed splits are re-downloaded in one batch.
+
+    Previously each split ticker triggered a separate ``yf.download`` call.
+    The fix collects all affected tickers and downloads them together.
+    """
+    seed_df = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2020-09-11", "2020-09-11"]),
+            "Ticker": ["AAPL", "MSFT"],
+            "Open": [100.0, 200.0],
+            "High": [101.0, 201.0],
+            "Low": [99.0, 199.0],
+            "Close": [100.5, 200.5],
+            "Volume": [1000.0, 2000.0],
+        }
+    )
+    db.upsert_dataframe(seed_df)
+
+    splits = make_mock_splits(factors=(2.0,), dates=("2024-06-10",))
+    mock_ticker = MagicMock()
+    mock_ticker.splits = splits
+
+    redownload_df = make_mock_download_df(
+        ["AAPL", "MSFT"], dates_range("2020-09-11", "2024-06-11")
+    )
+    normal_df = make_mock_download_df(
+        ["AAPL", "MSFT"], dates_range("2024-01-01", "2024-01-05")
+    )
+
+    dl_calls = {"count": 0}
+
+    def dl_side_effect(*args, **kwargs):
+        dl_calls["count"] += 1
+        if dl_calls["count"] == 1:
+            return redownload_df
+        return normal_df
+
+    with patch(f"{module_name}.yf.Ticker", return_value=mock_ticker), \
+         patch(f"{module_name}.yf.download", side_effect=dl_side_effect) as mock_dl, \
+         patch.object(db, "is_split_processed", return_value=False), \
+         patch.object(db, "delete_ticker_data") as mock_delete, \
+         patch.object(db, "batch_record_splits") as mock_batch:
+        engine.fetch_and_clean(["AAPL", "MSFT"], "2024-01-01", "2024-01-05")
+
+    # Exactly two yf.download calls: one batch re-download, one normal fetch.
+    assert dl_calls["count"] == 2
+    # First call is the batch re-download with both tickers.
+    first_call_tickers = mock_dl.call_args_list[0].kwargs.get("tickers", [])
+    assert sorted(first_call_tickers) == ["AAPL", "MSFT"]
+    # Both tickers were deleted (per-ticker DB API).
+    assert mock_delete.call_count == 2
+    # All splits recorded in one batch_record_splits call.
+    mock_batch.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
 # 6. Excluded ticker is filtered at earliest stage (never downloaded)
 # ---------------------------------------------------------------------------
 
