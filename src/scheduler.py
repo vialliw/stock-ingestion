@@ -120,7 +120,7 @@ class PipelineScheduler:
             return
 
         engine = IngestionEngine(db_manager, self.cfg)
-        result = engine.run_daily_load()
+        result = engine.run_daily_load(lookback_days=1)
         logger.info(
             "Daily load completed: status=%s, rows=%s",
             result.get("status", "UNKNOWN"),

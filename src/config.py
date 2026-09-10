@@ -30,7 +30,7 @@ class DatabaseConfig(BaseModel):
 
 
 class IngestionConfig(BaseModel):
-    """Ticker universe + blacklist.
+    """Ticker universe, blacklist and daily-load lookback window.
 
     Both lists are automatically uppercased, stripped of surrounding
     whitespace, and deduplicated (preserving first-seen order) via the
@@ -39,6 +39,7 @@ class IngestionConfig(BaseModel):
 
     tickers: List[str] = Field(default_factory=list)
     exclude_tickers: List[str] = Field(default_factory=list)
+    daily_lookback_days: int = Field(default=4, ge=1)
 
     @field_validator("tickers", "exclude_tickers", mode="before")
     @classmethod

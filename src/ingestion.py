@@ -290,19 +290,24 @@ class IngestionEngine:
         logger.info("Initial load completed. Rows upserted: %s.", rows)
         return result
 
-    def run_daily_load(self) -> Dict[str, Any]:
+    def run_daily_load(self, lookback_days: int = 4) -> Dict[str, Any]:
         """Daily incremental load.
+
+        ``lookback_days`` is the trailing calendar-day refresh window
+        (must be >= 1).
 
         Checks the NYSE market calendar via
         ``pandas_market_calendars``; if the market is closed today the
         run is skipped.  Otherwise: detect newly configured tickers and
         backfill them from the aligned start date (or perform a full
-        initial load if the DB is empty), then run a trailing 4-day
-        refresh for all configured tickers.
+        initial load if the DB is empty), then run a trailing
+        ``lookback_days``-day refresh for all configured tickers.
 
         Returns a dict with ``rows_upserted``, ``tickers_succeeded``,
         ``tickers_failed``, ``errors`` and ``duration_ms``.
         """
+        if not isinstance(lookback_days, int) or isinstance(lookback_days, bool) or lookback_days < 1:
+            raise ValueError(f"lookback_days must be an integer >= 1, got {lookback_days!r}")
         start_time = datetime.now()
         nyse = mcal.get_calendar("NYSE")
         today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -358,14 +363,15 @@ class IngestionEngine:
                 all_succeeded.extend(result.get("tickers_succeeded", []))
                 all_failed.extend(result.get("tickers_failed", []))
                 all_errors.update(result.get("errors", {}))
-                # Fall through to trailing 4-day refresh
+                # Fall through to trailing refresh
 
-        # --- Trailing 4-day refresh for all effective tickers ---
+        # --- Trailing refresh for all effective tickers ---
         logger.info(
-            "US Market active. Executing daily load (trailing 4 calendar days)..."
+            "US Market active. Executing daily load (trailing %d calendar days)...",
+            lookback_days,
         )
         end_dt = datetime.now()
-        start_dt = end_dt - timedelta(days=4)
+        start_dt = end_dt - timedelta(days=lookback_days)
         df, succ, fail, err = self.fetch_and_clean(
             effective_tickers,
             start_dt.strftime("%Y-%m-%d"),

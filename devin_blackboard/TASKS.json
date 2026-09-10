@@ -1544,7 +1544,7 @@
     "title": "Executor: add daily_lookback_days parameter (default 4, CI/scheduler uses 1)",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T7b"
     ],

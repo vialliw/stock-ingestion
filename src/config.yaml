@@ -1231,6 +1231,7 @@ ingestion:
   - NCSM
   - TWO
   - WBS
+  daily_lookback_days: 4
 server:
   flight_host: 127.0.0.1
   flight_port: 8815

@@ -8,7 +8,7 @@ This script is designed to run in a GitHub Actions runner. It:
 1. Overrides config paths for the Linux runner environment.
 2. Enables R2 sync and sets the bucket name from env vars.
 3. Downloads the existing DuckDB from R2 (so the DB persists across runs).
-4. Runs IngestionEngine.run_daily_load() which upserts new data and
+4. Runs IngestionEngine.run_daily_load(lookback_days=1) which upserts new data and
    auto-syncs the updated DuckDB back to R2.
 
 Required environment variables:
@@ -189,7 +189,7 @@ def main() -> None:
     ingest_engine = IngestionEngine(db_manager, config)
 
     try:
-        result = ingest_engine.run_daily_load()
+        result = ingest_engine.run_daily_load(lookback_days=1)
         logger.info("Daily load result: %s", result)
 
         status = result.get("status", "UNKNOWN")
