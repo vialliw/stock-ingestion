@@ -195,7 +195,9 @@ class MarketDataFlightServer(flight.FlightServerBase):
             )
 
         elif action_type == "daily_load":
-            result = self.engine.run_daily_load()
+            result = self.engine.run_daily_load(
+                lookback_days=self.cfg.ingestion.daily_lookback_days
+            )
             if result.get("status") == "SKIPPED":
                 return flight.Result(json.dumps(result).encode("utf-8"))
             status = "SUCCESS" if not result["tickers_failed"] else "PARTIAL"
