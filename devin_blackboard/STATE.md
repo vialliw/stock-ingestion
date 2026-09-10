@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-08T20:45:37+00:00
+Last Updated: 2026-09-10T19:07:13+00:00
 Current Branch: main
 
 ## Goal
@@ -165,3 +165,7 @@ Final: 213/213 tests pass, loop checker `--strict` clean, do_put schema/filter/u
 
 ## Cycle 7 — COMPLETE
 - [x] F7-T7 (Executor): end-to-end Phase 2 integration tests in `tests/test_phase2_integration.py` — DONE. 217/217 tests pass, `check_loops --src-dir src` and `--strict` clean, all 5 acceptance criteria pass.
+
+## Cycle 8 — daily_lookback_days — IN REVIEW
+- [x] F7-T8 (Executor): `daily_lookback_days` in `IngestionConfig` (default 4, ge=1) + `config.yaml`; `run_daily_load(lookback_days=4)` uses `timedelta(days=lookback_days)`; scheduler + `scripts/ci_daily_load.py` pass `lookback_days=1`; `flight_server.py` do_action(daily_load) passes `cfg.ingestion.daily_lookback_days`.
+- [x] F7-T8b (Challenger): review — PASS WITH CONCERNS. `--verify` ALL PASS (AC-1..3), `check_loops --strict` clean (14 files), 217/217 tests pass. Concerns (non-blocking): (1) challenger variants `src/ingestion_challenger.py` / `src/flight_server_challenger.py` not updated — `run_daily_load()` has no `lookback_days`, so parametrized tests cannot cover both impls; (2) Pydantic lax mode coerces YAML `daily_lookback_days: true` to 1, bypassing the bool guard in `run_daily_load`; (3) no dedicated tests for `lookback_days` (start-date window, ValueError on 0/bool).
