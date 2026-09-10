@@ -1355,3 +1355,4 @@ Evidence map:
     "output": "nings\ntests/test_delisted_lifecycle.py: 3 warnings\ntests/test_do_put.py: 6 warnings\ntests/test_health_check.py: 2 warnings\ntests/test_integration.py: 8 warnings\ntests/test_phase2_integration.py: 4 warnings\n  /home/ubuntu/repos/stock-ingestion/src/db.py:144: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n217 passed, 31 warnings in 3.48s\n"
   }
 ]
+[2026-09-10T19:08:34.981212+00:00] [CRITIC] claimed F7-T8c
