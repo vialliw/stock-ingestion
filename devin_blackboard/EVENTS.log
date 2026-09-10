@@ -1476,3 +1476,9 @@ Evidence map:
 
 [ORCHESTRATOR] Attempted to spawn Agent C for F7-T9b per user option A. MCP devin_session_create returned: HTTP 403 out_of_quota. Orgnization still has no quota. Stopping and awaiting user direction.
 
+
+[ORCHESTRATOR] User provided explicit override: 'orchestrator may code'. Re-implemented F7-T10 + F7-T9b/c + F7-T10b/c directly.
+[ORCHESTRATOR] F7-T10 code committed: batch split re-download + _record_historical_splits in both src/ingestion.py and src/ingestion_challenger.py.
+[ORCHESTRATOR] 235/235 tests pass, loop checker clean (strict).
+[ORCHESTRATOR] Marked F7-T9b, F7-T9c, F7-T10, F7-T10b, F7-T10c as done in TASKS.json.
+
