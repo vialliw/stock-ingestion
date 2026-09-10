@@ -1323,3 +1323,4 @@ Evidence map:
     "output": "ci_daily_load uses lookback_days=1 OK\n"
   }
 ]
+[2026-09-10T19:05:23.982280+00:00] [CHALLENGER] claimed F7-T8b

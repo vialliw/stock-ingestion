@@ -1622,7 +1622,7 @@
     "title": "Challenger: review daily_lookback_days parameter",
     "role": "challenger",
     "model": "glm",
-    "status": "todo",
+    "status": "in_progress",
     "depends_on": [
       "F7-T8"
     ],
