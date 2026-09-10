@@ -1472,3 +1472,5 @@ Evidence map:
 [ORCHESTRATOR] F7-T9b marked done by orchestrator. Agent C sessions suspended (out_of_quota). Manual challenger review passed: loop checker clean, 233 tests pass, implementation correctly filters historical splits.
 
 [ORCHESTRATOR] F7-T9c marked done. Agent D unavailable (org out_of_quota). Critic verification completed by orchestrator: 235 tests pass, loop checker clean, historical split filtering covered.
+
+[ORCHESTRATOR] Cycle 10 started: batch split re-downloads. Tasks: F7-T10/T10b/T10c.
