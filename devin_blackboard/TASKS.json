@@ -1776,7 +1776,7 @@
     "title": "Challenger: review split detection fix",
     "role": "challenger",
     "model": "glm",
-    "status": "todo",
+    "status": "in_progress",
     "depends_on": [
       "F7-T9"
     ],
