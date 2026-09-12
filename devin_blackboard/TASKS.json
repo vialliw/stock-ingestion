@@ -2051,5 +2051,130 @@
     "assigned_to": "B",
     "challenger_required": true,
     "evidence": "Executor (orchestrator with explicit user override). Created scripts/register_daily_task.ps1 (schtasks /create /sc DAILY /f, idempotent, -Unregister supported, reads schedule_time from src/config.yaml) and scripts/daily_load_once.py (runs PipelineScheduler.run_once with default config, logs to cfg.logging.log_file). Verified: task registered as StockIngestion-DailyLoad daily 16:14, runner executed end-to-end on 2026-09-12 (Saturday) -> NYSE closed skip, exit 0. Loop checker clean plain+strict, 235/235 pytest pass."
+  },
+  {
+    "id": "F7-T12",
+    "title": "Executor: split repair must not destroy history on failed re-download",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": [
+      "F7-T10c"
+    ],
+    "input_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/tests/test_ingestion.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/tests/test_ingestion.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": true,
+    "description": "BUG: _check_and_apply_splits deletes a ticker's entire history BEFORE re-downloading. When the batch re-download returns empty/failed for a ticker (transient yfinance failure), that history is permanently lost — happened on 2026-09-10 to BKNG, BWA, FNF, FTAI, LOGI, RLI (left with only 2 rows). FIX (option 2): in both src/ingestion.py and src/ingestion_challenger.py, change ordering to (1) batch download first, (2) for each affected ticker only delete+upsert if the re-downloaded frame actually contains rows for that ticker; if a ticker is missing/empty in the re-download, keep its existing data and warn (do NOT record its splits as processed — leave them unprocessed so a later run can retry). Splits already recorded in bulk before the download should be reverted/skipped for failed tickers, or better: only record splits for tickers that were successfully re-downloaded. Add regression test: ticker with unprocessed split whose re-download returns empty keeps its existing rows and its split stays unprocessed."
+  },
+  {
+    "id": "F7-T13",
+    "title": "Executor: fix scheduled-task timezone + silent failure exit code",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": [
+      "F7-T11"
+    ],
+    "input_files": [
+      "/scripts/register_daily_task.ps1",
+      "/scripts/daily_load_once.py",
+      "/src/config.yaml",
+      "/src/scheduler.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/scripts/register_daily_task.ps1",
+      "/scripts/daily_load_once.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": true,
+    "description": "Challenger findings on F7-T11: (1) HIGH timezone bug — schtasks /st uses machine-local time but register_daily_task.ps1 copies scheduler.schedule_time verbatim while config timezone is America/New_York; on a GMT machine the task fires 16:14 UK = 11:14 ET mid-session producing partial intraday bars. Fix: convert scheduler.schedule_time from cfg scheduler.timezone to the machine's local timezone at registration (PowerShell TimeZoneInfo.ConvertTime with System.TimeZoneInfo::FindSystemTimeZoneById + Get-TimeZone), warn on DST-ambiguous edge cases, and keep -Time override. (2) HIGH silent failure — when DuckDB is locked daily_load_once.py exits 0 so Task Scheduler cannot detect failure. Fix: run_once result should propagate — make the runner exit non-zero when the load did not run/failed (e.g. catch exceptions, log traceback to cfg.logging.log_file, sys.exit(1); also have PipelineScheduler.run_once or the runner surface lock-retry exhaustion as a failure exit code). (3) MEDIUM unhandled exceptions go to stderr which Task Scheduler discards — wrap main() so all tracebacks land in the configured log file before exit(1). (4) honor cfg.logging.log_format like scheduler_main._configure_logging. After editing, re-run register_daily_task.ps1 to refresh the live task (verify with schtasks /query)."
+  },
+  {
+    "id": "F7-T14",
+    "title": "Executor: update workflow docs for local-subagent (no Devin Cloud) usage",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": [],
+    "input_files": [
+      "/docs/workflow_idea/",
+      "/AGENTS.md",
+      "/README.md",
+      "/scripts/poll_tasks.py",
+      "/devin_blackboard/STATE.md"
+    ],
+    "output_files": [
+      "/docs/workflow_idea/",
+      "/README.md",
+      "/AGENTS.md"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": false,
+    "description": "Update the multi-agent workflow documentation to describe the LOCAL-subagent approach (Devin CLI run_subagent with subagent_general / subagent_explore profiles) as the fully-free default, since Devin Cloud devin_session_create requires org quota that may be unavailable. Revise docs/workflow_idea/procedure_multi_agents01.md, devin_platform_setup.md, polling_workflow_protocol.md, and agent_*_prompt.md files so agent prompts describe claiming tasks via scripts/poll_tasks.py, editing only output_files, writing evidence to EVENTS.log — all executable by local subagents. Keep cloud-session spawning documented as an optional alternative. Update README.md and AGENTS.md workflow sections to match (AGENTS.md keeps role boundaries and the 'orchestrator may code' override rule)."
   }
 ]

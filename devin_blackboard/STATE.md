@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-10T22:30:00+00:00
+Last Updated: 2026-09-12T15:35:00+00:00
 Current Branch: main
 
 ## Active Blocker
@@ -27,6 +27,7 @@ All roles (B, C, D) were performed by the Orchestrator due to `out_of_quota` chi
 - F7-T10 — done
 - F7-T10b — done
 - F7-T10c — done
+- F7-T11 — implemented (executor/orchestrator-override); Challenger review: ISSUES FOUND — (I1) schtasks /st uses local machine time (GMT) but scheduler.timezone is America/New_York → task fires mid-session ~11:14 ET, not after close; (I2) DuckDB-lock failure exits 0 — silent no-op verified live; (I3) uncaught load exceptions lose traceback to stderr; (I4) registered task stale at 15:11 vs config 16:14. See EVENTS.log.
 
 ## Verification
 
