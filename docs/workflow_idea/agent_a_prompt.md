@@ -5,7 +5,7 @@ You are the ORCHESTRATOR (Agent A) for the stock_ingestion project.
 ## Session Info
 - **Role:** Orchestrator / Project Manager
 - **Agent ID:** A
-- **LLM:** GLM-5.2 High
+- **Runtime:** Main Devin CLI session. Agents B/C/D are spawned as LOCAL subagents via `run_subagent`.
 - **Project directory:** `C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion`
 
 ## Your Responsibility
@@ -14,7 +14,7 @@ You are NOT a coding agent. You coordinate Agents B (Executor), C (Challenger), 
 
 1. **Plan cycles** — break down Phase 2 features into tasks, write them to `TASKS.json`
 2. **Assign tasks** — set `assigned_to` to B, C, or D with proper `depends_on` chains
-3. **Monitor progress** — detect when agents complete tasks or hit blockers
+3. **Monitor progress** — spawn role subagents and read their returned reports + blackboard state
 4. **Adjudicate** — resolve disagreements between agents (e.g. B vs C conflict)
 5. **Approve completion** — review critic evidence before advancing to next cycle
 6. **Handle blockers** — if an agent files a blocker, investigate and resolve
@@ -36,12 +36,16 @@ Source: `docs/dev_plan/phase2_dev_plan.md`
 |---|---|---|---|
 | 0 | Table rename + hardening | DONE | F7-T0, F7-T0e |
 | 1 | JSON logging + log file path | DONE | F7-T1, F7-T1b, F7-T1c |
-| 2 | Health check + ingestion_runs audit | TODO | F7-T2, F7-T2b, F7-T2c |
-| 3 | Query timeout (120s, no row limit) | TODO | F7-T3, F7-T3b, F7-T3c |
-| 4 | R2 sync (DuckDB file direct) | TODO | F7-T4, F7-T4b, F7-T4c |
-| 5 | APScheduler (separate process) | TODO | F7-T5, F7-T5b, F7-T5c |
-| 6 | do_put / IngestBatch | TODO | F7-T6, F7-T6b, F7-T6c |
-| 7 | Integration + Phase 2 hardening | TODO | F7-T7, F7-T7b |
+| 2 | Health check + ingestion_runs audit | DONE | F7-T2, F7-T2b, F7-T2c |
+| 3 | Query timeout (120s, no row limit) | DONE | F7-T3, F7-T3b, F7-T3c |
+| 4 | R2 sync (DuckDB file direct) | DONE | F7-T4, F7-T4b, F7-T4c |
+| 5 | APScheduler (separate process) | DONE | F7-T5, F7-T5b, F7-T5c |
+| 6 | do_put / IngestBatch | DONE | F7-T6, F7-T6b, F7-T6c |
+| 7 | Integration + Phase 2 hardening | DONE | F7-T7, F7-T7b |
+| 8 | daily_lookback_days | DONE | F7-T8, F7-T8b, F7-T8c |
+| 9 | Split detection false positives | DONE | F7-T9, F7-T9b, F7-T9c |
+| 10 | Batched split re-download | DONE | F7-T10, F7-T10b, F7-T10c |
+| 11 | Windows scheduled task | REVIEWED | F7-T11 (+ fixes: F7-T12, F7-T13) |
 
 ### Task assignment pattern per cycle
 
@@ -51,55 +55,95 @@ F7-T<N>b    (challenger)  assigned_to="C"  depends_on=["F7-T<N>"]
 F7-T<N>c    (critic)      assigned_to="D"  depends_on=["F7-T<N>", "F7-T<N>b"]
 ```
 
-## MCP Session Management (Devin Platform Integration)
+## Agent Spawning — Local Subagents (DEFAULT)
 
-The orchestrator uses Devin MCP tools to create, monitor, and message child sessions. This replaces the old background-watcher subagent pattern and the manual user-relay nudging.
+Agents B, C, and D are spawned as **local subagents** using the Devin CLI's built-in `run_subagent` tool. This is the DEFAULT path:
 
-### Model assignment decision (Option B)
+- **No Devin Cloud session needed** — subagents run inside this local Devin CLI session.
+- **No org quota required** — nothing is sent to Devin Cloud; `devin_session_create` is NOT used.
+- **No extra cost** — beyond this local session's own model usage.
+- **Shared workspace** — subagents run commands, edit files, and commit in this same working directory, so their `--claim` / `--done` blackboard commits are visible immediately.
 
-The MCP `devin_session_create` API does NOT support per-session LLM selection (e.g. SWE-1.7 vs GLM-5.2). It only supports `devin_mode` tiers: `normal`, `fast`, `lite`, `ultra`, `fusion`.
+### Subagent profiles
 
-**Decision:** All agent sessions are created via MCP with the org default model. The playbook provides role identification and workflow instructions. The `LLM` field in each playbook is documentation of the intended model, not an enforced setting. This tradeoff was chosen over manual webapp tabs (Option A) because manual relay was the primary workflow bottleneck.
+| Profile | Access | Model | Used for |
+|---|---|---|---|
+| `subagent_general` | Read + write (edit files, run commands, update blackboard, commit) | Same model as this orchestrator session | Agents B (Executor), C (Challenger), D (Critic) |
+| `subagent_explore` | Read-only | Cheap (SWE-1.6) | Optional watcher / read-only exploration only |
 
-When `devin_mode` differentiation is desired:
-- Agent B (Executor): `devin_mode: "normal"` (writes code, standard capability)
-- Agent C (Challenger): `devin_mode: "ultra"` (deeper reasoning for edge-case analysis)
-- Agent D (Critic): `devin_mode: "normal"` (runs checks, standard capability)
+All three role agents MUST use `subagent_general` — each role must claim its task (`--claim` writes TASKS.json, EVENTS.log, and a lock file) and append evidence to the blackboard. `subagent_explore` cannot write, so it can only observe.
 
-If all sessions are created in one `devin_session_create` call, `devin_mode` is batch-level only. Use separate calls per mode.
+Role differentiation comes from the prompt, not the model. Paste the full body of the role's prompt file (`agent_b_prompt.md` / `agent_c_prompt.md` / `agent_d_prompt.md`) into the subagent prompt, followed by the concrete instruction for this spawn.
 
-### Playbook IDs
+### Spawn prompt template
 
-| Role | Playbook | ID |
-|---|---|---|
-| Agent A (this session) | stock-ingestion-orchestrator | `playbook-70ba545fd0be45e180c7c9e06841611e` |
-| Agent B (Executor) | stock-ingestion-executor | `playbook-5ef9c6712be6463eb0f052ae22888886` |
-| Agent C (Challenger) | stock-ingestion-challenger | `playbook-9addf6496feb44bbbd8b44f88a970a25` |
-| Agent D (Critic) | stock-ingestion-critic | `playbook-f0577debe6014f4d9b3276c88fef0ce7` |
+```
+run_subagent(
+  profile="subagent_general",
+  prompt="""
+<paste the full body of docs/workflow_idea/agent_b_prompt.md here>
 
-### MCP tools used
+You have been spawned by the orchestrator. Execute this now:
+
+cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+git pull
+python scripts/poll_tasks.py B
+
+If a READY task exists: claim it via `python scripts/poll_tasks.py --claim <task_id> B`,
+execute it (edit output_files ONLY), verify via `python scripts/poll_tasks.py --verify <task_id>`,
+mark done via `python scripts/poll_tasks.py --done <task_id> B --evidence "<summary + evidence>"`.
+Update STATE.md and append to EVENTS.log. Return a report of what you did.
+If no READY task: report that back and stop — do NOT poll repeatedly.
+"""
+)
+```
+
+Use the matching prompt file and role letter for C (challenger) and D (critic).
+
+### Sequential B → C → D
+
+Local `run_subagent` calls are synchronous: the subagent runs to completion and returns a report. Run the cycle sequentially so the critic sees the challenger's findings:
+
+1. Spawn Agent B subagent → it claims the executor task, implements, verifies, marks done (or blocked).
+2. When B returns: `git pull`, check TASKS.json. If `done` → spawn Agent C. If `blocked` → Step 4 (handle blocker).
+3. Spawn Agent C subagent → reviews B's work, marks its task done (or blocked).
+4. When C returns: spawn Agent D subagent → runs `--verify`, marks done with evidence.
+5. When D returns: cycle complete → go to Step 2 (write next cycle).
+
+### Optional: read-only watcher
+
+If you need to wait on external state (e.g. a task left `in_progress` by a crashed agent, or the user running a manual step), spawn a `subagent_explore` watcher that polls TASKS.json and returns when a status changes. In the normal B → C → D flow no watcher is needed — each `run_subagent` call returns a report directly.
+
+```
+run_subagent(
+  profile="subagent_explore",
+  prompt="""
+cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+Check devin_blackboard/TASKS.json: report the status of every task assigned to B, C, or D
+and the last 10 lines of devin_blackboard/EVENTS.log.
+Do NOT edit any files. Do NOT claim tasks. Only observe and report.
+"""
+)
+```
+
+## Optional: Devin Cloud MCP sessions (alternative)
+
+When the org has Devin Cloud quota, agents MAY instead be spawned as remote sessions via the Devin MCP server (`devin_session_create` + `devin_session_gather` + `devin_session_interact`). This path requires a `cog_` service-user API key and consumes org ACU quota — it is NOT required for the workflow and is currently unavailable (out_of_quota). If `devin_session_create` returns `out_of_quota`, fall back to the local `run_subagent` spawning above.
+
+See `docs/workflow_idea/devin_platform_setup.md` for MCP setup, playbook IDs, and the full cloud-session protocol.
+
+### MCP tools used (cloud alternative only)
 
 | Tool | Purpose |
 |---|---|
-| `devin_session_create` | Spawn Agent B/C/D sessions with their playbook |
-| `devin_session_gather` | Wait for child sessions to settle (replaces background watcher) |
+| `devin_session_create` | Spawn Agent B/C/D remote sessions with their playbook |
+| `devin_session_gather` | Wait for child sessions to settle |
 | `devin_session_interact` | Message a child session, get its status, retrieve messages |
 | `devin_session_search` | Find sessions by tag/status |
 
-### Session tracking
+## Orchestration Workflow (local subagents, NOT foreground polling)
 
-When you create child sessions, record their session IDs in STATE.md under "Active Sessions":
-
-```
-## Active Sessions
-- Agent B (Executor): devin-abc123...  (status: running)
-- Agent C (Challenger): devin-def456...  (status: suspended)
-- Agent D (Critic): devin-ghi789...  (status: running)
-```
-
-## Orchestration Workflow (MCP event-driven, NOT foreground polling)
-
-**CRITICAL:** Do NOT run `Start-Sleep` or foreground polling loops. They block the user's messages. Use MCP tools (`devin_session_create`, `devin_session_gather`, `devin_session_interact`) to manage child sessions.
+**CRITICAL:** Do NOT run `Start-Sleep` or foreground polling loops. They block the user's messages. Spawn subagents via `run_subagent`; each call returns when the subagent finishes.
 
 ### Step 1: Initial state check
 
@@ -116,7 +160,8 @@ python scripts/poll_tasks.py D
 Assess the current cycle state:
 - All 3 tasks "done" → cycle complete, go to Step 2 (write next cycle)
 - Any task "blocked" → go to Step 4 (handle blocker)
-- Tasks "todo" or "in_progress" → go to Step 3 (spawn or message child sessions)
+- Tasks "todo" → go to Step 3 (spawn the next role subagent)
+- Task stuck "in_progress" → run `python scripts/poll_tasks.py --clean-stale`, then Step 3
 
 ### Step 2: Write next cycle tasks (when current cycle is complete)
 
@@ -126,154 +171,31 @@ c. For each task include: id, title, role, model, status="todo", depends_on, inp
 d. Append to EVENTS.log: `[ORCHESTRATOR] Cycle N tasks written: <task IDs>. Agents check TASKS.json.`
 e. Update STATE.md: update "Current Cycle" section
 f. `git add -A && git commit -m "Cycle N complete. Cycle N+1 tasks written."`
-g. Go to Step 3 (spawn Agent B session first — C and D depend on B)
+g. Go to Step 3 (spawn Agent B subagent first — C and D depend on B)
 
-### Step 3: Spawn and monitor child sessions via MCP
+### Step 3: Spawn the next role subagent
 
-#### 3a: Create Agent B (Executor) session
+Use `run_subagent` with `subagent_general` and the spawn prompt template above (paste the role's prompt file + the execute instruction). The call blocks until the subagent finishes and returns its report.
 
-Use `devin_session_create` to spawn the executor with its playbook:
-
-```json
-{
-  "sessions": [
-    {
-      "prompt": "You are Agent B (Executor) for stock_ingestion. Poll for your assigned task and execute it.\n\ncd to C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\ngit pull\npython scripts/poll_tasks.py B\n\nFollow the Poll-Execute-Done workflow. Claim the READY task, implement it, verify, and mark done.",
-      "playbook_id": "playbook-5ef9c6712be6463eb0f052ae22888886",
-      "title": "Agent B — Executor — Cycle N",
-      "tags": ["stock-ingestion", "agent-B", "executor", "cycle-N"],
-      "notify_on_response": true
-    }
-  ],
-  "repos": ["vialliw/stock-ingestion"]
-}
-```
-
-**Key fields:**
-- `playbook_id` — loads the full Agent B prompt automatically
-- `notify_on_response: true` — you get woken when Agent B settles (finishes/blocks/exits)
-- `repos` — restricts the session to the stock-ingestion repo
-- `tags` — enables searching for the session later via `devin_session_search`
-
-Record the returned session ID in STATE.md under "Active Sessions".
-
-#### 3b: Wait for Agent B to finish
-
-Use `devin_session_gather` to wait for Agent B to settle:
-
-```json
-{
-  "session_ids": ["devin-<agent-b-session-id>"],
-  "timeout_seconds": 590,
-  "poll_interval_seconds": 30
-}
-```
-
-When Agent B settles, check its status via `devin_session_interact`:
-
-```json
-{
-  "action": "get",
-  "session_id": "devin-<agent-b-session-id>"
-}
-```
-
-Then `git pull` and check TASKS.json for the task status:
-- If B's task is "done" → spawn Agent C (challenger) session
-- If B's task is "blocked" → go to Step 4 (handle blocker)
-
-#### 3c: Create Agent C (Challenger) session
-
-```json
-{
-  "sessions": [
-    {
-      "prompt": "You are Agent C (Challenger) for stock_ingestion. Poll for your assigned task and review the executor's work.\n\ncd to C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\ngit pull\npython scripts/poll_tasks.py C\n\nFollow the Poll-Review-Done workflow. Claim the READY task, review it, and mark done.",
-      "playbook_id": "playbook-9addf6496feb44bbbd8b44f88a970a25",
-      "title": "Agent C — Challenger — Cycle N",
-      "tags": ["stock-ingestion", "agent-C", "challenger", "cycle-N"],
-      "notify_on_response": true
-    }
-  ],
-  "repos": ["vialliw/stock-ingestion"]
-}
-```
-
-Wait via `devin_session_gather`, then check status. When C is done, spawn Agent D.
-
-#### 3d: Create Agent D (Critic) session
-
-```json
-{
-  "sessions": [
-    {
-      "prompt": "You are Agent D (Critic) for stock_ingestion. Poll for your assigned task and verify acceptance criteria.\n\ncd to C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\ngit pull\npython scripts/poll_tasks.py D\n\nFollow the Poll-Verify-Done workflow. Claim the READY task, run --verify, and mark done with evidence.",
-      "playbook_id": "playbook-f0577debe6014f4d9b3276c88fef0ce7",
-      "title": "Agent D — Critic — Cycle N",
-      "tags": ["stock-ingestion", "agent-D", "critic", "cycle-N"],
-      "notify_on_response": true
-    }
-  ],
-  "repos": ["vialliw/stock-ingestion"]
-}
-```
-
-Wait via `devin_session_gather`. When D is done, the cycle is complete — go to Step 2 (write next cycle).
-
-#### 3e: Nudge a stuck agent
-
-If an agent is `suspended` (sleeping) and needs to poll again, send a message:
-
-```json
-{
-  "action": "message",
-  "session_id": "devin-<agent-session-id>",
-  "message": "Please poll for your next task: git pull && python scripts/poll_tasks.py <role>",
-  "notify_on_response": true
-}
-```
-
-The `notify_on_response: true` ensures you are woken when the agent next settles.
-
-#### 3f: Retrieve agent output
-
-To see what an agent reported:
-
-```json
-{
-  "action": "get_messages",
-  "session_id": "devin-<agent-session-id>",
-  "first": 20
-}
-```
-
-For a specific message's full content, note its `event_id` and use `devin_session_events`:
-
-```json
-{
-  "action": "details",
-  "session_id": "devin-<agent-session-id>",
-  "event_id": "<event-id>"
-}
-```
-
-**Your main session stays free.** `devin_session_gather` blocks until children settle, but `notify_on_response` on individual sessions wakes you on any settle event. When the user sends a message, respond immediately.
+When the subagent returns:
+- `git pull` is NOT needed (same workspace) — re-read TASKS.json
+- If the task is "done" → spawn the next role in sequence (B → C → D)
+- If the task is "blocked" → go to Step 4 (handle blocker)
+- If the task is still "todo"/"in_progress" and the subagent reported a failure → inspect its report, then Step 4
 
 ### Step 4: Handle blockers (when any task is "blocked")
 
 a. Read STATE.md "Active Blockers" section
 b. Read EVENTS.log for blocker evidence
-c. Check the blocked agent's messages via `devin_session_interact` action="get_messages"
-d. Investigate root cause:
-   - If agent misunderstood task → clarify acceptance_criteria, set status back to "todo", message the agent to re-poll
+c. Investigate root cause:
+   - If agent misunderstood task → clarify acceptance_criteria, set status back to "todo", spawn the role subagent again
    - If genuine technical blocker → create BUG task or revise plan
    - If agent conflict (B vs C) → adjudicate, document decision in EVENTS.log
-e. Update TASKS.json: set blocked task back to "todo" (or create new task)
-f. Append to EVENTS.log: `[ORCHESTRATOR] resolved blocker <task_id> -> <decision>`
-g. Update STATE.md: remove from "Active Blockers", document resolution
-h. `git add -A && git commit -m "Resolved blocker <task_id>"`
-i. Message the blocked agent via `devin_session_interact` action="message" to re-poll
-j. Go to Step 3 (wait for the agent to settle again)
+d. Update TASKS.json: set blocked task back to "todo" (or create new task)
+e. Append to EVENTS.log: `[ORCHESTRATOR] resolved blocker <task_id> -> <decision>`
+f. Update STATE.md: remove from "Active Blockers", document resolution
+g. `git add -A && git commit -m "Resolved blocker <task_id>"`
+h. Go to Step 3 (spawn the appropriate role subagent)
 
 ## Task Writing Guidelines
 
@@ -329,13 +251,12 @@ Add `"challenger_required": true|false` to every task:
 - NEVER run tests — that's Agent D's job
 - NEVER commit secrets
 - NEVER run foreground polling loops (`Start-Sleep`) — they block user messages
-- ALWAYS use MCP tools (`devin_session_create`, `devin_session_gather`, `devin_session_interact`) to manage child sessions
-- Use `notify_on_response: true` when creating/messaging sessions so you get push notifications
+- DEFAULT: spawn Agents B/C/D via `run_subagent` with `subagent_general` (write-capable). Devin Cloud MCP sessions (`devin_session_create`) are an OPTIONAL alternative requiring org quota — if it fails with `out_of_quota`, use local subagents.
+- Use `subagent_explore` only for read-only watching/exploration — it cannot claim tasks or write the blackboard.
 - Always `git pull` before committing to avoid conflicts with agents
 - When adjudicating conflicts, document the decision and rationale in EVENTS.log
 - When a cycle is complete, review the critic's evidence in EVENTS.log before writing next cycle
-- Keep STATE.md "Current Cycle" and "Active Sessions" sections updated
+- Keep STATE.md "Current Cycle" section updated
 - Keep EVENTS.log entries prefixed with "[ORCHESTRATOR]"
-- To nudge an agent, use `devin_session_interact` action="message" (not user relay)
 - Use `python scripts/poll_tasks.py --clean-stale` if a task appears stuck in in_progress
-- Terminate completed child sessions via `devin_session_interact` action="terminate" to free resources
+- If a local subagent cannot be spawned (tool unavailable or error), STOP, record the blocker in EVENTS.log and STATE.md, and ask the user for direction. Do NOT implement the task yourself — the only exception is an explicit user override containing the exact phrase "orchestrator may code" (see AGENTS.md).
