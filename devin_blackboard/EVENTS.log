@@ -1485,3 +1485,6 @@ Evidence map:
 
 [ORCHESTRATOR] Added F7-T11: Windows scheduled task script for daily load. Assigned to Agent B.
 
+
+[EXECUTOR-B/orchestrator-override] F7-T11 done: created scripts/register_daily_task.ps1 + scripts/daily_load_once.py. Task 'StockIngestion-DailyLoad' registered via schtasks /sc DAILY at 16:14 (from config.yaml). Runner verified end-to-end on Sat 2026-09-12: NYSE-closed skip, exit 0. Checks: loop checker clean (plain+strict), 235/235 pytest pass. NOTE: challenger/critic review still required before feature sign-off.
+
