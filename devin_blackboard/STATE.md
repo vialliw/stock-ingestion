@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-12T15:35:00+00:00
+Last Updated: 2026-09-12T16:13:00+00:00
 Current Branch: main
 
 ## Active Blocker
@@ -27,14 +27,17 @@ All roles (B, C, D) were performed by the Orchestrator due to `out_of_quota` chi
 - F7-T10 — done
 - F7-T10b — done
 - F7-T10c — done
+- F7-T14 — done
 - F7-T11 — implemented (executor/orchestrator-override); Challenger review: ISSUES FOUND — (I1) schtasks /st uses local machine time (GMT) but scheduler.timezone is America/New_York → task fires mid-session ~11:14 ET, not after close; (I2) DuckDB-lock failure exits 0 — silent no-op verified live; (I3) uncaught load exceptions lose traceback to stderr; (I4) registered task stale at 15:11 vs config 16:14. See EVENTS.log.
+- F7-T12 — done (executor B): split re-download ordering fixed in src/ingestion.py + src/ingestion_challenger.py — download first, then delete+upsert+record only for tickers present in re-download; missing tickers keep data, splits stay unprocessed. Regression test added. 237 tests pass, loop checker clean.
+- F7-T13 — done (executor B): register_daily_task.ps1 converts schedule_time from scheduler.timezone to machine-local via TimeZoneInfo.ConvertTime (IANA->Windows fallback for PS5.1); live task re-registered at 21:14 local = 16:14 ET (schtasks /query verified). daily_load_once.py exits 1 on DuckDB-lock exhaustion / uncaught exceptions (traceback to cfg.logging.log_file), honors log_format json/text. Lock-failure + market-closed paths verified live (exit 1 / exit 0).
 
 ## Verification
 
 - `python scripts/check_loops.py --src-dir src --strict` → clean
 - `python -m pytest tests/ -q` → 235 passed
 
-Agent B/C/D spawns are currently blocked by org `out_of_quota`. Awaiting user direction or quota restoration before resuming.
+Agent B/C/D spawns no longer depend on org quota: the DEFAULT workflow is local `run_subagent` spawning (`subagent_general` write-capable / `subagent_explore` read-only) per F7-T14 doc update. Devin Cloud `devin_session_create` remains an optional alternative when quota is available.
 
 ## File Tree (Agents MUST update this after every change)
 - /AGENTS.md
@@ -45,7 +48,13 @@ Agent B/C/D spawns are currently blocked by org `out_of_quota`. Awaiting user di
 - /devin_blackboard/STATE.md
 - /devin_blackboard/TASKS.json
 - /devin_blackboard/EVENTS.log
-- /docs/workflow_idea/procedure_multi_agents01.md
+- /docs/workflow_idea/procedure_multi_agents01.md  (v4.0 — local run_subagent default)
+- /docs/workflow_idea/polling_workflow_protocol.md (v4.0 — local run_subagent coordination)
+- /docs/workflow_idea/devin_platform_setup.md      (optional Devin Cloud MCP alternative)
+- /docs/workflow_idea/agent_a_prompt.md            (orchestrator — spawns local subagents)
+- /docs/workflow_idea/agent_b_prompt.md            (executor subagent prompt)
+- /docs/workflow_idea/agent_c_prompt.md            (challenger subagent prompt)
+- /docs/workflow_idea/agent_d_prompt.md            (critic subagent prompt)
 - /requirements.txt
 - /src/            (ingestion + interface code)
   - __init__.py
@@ -200,3 +209,6 @@ Final: 213/213 tests pass, loop checker `--strict` clean, do_put schema/filter/u
 ## Cycle 8 — daily_lookback_days — IN REVIEW
 - [x] F7-T8 (Executor): `daily_lookback_days` in `IngestionConfig` (default 4, ge=1) + `config.yaml`; `run_daily_load(lookback_days=4)` uses `timedelta(days=lookback_days)`; scheduler + `scripts/ci_daily_load.py` pass `lookback_days=1`; `flight_server.py` do_action(daily_load) passes `cfg.ingestion.daily_lookback_days`.
 - [x] F7-T8b (Challenger): review — PASS WITH CONCERNS. `--verify` ALL PASS (AC-1..3), `check_loops --strict` clean (14 files), 217/217 tests pass. Concerns (non-blocking): (1) challenger variants `src/ingestion_challenger.py` / `src/flight_server_challenger.py` not updated — `run_daily_load()` has no `lookback_days`, so parametrized tests cannot cover both impls; (2) Pydantic lax mode coerces YAML `daily_lookback_days: true` to 1, bypassing the bool guard in `run_daily_load`; (3) no dedicated tests for `lookback_days` (start-date window, ValueError on 0/bool).
+
+## F7-T14 — workflow docs → local run_subagent — DONE
+- [x] F7-T14 (Executor B, local subagent): Updated all multi-agent workflow docs so LOCAL `run_subagent` spawning is the DEFAULT and Devin Cloud MCP (`devin_session_create`) is an optional alternative. Files: `docs/workflow_idea/procedure_multi_agents01.md` (v4.0: §1 profiles, §2 prerequisites, §4 subagent topology + §4.2 history + §4.3 watcher + §4.4 cloud alternative, §5 loop, §6 subcommand protocol, §10 comms, §12 cycle table, §13.8 out_of_quota postmortem, §14.1/§14.6 lessons, §15.1 resolved, §16 inventory, appendices 17-22 refreshed), `polling_workflow_protocol.md` (v4.0 rewrite), `devin_platform_setup.md` (marked OPTIONAL + added Tier 0 local-subagent section), `agent_a_prompt.md` (MCP Session Management → Local Subagent Spawning default + spawn template + sequential B→C→D), `agent_b/c/d_prompt.md` (rewritten as subagent prompts: claim via `--claim`, edit output_files only, `--verify`, `--done --evidence`, append EVENTS.log, report to orchestrator), `README.md` (Multi-Agent Workflow section), `AGENTS.md` (orchestrator role + spawn-failure + project-context updates; role boundaries, "orchestrator may code" override, critic checklist, and loop-checker enforcement all preserved).
