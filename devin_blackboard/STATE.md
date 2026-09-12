@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-12T16:13:00+00:00
+Last Updated: 2026-09-12T17:40:00+00:00
 Current Branch: main
 
 ## Active Blocker
@@ -29,8 +29,8 @@ All roles (B, C, D) were performed by the Orchestrator due to `out_of_quota` chi
 - F7-T10c — done
 - F7-T14 — done
 - F7-T11 — implemented (executor/orchestrator-override); Challenger review: ISSUES FOUND — (I1) schtasks /st uses local machine time (GMT) but scheduler.timezone is America/New_York → task fires mid-session ~11:14 ET, not after close; (I2) DuckDB-lock failure exits 0 — silent no-op verified live; (I3) uncaught load exceptions lose traceback to stderr; (I4) registered task stale at 15:11 vs config 16:14. See EVENTS.log.
-- F7-T12 — done (executor B): split re-download ordering fixed in src/ingestion.py + src/ingestion_challenger.py — download first, then delete+upsert+record only for tickers present in re-download; missing tickers keep data, splits stay unprocessed. Regression test added. 237 tests pass, loop checker clean.
-- F7-T13 — done (executor B): register_daily_task.ps1 converts schedule_time from scheduler.timezone to machine-local via TimeZoneInfo.ConvertTime (IANA->Windows fallback for PS5.1); live task re-registered at 21:14 local = 16:14 ET (schtasks /query verified). daily_load_once.py exits 1 on DuckDB-lock exhaustion / uncaught exceptions (traceback to cfg.logging.log_file), honors log_format json/text. Lock-failure + market-closed paths verified live (exit 1 / exit 0).
+- F7-T12 — done (executor B): split re-download ordering fixed in src/ingestion.py + src/ingestion_challenger.py — download first, then delete+upsert+record only for tickers present in re-download; missing tickers keep data, splits stay unprocessed. Regression test added. 237 tests pass, loop checker clean. CRITIC-D independently verified 2026-09-12: all ACs PASS, ordering confirmed in code (download before delete; batch_record_splits filtered to re-downloaded tickers), regression test meaningful (2 passed standalone).
+- F7-T13 — done (executor B): register_daily_task.ps1 converts schedule_time from scheduler.timezone to machine-local via TimeZoneInfo.ConvertTime (IANA->Windows fallback for PS5.1); live task re-registered at 21:14 local = 16:14 ET (schtasks /query verified). daily_load_once.py exits 1 on DuckDB-lock exhaustion / uncaught exceptions (traceback to cfg.logging.log_file), honors log_format json/text. Lock-failure + market-closed paths verified live (exit 1 / exit 0). CRITIC-D independently verified 2026-09-12: all ACs PASS, live lock test -> exit 1 + traceback in C:\Intel\parquet\stock_ingestion.log, market-closed -> exit 0, schtasks shows 21:14 local (=16:14 ET) Daily Ready.
 
 ## Verification
 
