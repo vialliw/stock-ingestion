@@ -1543,3 +1543,34 @@ Evidence map:
   }
 ]
 [2026-09-12T16:07:23.587360+00:00] [EXECUTOR] claimed F7-T13
+[2026-09-12T16:13:00.310780+00:00] [EXECUTOR] completed F7-T13 -> (1) register_daily_task.ps1: reads scheduler.timezone from config.yaml, resolves via TimeZoneInfo::FindSystemTimeZoneById with IANA->Windows fallback map (PS5.1 compat), converts schedule_time to machine-local via TimeZoneInfo.ConvertTime anchored to today (correct DST offset), warns on IsInvalidTime/IsAmbiguousTime and date shifts; -Time override still verbatim local. Live re-registered: 16:14 America/New_York -> 21:14 local; schtasks /query confirms Start Time 9:14 PM, next run 2026-09-12 21:14, task Ready. (2) daily_load_once.py: _run_once replicates _run_with_retry thin sequence via scheduler._create_db_manager()/_execute_daily_load() so lock-retry exhaustion raises -> logged traceback + exit 1; uncaught load exceptions -> logger.exception to cfg.logging.log_file + exit 1; config/logging startup failure -> repo-local fallback log + exit 1; log_format 'json' honored via pythonjsonlogger (same as scheduler_main). Live test: held DuckDB lock -> exit 1, traceback written to C:\Intel\parquet\stock_ingestion.log; released -> market-closed skip -> exit 0. Verify: check_loops clean, --strict clean, pytest 237 passed.
+Evidence map:
+[
+  {
+    "id": "AC-1",
+    "check": "loop_checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (14 files checked)\n"
+  },
+  {
+    "id": "AC-2",
+    "check": "loop_checker_strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (14 files checked)\n"
+  },
+  {
+    "id": "AC-3",
+    "check": "pytest_suite",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "........................................................................ [ 30%]\n........................................................................ [ 60%]\n........................................................................ [ 91%]\n.....................                                                    [100%]\n237 passed in 43.55s\n"
+  }
+]
