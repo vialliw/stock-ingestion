@@ -2145,7 +2145,7 @@
     "title": "Executor: update workflow docs for local-subagent (no Devin Cloud) usage",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [],
     "input_files": [
       "/docs/workflow_idea/",

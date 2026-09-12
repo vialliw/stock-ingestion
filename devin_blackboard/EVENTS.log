@@ -1575,3 +1575,25 @@ Evidence map:
   }
 ]
 [2026-09-12T16:14:15.271388+00:00] [EXECUTOR-B] F7-T12 + F7-T13 complete. F7-T12: reordered _check_and_apply_splits in src/ingestion.py and src/ingestion_challenger.py — batch re-download now runs BEFORE destructive writes; only tickers present in the re-downloaded frame get delete_ticker_data + upsert + batch_record_splits; tickers missing from re-download keep existing data (warning logged) and splits stay unprocessed for retry. Added regression test test_unprocessed_split_empty_redownload_preserves_history (both impls): empty re-download => 2 seeded rows kept, delete not called, split unprocessed. F7-T13: scripts/register_daily_task.ps1 converts scheduler.schedule_time from cfg scheduler.timezone to machine-local via TimeZoneInfo.ConvertTime with IANA->Windows fallback map (PS5.1) + DST ambiguous/invalid warnings; -Time override kept. Live re-registered: 16:14 America/New_York -> 21:14 local (GMT Standard Time); schtasks /query confirms. scripts/daily_load_once.py: _run_once calls scheduler._create_db_manager()/_execute_daily_load() directly so DuckDB-lock exhaustion raises -> traceback to cfg.logging.log_file + exit 1; uncaught exceptions -> logger.exception + exit 1; startup failure -> repo-local fallback log; log_format json honored via pythonjsonlogger. Live-verified: lock held -> exit 1 + traceback in stock_ingestion.log; lock released -> market-closed skip -> exit 0. Verification: check_loops + --strict clean (14 files); pytest 237 passed; --verify ALL PASS for both tasks; --done recorded by Agent B.
+[2026-09-12T16:18:21.536820+00:00] [EXECUTOR] completed F7-T14 -> Workflow docs updated to local run_subagent spawning as DEFAULT. procedure_multi_agents01.md v4.0 (subagent topology, spawn protocol, subcommand lifecycle, out_of_quota postmortem 13.8, refreshed appendices), polling_workflow_protocol.md v4.0 rewrite, devin_platform_setup.md marked optional + Tier 0 local-subagent section, agent_a_prompt.md rewritten (run_subagent default + MCP optional), agent_b/c/d_prompt.md rewritten as local-subagent-executable prompts (claim/verify/done subcommands, report to orchestrator), README.md + AGENTS.md workflow sections updated (role boundaries, orchestrator-may-code override, critic checklist, loop enforcement preserved). Verify: AC-1 loop_checker exit 0 (14 files), AC-2 pytest 237 passed exit 0.
+Evidence map:
+[
+  {
+    "id": "AC-1",
+    "check": "loop_checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (14 files checked)\n"
+  },
+  {
+    "id": "AC-2",
+    "check": "pytest_suite",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "........................................................................ [ 30%]\n........................................................................ [ 60%]\n........................................................................ [ 91%]\n.....................                                                    [100%]\n237 passed in 46.32s\n"
+  }
+]
