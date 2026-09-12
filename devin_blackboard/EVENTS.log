@@ -1508,3 +1508,5 @@ ISSUES:
 
 [ORCHESTRATOR] Added F7-T12 (split repair must not delete before confirmed re-download), F7-T13 (scheduled-task timezone conversion + non-zero exit on failure), F7-T14 (workflow docs -> local run_subagent approach). Will dispatch via LOCAL run_subagent (subagent_general) since Devin Cloud quota is exhausted but local subagents work.
 
+
+[2026-09-12T15:58:39.715762+00:00] [EXECUTOR] claimed F7-T14
