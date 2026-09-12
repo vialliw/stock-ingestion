@@ -1996,5 +1996,59 @@
     "assigned_to": "D",
     "challenger_required": true,
     "evidence": "Critic verification (orchestrator with explicit user override). AC-1..AC-4 verified: loop checker clean (plain and strict), 235/235 pytest tests pass, batch re-download test passes (4 split tests)."
+  },
+  {
+    "id": "F7-T11",
+    "title": "Executor: Windows scheduled task script for daily load",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": [
+      "F7-T10c"
+    ],
+    "input_files": [
+      "/src/config.yaml",
+      "/src/scheduler_main.py",
+      "/src/scheduler.py",
+      "/src/ingestion.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/scripts/"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "script_exists",
+        "command": "python -c \"import os; assert any(f.endswith(('.ps1','.bat','.cmd')) and 'task' in f.lower() for f in os.listdir('scripts')), 'no scheduled-task script found in scripts/'; print('script found')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "script_uses_schtasks",
+        "command": "python -c \"import os; c=''; [c:=c+open(os.path.join('scripts',f),encoding='utf-8',errors='ignore').read() for f in os.listdir('scripts') if f.endswith(('.ps1','.bat','.cmd')) and 'task' in f.lower()]; assert 'schtasks' in c.lower(), 'script does not use schtasks.exe'; print('schtasks usage confirmed')\"",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": true
   }
 ]

@@ -1482,3 +1482,6 @@ Evidence map:
 [ORCHESTRATOR] 235/235 tests pass, loop checker clean (strict).
 [ORCHESTRATOR] Marked F7-T9b, F7-T9c, F7-T10, F7-T10b, F7-T10c as done in TASKS.json.
 
+
+[ORCHESTRATOR] Added F7-T11: Windows scheduled task script for daily load. Assigned to Agent B.
+
