@@ -83,53 +83,31 @@ The Devin MCP server provides these tools:
 - devin_knowledge_manage — manage knowledge notes
 ```
 
-### Step 4: Create 4 Devin Playbooks
+### Step 4: The 4 Devin Playbooks
 
-Use `devin_playbook_manage` (or ask Devin in a session) to create these playbooks:
+> **Single source of truth (updated 2026-09-12):** role instructions live ONLY in
+> `docs/workflow_idea/agent_{a,b,c,d}_prompt.md`. All four playbooks are thin
+> pointers — each says "git pull, read `docs/workflow_idea/agent_<role>_prompt.md`,
+> follow it verbatim". This guarantees the cloud playbooks and the local
+> `.devin/agents/` subagent profiles can never drift: a revision is a single edit
+> to the prompt file and both paths pick it up on the next spawn.
+> Do NOT paste prompt bodies into playbooks again.
 
-#### Playbook 1: stock-ingestion-orchestrator
+Existing playbook IDs:
 
-```
-Name: stock-ingestion-orchestrator
-Description: Agent A — Orchestrator/PM for stock_ingestion multi-agent workflow
-Model: glm (GLM-5.2 High)
-Tags: stock-ingestion, orchestrator, agent-a
-```
+| Role | Playbook | ID | Repo prompt file |
+|---|---|---|---|
+| Orchestrator | stock-ingestion-orchestrator | `playbook-70ba545fd0be45e180c7c9e06841611e` | `agent_a_prompt.md` |
+| Executor | stock-ingestion-executor | `playbook-5ef9c6712be6463eb0f052ae22888886` | `agent_b_prompt.md` |
+| Challenger | stock-ingestion-challenger | `playbook-9addf6496feb44bbbd8b44f88a970a25` | `agent_c_prompt.md` |
+| Critic | stock-ingestion-critic | `playbook-f0577debe6014f4d9b3276c88fef0ce7` | `agent_d_prompt.md` |
 
-Content: Copy the body of `docs/workflow_idea/agent_a_prompt.md` (everything after the title line).
-
-#### Playbook 2: stock-ingestion-executor
-
-```
-Name: stock-ingestion-executor
-Description: Agent B — Executor for stock_ingestion multi-agent workflow
-Model: swe (SWE-1.7 Medium)
-Tags: stock-ingestion, executor, agent-b
-```
-
-Content: Copy the body of `docs/workflow_idea/agent_b_prompt.md`.
-
-#### Playbook 3: stock-ingestion-challenger
-
-```
-Name: stock-ingestion-challenger
-Description: Agent C — Challenger for stock_ingestion multi-agent workflow
-Model: glm (GLM-5.2 High)
-Tags: stock-ingestion, challenger, agent-c
-```
-
-Content: Copy the body of `docs/workflow_idea/agent_c_prompt.md`.
-
-#### Playbook 4: stock-ingestion-critic
-
-```
-Name: stock-ingestion-critic
-Description: Agent D — Critic for stock_ingestion multi-agent workflow
-Model: swe (SWE-1.7 Medium)
-Tags: stock-ingestion, critic, agent-d
-```
-
-Content: Copy the body of `docs/workflow_idea/agent_d_prompt.md`.
+If a playbook ever needs to be recreated, use `devin_playbook_manage`
+action=create with title `stock-ingestion-<role>` and a thin-pointer body of the
+form: "You are Agent <letter> (<role>) for stock_ingestion, running as a Devin
+Cloud session on repo vialliw/stock-ingestion. git pull, then read
+`docs/workflow_idea/agent_<letter>_prompt.md` and follow it verbatim. Your role
+letter for `scripts/poll_tasks.py` is `<letter>`."
 
 ### Step 5: Update orchestrator to use MCP — DONE (now OPTIONAL)
 

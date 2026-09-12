@@ -139,9 +139,13 @@ One main Devin CLI session is the Orchestrator (Agent A). Agents B/C/D are spawn
 | Agent | Role | Spawned via | Prompt file | Responsibility |
 |---|---|---|---|---|
 | A | Orchestrator (PM) | Main Devin CLI session | `docs/workflow_idea/agent_a_prompt.md` | Plans cycles, writes tasks, spawns subagents, adjudicates, approves completion |
-| B | Executor | `run_subagent` + `subagent_general` | `docs/workflow_idea/agent_b_prompt.md` | Implements features, fixes bugs, writes code in `src/` |
-| C | Challenger | `run_subagent` + `subagent_general` | `docs/workflow_idea/agent_c_prompt.md` | Independent review, edge-case analysis, false-positive/negative detection |
-| D | Critic | `run_subagent` + `subagent_general` | `docs/workflow_idea/agent_d_prompt.md` | Tests, verifies acceptance criteria, regression checks, loop checker enforcement |
+| B | Executor | `run_subagent` + profile `executor` | `docs/workflow_idea/agent_b_prompt.md` | Implements features, fixes bugs, writes code in `src/` |
+| C | Challenger | `run_subagent` + profile `challenger` | `docs/workflow_idea/agent_c_prompt.md` | Independent review, edge-case analysis, false-positive/negative detection |
+| D | Critic | `run_subagent` + profile `critic` | `docs/workflow_idea/agent_d_prompt.md` | Tests, verifies acceptance criteria, regression checks, loop checker enforcement |
+
+**Custom profiles** live in `.devin/agents/{executor,challenger,critic}.md` (added 2026-09-12). Each profile is a **thin pointer**: its body instructs the subagent to read the canonical prompt file above and follow it verbatim. The `model:` frontmatter restores per-role model separation (executor=`swe`, challenger=`glm`, critic=`swe`) that plain `subagent_general` could not provide. If a profile fails to resolve, fall back to `subagent_general` + pasting the prompt file body + the spawn instruction.
+
+**Single source of truth:** the four `agent_*_prompt.md` files. The `.devin/agents/` profiles AND the optional Devin Cloud playbooks (`devin_platform_setup.md` Step 4) are both thin pointers to these files — a role revision is one edit, picked up by both paths on the next spawn.
 
 Benefits of the local-subagent default:
 
@@ -156,7 +160,7 @@ The workflow went through three spawning mechanisms:
 
 1. **Internal subagents (abandoned):** early orchestrator-spawned subagents locked to the orchestrator's model and shared its context — model mismatch and no context slicing.
 2. **Four separate sessions / Devin Cloud MCP sessions (superseded):** each agent in its own session solved model/context separation, but required manual user relay (tabs) or org ACU quota (MCP `devin_session_create`). Cloud quota exhaustion (`out_of_quota`) blocked all B/C/D spawns — see §13.8.
-3. **Local `run_subagent` (current default):** `subagent_general` is write-capable and `subagent_explore` is a cheap read-only profile. Role separation now comes from the prompt files rather than per-session model selection — the model-lock-in tradeoff was accepted because quota-free local execution outweighs it. Context slicing is preserved: each subagent's prompt tells it to read only its task, input_files, and the last lines of EVENTS.log.
+3. **Local `run_subagent` (current default):** `subagent_general` is write-capable and `subagent_explore` is a cheap read-only profile. Role separation comes from the prompt files, and context slicing is preserved: each subagent's prompt tells it to read only its task, input_files, and the last lines of EVENTS.log. **Update (2026-09-12):** custom profiles in `.devin/agents/` now pin per-role `model:` values (executor=`swe`, challenger=`glm`, critic=`swe`), restoring the model separation the original design wanted — the model-lock-in tradeoff is resolved, not merely accepted.
 
 ### 4.3 Optional: read-only watcher
 
@@ -164,7 +168,7 @@ In the normal B → C → D flow no watcher is needed — each `run_subagent` ca
 
 ### 4.4 Optional: Devin Cloud MCP sessions (alternative)
 
-When org ACU quota is available, Agents B/C/D MAY instead be spawned as remote Devin Cloud sessions via `devin_session_create` (playbook IDs in `devin_platform_setup.md`), waited on via `devin_session_gather`, and messaged via `devin_session_interact`. The blackboard protocol and `poll_tasks.py` subcommands are identical — only the spawn/wait/message mechanism differs. If `devin_session_create` fails with `out_of_quota`, use the local `run_subagent` default.
+When org ACU quota is available, Agents B/C/D MAY instead be spawned as remote Devin Cloud sessions via `devin_session_create` (playbook IDs in `devin_platform_setup.md`), waited on via `devin_session_gather`, and messaged via `devin_session_interact`. The blackboard protocol and `poll_tasks.py` subcommands are identical — only the spawn/wait/message mechanism differs. The playbooks are thin pointers to the same `agent_*_prompt.md` files, so local profiles and cloud playbooks can never drift. If `devin_session_create` fails with `out_of_quota`, use the local `run_subagent` default.
 
 ---
 
@@ -177,9 +181,9 @@ Orchestrator (main session)
         │
         ▼
 ┌────────────────┐
-│ run_subagent   │     profile=subagent_general
-│ (Agent B)      │     prompt = agent_b_prompt.md + "poll, claim READY task,
-└───────┬────────┘      execute, --verify, --done with evidence"
+│ run_subagent   │     profile=executor (.devin/agents/executor.md)
+│ (Agent B)      │     prompt = "claim and execute <task_id>" — profile body
+└───────┬────────┘      auto-loads agent_b_prompt.md as the role instructions
         │ synchronous return: B's report + blackboard updated
         ▼
 ┌────────────────┐
@@ -189,13 +193,13 @@ Orchestrator (main session)
         │
         ▼
 ┌────────────────┐
-│ run_subagent   │     profile=subagent_general
+│ run_subagent   │     profile=challenger
 │ (Agent C)      │     (challenger reviews B's work)
 └───────┬────────┘
         │ synchronous return
         ▼
 ┌────────────────┐
-│ run_subagent   │     profile=subagent_general
+│ run_subagent   │     profile=critic
 │ (Agent D)      │     (critic verifies acceptance criteria)
 └───────┬────────┘
         │ synchronous return
@@ -221,10 +225,10 @@ python scripts/poll_tasks.py D
 - Read `docs/dev_plan/phase2_dev_plan.md` for next cycle spec
 - Write 3 task objects to TASKS.json (executor, challenger, critic)
 - Append to EVENTS.log, update STATE.md, commit
-- Spawn Agent B via `run_subagent` (subagent_general)
+- Spawn Agent B via `run_subagent` (profile `executor`)
 
 **Step 3 — Spawn the next role subagent:**
-- Call `run_subagent` with `profile="subagent_general"`; prompt = the role's prompt file body + the poll/claim/execute instruction
+- Call `run_subagent` with `profile="executor"|"challenger"|"critic"`; prompt = just the task instruction (e.g. "claim and execute F7-T15") — the profile body loads the role's prompt file automatically
 - The call blocks until the subagent finishes and returns its report
 - Re-read TASKS.json (same workspace — no pull needed): done → spawn next role (B → C → D); blocked → Step 4
 - Optional: `subagent_explore` read-only watcher if waiting on external state
