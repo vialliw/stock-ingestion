@@ -11,8 +11,8 @@
 
 ## Orchestrator / PM role (main Devin session)
 
-The main Devin session is the Orchestrator (PM). It is NOT a coding agent. Its responsibilities:
-- Spawns subagents (planner, executor, challenger, critic) and coordinates the run loop.
+The main Devin CLI session is the Orchestrator (PM). It is NOT a coding agent. Its responsibilities:
+- Spawns agents B/C/D as **local subagents** via `run_subagent` (profile `subagent_general` — write-capable; `subagent_explore` is read-only and only for watchers) and coordinates the run loop. Local subagents share this workspace — no Devin Cloud session, no org quota needed. Devin Cloud MCP sessions (`devin_session_create`) are an OPTIONAL alternative when org quota is available.
 - Reviews implementation and QA evidence from all agents before marking a feature complete.
 - Resolves disagreements between agents (e.g. B vs C conflict) and determines next action.
 - Is the ONLY role that may approve requirement changes.
@@ -35,7 +35,7 @@ The Orchestrator is a coordination and blackboard-management role. It MUST NOT d
 
 ### Agent spawn failures
 
-If any required subagent (B, C, or D) cannot be spawned due to quota, billing, or any other error, the Orchestrator MUST:
+If any required subagent (B, C, or D) cannot be spawned — whether local `run_subagent` fails or the optional Devin Cloud `devin_session_create` path errors (quota, billing, or any other error) — the Orchestrator MUST:
 
 1. STOP the current task.
 2. Record the blocker in `devin_blackboard/EVENTS.log` and `STATE.md`.
@@ -69,7 +69,8 @@ Completion requires evidence against the explicit acceptance_criteria defined in
 - Goal: Centralize stock-data ingestion and provide program interfaces.
 - Storage backend: Cloudflare R2 (S3-compatible). Secrets: R2_ACCESS_KEY_ID, R2_ENDPOINT_URL, R2_SECRET_ACCESS_KEY (GitHub repo secrets).
 - Multi-agent workflow: see docs/workflow_idea/procedure_multi_agents01.md
-- Agent roles: planner (glm), executor (swe), challenger (glm), critic (swe)
+- Agent roles: orchestrator (A, main session), executor (B), challenger (C), critic (D) — spawned as local subagents via `run_subagent` with `subagent_general` (same model as orchestrator); `subagent_explore` (cheap, read-only) for watchers. Role separation comes from the prompt files in docs/workflow_idea/.
+- Task lifecycle: `python scripts/poll_tasks.py --claim <id> <role>` → edit output_files only → `--verify <id>` → `--done <id> <role> --evidence "..."` (or `--blocked` + STATE.md blocker) → append EVENTS.log.
 - Blackboard: /devin_blackboard/STATE.md, TASKS.json, EVENTS.log
 
 ## Project decisions (do NOT change without PM approval)

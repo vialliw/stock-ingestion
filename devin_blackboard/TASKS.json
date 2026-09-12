@@ -2057,7 +2057,7 @@
     "title": "Executor: split repair must not destroy history on failed re-download",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T10c"
     ],

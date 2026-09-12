@@ -524,16 +524,18 @@ A pre-commit hook (`.git/hooks/pre-commit`) runs the checker and blocks commits 
 
 ## Multi-Agent Workflow
 
-This project was built using a coordinated multi-agent workflow with durable Git/blackboard state.
+This project was built using a coordinated multi-agent workflow with durable Git/blackboard state. Agents B/C/D are spawned by the orchestrator as **local subagents** via the Devin CLI's `run_subagent` tool — no Devin Cloud session, no org quota, no cost beyond the local session's model usage. (Devin Cloud MCP sessions via `devin_session_create` are an optional alternative when org quota is available — see `docs/workflow_idea/devin_platform_setup.md`.)
 
 ### Roles
 
-| Role | Agent | Responsibility | Edits |
-|------|-------|---------------|-------|
-| A | Orchestrator (PM) | Plans cycles, spawns agents, verifies completion | Blackboard only |
-| B | Executor (SWE) | Implements features in `src/` | `src/`, `STATE.md` |
-| C | Challenger (GLM) | Reviews executor output, reports concerns | None (review only) |
-| D | Critic (SWE) | Verifies acceptance criteria, final gate | `tests/` |
+| Role | Agent | Spawned via | Responsibility | Edits |
+|------|-------|-------------|---------------|-------|
+| A | Orchestrator (PM) | Main Devin CLI session | Plans cycles, spawns subagents, verifies completion | Blackboard only |
+| B | Executor | `run_subagent` + `subagent_general` | Implements features in `src/` | `src/`, `STATE.md` |
+| C | Challenger | `run_subagent` + `subagent_general` | Reviews executor output, reports concerns | None (review only) |
+| D | Critic | `run_subagent` + `subagent_general` | Verifies acceptance criteria, final gate | `tests/` |
+
+`subagent_general` is write-capable (required — every role must claim its task and update the blackboard). `subagent_explore` is a cheap read-only profile used only for watchers. Role prompts live in `docs/workflow_idea/agent_<role>_prompt.md` and are pasted into the `run_subagent` prompt.
 
 ### Workflow
 
@@ -542,10 +544,10 @@ B (executor) → C (challenger) → D (critic)
 ```
 
 1. Orchestrator writes task definitions to `TASKS.json`.
-2. Agent B implements the feature and marks it done.
-3. Agent C reviews B's output and reports PASS/FAIL/CONCERNS.
-4. Agent D verifies all acceptance criteria with concrete evidence and marks done or blocked.
-5. All task lifecycle changes are durable in Git (auto-pushed via `poll_tasks.py`).
+2. Orchestrator spawns Agent B via `run_subagent` (`subagent_general`); B claims its task with `poll_tasks.py --claim`, implements the feature, verifies with `--verify`, and marks it done with `--done --evidence`.
+3. Orchestrator spawns Agent C; C reviews B's output and reports PASS/FAIL/CONCERNS via `--done`/`--blocked`.
+4. Orchestrator spawns Agent D; D verifies all acceptance criteria with concrete evidence and marks done or blocked.
+5. All task lifecycle changes are durable in Git (auto-committed and pushed via `poll_tasks.py`).
 
 ### Blackboard Files
 

@@ -3,8 +3,8 @@
 > **Project:** stock_ingestion — Centralize stock-data ingestion and expose program interfaces.
 > **Repository:** `vialliw/stock-ingestion`
 > **Local path:** `C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion`
-> **Status:** Phase 1 complete. Phase 2 in progress (Cycles 0-1 done, Cycle 2 ready).
-> **Document version:** 3.0 (2026-09-07) — event-driven coordination
+> **Status:** Phase 1 complete. Phase 2 in progress.
+> **Document version:** 4.0 (2026-09-12) — local `run_subagent` spawning is the DEFAULT; Devin Cloud MCP sessions are an optional alternative
 
 ---
 
@@ -50,18 +50,20 @@ A single agent writing and reviewing its own code has a blind spot: it cannot ef
 | Communication protocol drift | **Strict JSON contract** for tasks; no free-form agent-to-agent chat |
 | Need the attack/defense loop | **Generator → Challenger → Critic** iteration per cycle |
 | Cost & context explosion | **Context slicing**: each agent sees only its task + relevant files + recent events |
-| Need it free | **Devin CLI native models**: `glm` (GLM-5.2 High) and `swe` (SWE-1.7 Medium) |
+| Need it free | **Local `run_subagent` spawning**: no Devin Cloud session, no org quota, no cost beyond the local session's model usage |
 
-### Model selection
+### Agent spawning and model selection
 
-Devin CLI provides native models. OpenRouter or external API keys are not needed.
+Agents B/C/D are spawned by the orchestrator as **local subagents** via the Devin CLI's built-in `run_subagent` tool:
 
-| Short name | Resolves to | Thinking | Used by |
+| Profile | Access | Model | Used by |
 |---|---|---|---|
-| `glm` | GLM-5.2 High | High | Orchestrator (A), Challenger (C) |
-| `swe` | SWE-1.7 Medium | Medium | Executor (B), Critic (D) |
+| `subagent_general` | Read + write | Same model as the orchestrator session | Executor (B), Challenger (C), Critic (D) |
+| `subagent_explore` | Read-only | Cheap (SWE-1.6) | Optional watcher / read-only probes |
 
-Role differentiation comes from **system prompts** (the agent prompt files), not just the model. The same model can serve different roles because the prompt defines the behavior.
+Role differentiation comes from **system prompts** (the agent prompt files), not the model. The same model can serve different roles because the prompt defines the behavior. All three role agents need `subagent_general` — each must claim its task (`--claim` writes the lock file, TASKS.json, and EVENTS.log) and append evidence to the blackboard.
+
+Devin Cloud MCP sessions (`devin_session_create`) remain an **optional alternative** for when org ACU quota is available — see §4.4 and `devin_platform_setup.md`.
 
 ---
 
@@ -74,11 +76,8 @@ Role differentiation comes from **system prompts** (the agent prompt files), not
    - `R2_ENDPOINT_URL`
    - `R2_SECRET_ACCESS_KEY`
 4. Devin CLI authenticated: `devin auth login`
-5. Four Devin sessions created, one per agent role, each with the correct model:
-   - Session A: `glm` (GLM-5.2 High) — Orchestrator
-   - Session B: `swe` (SWE-1.7 Medium) — Executor
-   - Session C: `glm` (GLM-5.2 High) — Challenger
-   - Session D: `swe` (SWE-1.7 Medium) — Critic
+5. One Devin CLI session = the Orchestrator (Agent A). Agents B/C/D are spawned on demand as local subagents via `run_subagent` — no separate sessions, no Devin Cloud quota needed.
+   - (Optional cloud alternative) Devin MCP server configured in `.devin/config.local.json` for `devin_session_create` — only if org ACU quota is available. See `devin_platform_setup.md`.
 
 ---
 
@@ -131,31 +130,41 @@ Project rules that every Devin session auto-loads. Contains the blackboard proto
 
 ---
 
-## 4. Agent Roles and Session Architecture
+## 4. Agent Roles and Subagent Architecture
 
-### 4.1 Session topology
+### 4.1 Subagent topology (DEFAULT — local `run_subagent`)
 
-Four independent Devin sessions, each in its own terminal/window, each with a dedicated LLM. The user manually creates these sessions and pastes the corresponding agent prompt.
+One main Devin CLI session is the Orchestrator (Agent A). Agents B/C/D are spawned **on demand** as local subagents via the built-in `run_subagent` tool. Each `run_subagent` call is synchronous: the subagent executes its Poll-Execute-Done pass and returns a report. Agents run sequentially per cycle: B → C → D.
 
-| Session | Role | LLM | Prompt file | Responsibility |
+| Agent | Role | Spawned via | Prompt file | Responsibility |
 |---|---|---|---|---|
-| A | Orchestrator (PM) | GLM-5.2 High | `docs/workflow_idea/agent_a_prompt.md` | Plans cycles, writes tasks, monitors progress, adjudicates, approves completion |
-| B | Executor | SWE-1.7 Medium | `docs/workflow_idea/agent_b_prompt.md` | Implements features, fixes bugs, writes code in `src/` |
-| C | Challenger | GLM-5.2 High | `docs/workflow_idea/agent_c_prompt.md` | Independent review, edge-case analysis, false-positive/negative detection |
-| D | Critic | SWE-1.7 Medium | `docs/workflow_idea/agent_d_prompt.md` | Tests, verifies acceptance criteria, regression checks, loop checker enforcement |
+| A | Orchestrator (PM) | Main Devin CLI session | `docs/workflow_idea/agent_a_prompt.md` | Plans cycles, writes tasks, spawns subagents, adjudicates, approves completion |
+| B | Executor | `run_subagent` + `subagent_general` | `docs/workflow_idea/agent_b_prompt.md` | Implements features, fixes bugs, writes code in `src/` |
+| C | Challenger | `run_subagent` + `subagent_general` | `docs/workflow_idea/agent_c_prompt.md` | Independent review, edge-case analysis, false-positive/negative detection |
+| D | Critic | `run_subagent` + `subagent_general` | `docs/workflow_idea/agent_d_prompt.md` | Tests, verifies acceptance criteria, regression checks, loop checker enforcement |
 
-### 4.2 Why four separate sessions (not subagents)?
+Benefits of the local-subagent default:
 
-Originally, the orchestrator spawned subagents internally. This had two problems:
+- **No Devin Cloud needed** — no `devin_session_create`, no service-user API key.
+- **No org quota** — cloud `out_of_quota` errors cannot block the workflow.
+- **No extra cost** — subagent work is billed as the local session's own model usage.
+- **Shared workspace** — subagents edit files and commit in the same working directory; `poll_tasks.py` lifecycle commits are immediately visible to the orchestrator.
 
-1. **Model lock-in:** The orchestrator's internal subagent tool does not expose model selection — spawned subagents use the same model as the orchestrator (GLM-5.2 High), not the intended SWE-1.7 Medium for the executor.
-2. **Context coupling:** Internal subagents share the orchestrator's context window, defeating the purpose of context slicing.
+### 4.2 Why local subagents (history)
 
-Separate sessions solve both: each session runs its own model, has its own context, and communicates only through the blackboard.
+The workflow went through three spawning mechanisms:
 
-### 4.3 Orchestrator's background watcher
+1. **Internal subagents (abandoned):** early orchestrator-spawned subagents locked to the orchestrator's model and shared its context — model mismatch and no context slicing.
+2. **Four separate sessions / Devin Cloud MCP sessions (superseded):** each agent in its own session solved model/context separation, but required manual user relay (tabs) or org ACU quota (MCP `devin_session_create`). Cloud quota exhaustion (`out_of_quota`) blocked all B/C/D spawns — see §13.8.
+3. **Local `run_subagent` (current default):** `subagent_general` is write-capable and `subagent_explore` is a cheap read-only profile. Role separation now comes from the prompt files rather than per-session model selection — the model-lock-in tradeoff was accepted because quota-free local execution outweighs it. Context slicing is preserved: each subagent's prompt tells it to read only its task, input_files, and the last lines of EVENTS.log.
 
-The orchestrator (Session A) spawns a **background subagent** to watch for TASKS.json state changes. This is the only subagent the orchestrator spawns — it is read-only and only notifies the orchestrator when a task status changes. The orchestrator's main session stays free to respond to the user.
+### 4.3 Optional: read-only watcher
+
+In the normal B → C → D flow no watcher is needed — each `run_subagent` call returns the subagent's report directly. If the orchestrator must wait on external state (e.g. a crashed agent left a task `in_progress`, or a manual user step is pending), it can spawn a `subagent_explore` read-only watcher that polls TASKS.json and reports status changes. `subagent_explore` cannot write, so it can never claim a task or edit the blackboard.
+
+### 4.4 Optional: Devin Cloud MCP sessions (alternative)
+
+When org ACU quota is available, Agents B/C/D MAY instead be spawned as remote Devin Cloud sessions via `devin_session_create` (playbook IDs in `devin_platform_setup.md`), waited on via `devin_session_gather`, and messaged via `devin_session_interact`. The blackboard protocol and `poll_tasks.py` subcommands are identical — only the spawn/wait/message mechanism differs. If `devin_session_create` fails with `out_of_quota`, use the local `run_subagent` default.
 
 ---
 
@@ -164,42 +173,36 @@ The orchestrator (Session A) spawns a **background subagent** to watch for TASKS
 ### 5.1 Flow diagram
 
 ```
-User tells Agent B to poll
+Orchestrator (main session)
         │
         ▼
 ┌────────────────┐
-│ Agent B polls  │     git pull + python scripts/poll_tasks.py B
-│ (once)         │
-└───────┬────────┘
-        │ READY task found
+│ run_subagent   │     profile=subagent_general
+│ (Agent B)      │     prompt = agent_b_prompt.md + "poll, claim READY task,
+└───────┬────────┘      execute, --verify, --done with evidence"
+        │ synchronous return: B's report + blackboard updated
         ▼
 ┌────────────────┐
-│ Agent B claims │     lock file + status=in_progress + commit
-│ + executes     │     implement + verify + status=done + commit
+│ Orchestrator   │     reads TASKS.json: done → next role; blocked → Step 4
+│ checks state   │
 └───────┬────────┘
-        │ B reports done
+        │
         ▼
 ┌────────────────┐
-│ Orchestrator   │     background watcher detects status change
-│ notified       │     checks if cycle complete
+│ run_subagent   │     profile=subagent_general
+│ (Agent C)      │     (challenger reviews B's work)
 └───────┬────────┘
-        │ next task in cycle ready
+        │ synchronous return
         ▼
 ┌────────────────┐
-│ User tells     │
-│ Agent C to poll│     (challenger reviews B's work)
+│ run_subagent   │     profile=subagent_general
+│ (Agent D)      │     (critic verifies acceptance criteria)
 └───────┬────────┘
-        │ C reports done
-        ▼
-┌────────────────┐
-│ User tells     │
-│ Agent D to poll│     (critic verifies acceptance criteria)
-└───────┬────────┘
-        │ D reports done
+        │ synchronous return
         ▼
 ┌────────────────┐
 │ Orchestrator   │     writes next cycle tasks to TASKS.json
-│ writes next    │     tells user to nudge Agent B
+│ writes next    │     spawns Agent B again for the new cycle
 │ cycle          │
 └────────────────┘
 ```
@@ -218,18 +221,19 @@ python scripts/poll_tasks.py D
 - Read `docs/dev_plan/phase2_dev_plan.md` for next cycle spec
 - Write 3 task objects to TASKS.json (executor, challenger, critic)
 - Append to EVENTS.log, update STATE.md, commit
-- Tell user: "Cycle N complete. Please tell Agent B to poll."
+- Spawn Agent B via `run_subagent` (subagent_general)
 
-**Step 3 — Spawn background watcher:**
-- Spawn a background subagent that polls TASKS.json every 60s
-- Watcher returns immediately when any task status changes
-- Orchestrator's main session stays free for user interaction
+**Step 3 — Spawn the next role subagent:**
+- Call `run_subagent` with `profile="subagent_general"`; prompt = the role's prompt file body + the poll/claim/execute instruction
+- The call blocks until the subagent finishes and returns its report
+- Re-read TASKS.json (same workspace — no pull needed): done → spawn next role (B → C → D); blocked → Step 4
+- Optional: `subagent_explore` read-only watcher if waiting on external state
 
 **Step 4 — Handle blockers** (when any task is "blocked"):
 - Read STATE.md "Active Blockers" + EVENTS.log evidence
 - Investigate, adjudicate, document decision in EVENTS.log
 - Set blocked task back to "todo" or create new task
-- Tell user: "Blocker resolved. Please tell Agent <X> to poll."
+- Re-spawn the appropriate role subagent
 
 ---
 
@@ -237,11 +241,11 @@ python scripts/poll_tasks.py D
 
 ### 6.1 Core principle: poll-once-then-execute-or-stop
 
-Agents do NOT run background polling. They do NOT sleep in loops. They:
+Agents are spawned as local subagents by the orchestrator. They do NOT run background polling. They do NOT sleep in loops. They:
 
-1. **Poll once** when instructed (by user or after finishing a task)
+1. **Poll once** when spawned (or after finishing a task)
 2. If a task is READY: **claim → execute → verify → mark done → poll once more**
-3. If no task is READY: **STOP and report** — wait for user instruction
+3. If no task is READY: **STOP and report** — the report is returned to the orchestrator
 
 ### 6.2 Detailed protocol
 
@@ -256,28 +260,28 @@ STEP 2: Read output:
         - "No tasks" = nothing to do, stop and report
 
 STEP 3: If READY task exists:
-        a. Check lock file (skip if < 10 min old, delete if stale)
-        b. Create lock file: {"agent": "<role>", "claimed_at": "<ISO timestamp>"}
-        c. Set status = "in_progress" in TASKS.json
-        d. Append to EVENTS.log: "[<ROLE>] claimed <task_id>"
-        e. git commit
-        f. Read input_files, AGENTS.md, STATE.md, EVENTS.log (last 20 lines)
-        g. EXECUTE the task (write to output_files ONLY)
-        h. VERIFY (loop checker + pytest must exit 0)
-        i. If pass:
-           - Set status="done", append evidence to EVENTS.log
-           - Update STATE.md, delete lock file, commit
-           - Report to user: "<task_id> complete. Polling for next task."
+        a. CLAIM (atomic lock + status=in_progress + EVENTS.log + commit, one command):
+           python scripts/poll_tasks.py --claim <task_id> <role>
+        b. Read input_files, AGENTS.md, STATE.md, EVENTS.log (last 20 lines)
+        c. EXECUTE the task (write to output_files ONLY)
+        d. VERIFY all structured acceptance criteria:
+           python scripts/poll_tasks.py --verify <task_id>
+        e. If pass:
+           python scripts/poll_tasks.py --done <task_id> <role> --evidence "<summary + evidence>"
+           - Sets status="done", appends evidence to EVENTS.log, deletes lock, commits
+           - Update STATE.md
+           - Report to the orchestrator in your final message: "<task_id> complete."
            - Go back to STEP 1 (poll once more)
-        j. If fail:
-           - Set status="blocked", append failure to EVENTS.log
-           - Update STATE.md, delete lock file, commit
-           - Report to user: "<task_id> BLOCKED: <reason>"
-           - STOP — wait for user instruction
+        f. If fail:
+           python scripts/poll_tasks.py --blocked <task_id> <role> --reason "<failure>"
+           - Sets status="blocked", appends failure to EVENTS.log, deletes lock, commits
+           - Update STATE.md "Active Blockers"
+           - Report to the orchestrator: "<task_id> BLOCKED: <reason>"
+           - STOP — your report is returned to the orchestrator
 
 STEP 4: If no READY task:
-        - Report: "No tasks ready for <role>. Waiting for orchestrator."
-        - STOP — do NOT poll again until user instructs
+        - Report to the orchestrator: "No tasks ready for <role>."
+        - STOP — do NOT poll again; the orchestrator re-spawns you when needed
 ```
 
 ### 6.3 Canonical polling script
@@ -288,6 +292,16 @@ All agents use `scripts/poll_tasks.py` — never self-written polling scripts:
 python scripts/poll_tasks.py B    # Agent B
 python scripts/poll_tasks.py C    # Agent C
 python scripts/poll_tasks.py D    # Agent D
+```
+
+Lifecycle subcommands (mandatory — never hand-edit TASKS.json or lock files):
+
+```powershell
+python scripts/poll_tasks.py --claim <task_id> <role>                          # atomic claim
+python scripts/poll_tasks.py --verify <task_id>                                # run all criteria, JSON evidence map
+python scripts/poll_tasks.py --done <task_id> <role> --evidence "<text>"       # verify + done + lock cleanup + commit
+python scripts/poll_tasks.py --blocked <task_id> <role> --reason "<text>"      # blocked + lock cleanup + commit
+python scripts/poll_tasks.py --clean-stale                                     # recover stale locks (>10 min)
 ```
 
 Output format:
@@ -370,8 +384,8 @@ Lock files prevent two sessions from working on the same task simultaneously.
 5. **Git commits are the durability layer.** Every blackboard change is committed immediately.
 6. **Never commit secrets.** R2 credentials come from environment variables / GitHub secrets.
 7. **Pull before commit.** Always `git pull` before committing to avoid conflicts.
-8. **No background polling by agents B/C/D.** They poll once when instructed, then execute or stop.
-9. **No foreground polling by orchestrator.** Use background watcher subagent instead.
+8. **No background polling by agents B/C/D.** They poll once when spawned, then execute or stop.
+9. **No foreground polling by orchestrator.** `run_subagent` calls are synchronous — the orchestrator waits on the returned report, not a polling loop. Optional read-only watchers use `subagent_explore`.
 10. **Orchestrator is the ONLY role** that may approve requirement changes.
 
 ---
@@ -475,13 +489,21 @@ F7-T<N>c    (critic)      assigned_to="D"  depends_on=["F7-T<N>", "F7-T<N>b"]
 
 **Resolution:** Real divergence is expected on more complex tasks. The challenger role has been refined to focus on edge cases, false positives/negatives, and design gaps rather than requiring a competing implementation.
 
+### 13.8 Devin Cloud quota exhaustion blocked all agent spawns
+
+**Problem:** With the MCP-based approach (Tier 1), the orchestrator spawned Agents B/C/D as remote Devin Cloud sessions via `devin_session_create`. During the F7-T9b cycle the org returned HTTP 403 `out_of_quota` — no child sessions could be created, and the entire workflow stalled until the user granted an explicit "orchestrator may code" override (F7-T10 was implemented by the orchestrator under that override).
+
+**Root cause:** `devin_session_create` consumes org-level ACU quota. When the quota is exhausted, the cloud spawning path is a hard dependency failure — there is no graceful degradation.
+
+**Resolution:** Switched the DEFAULT spawning mechanism to the Devin CLI's built-in `run_subagent` tool. Local subagents (`subagent_general` write-capable, `subagent_explore` read-only) run inside the orchestrator's session: no cloud session, no org quota, no API key, no cost beyond local model usage. The role prompt files were rewritten to be executed verbatim by a local subagent (claim via `poll_tasks.py --claim`, edit `output_files` only, `--verify`, `--done` with evidence, append to EVENTS.log). `devin_session_create` remains documented as an optional cloud alternative in `devin_platform_setup.md` for when quota is available.
+
 ---
 
 ## 14. Lessons Learned
 
-### 14.1 Separate sessions > internal subagents
+### 14.1 Local subagents are the pragmatic default
 
-Internal subagents share the orchestrator's model and context. Separate sessions allow each agent to use the appropriate model and maintain its own context window. The tradeoff is that the user must manually coordinate (tell agents when to poll), but this is preferable to the model mismatch problem.
+Three spawning mechanisms were tried: internal subagents (model lock-in, shared context — abandoned), four separate sessions / Devin Cloud MCP sessions (correct model+context separation but needed manual relay or org quota), and local `run_subagent` (current default). Local subagents accept the model-lock-in tradeoff — `subagent_general` uses the orchestrator's model — because role separation comes from the prompt files, context slicing is preserved by instructing each subagent to read only its task inputs, and quota-free execution eliminates the `out_of_quota` hard failure that stalled the workflow. Cloud sessions remain a documented alternative when quota returns.
 
 ### 14.2 Background shells cannot make decisions
 
@@ -499,15 +521,15 @@ When agents write their own polling scripts, they introduce bugs (wrong role, wr
 
 Without an explicit "stop and report" instruction, agents may loop indefinitely polling for tasks that don't exist yet. The protocol now explicitly says: if no READY task, STOP and wait for user instruction.
 
-### 14.6 The user is the transport layer
+### 14.6 The orchestrator is the transport layer (local subagents)
 
-Since agents can't chat with each other directly, and background shells can't make decisions, the user manually tells each agent when to poll. This is the most reliable coordination mechanism given the current tooling. The background watcher reduces the orchestrator's need for user nudging, but agents B/C/D still need the user to tell them when to poll.
+With `run_subagent`, the orchestrator spawns each role directly and receives its report synchronously — the user no longer relays "please poll" messages between sessions. Agents still cannot chat with each other directly; the blackboard remains the only shared state, and each subagent's returned report is ephemeral — durable evidence must land in EVENTS.log via `--done`/`--blocked`.
 
 ---
 
 ## 15. Open Questions for Third-Party Review
 
-1. **User as transport layer:** Currently, the user manually tells Agent B/C/D when to poll. Is there a way to automate this without background shells? Could we use a file-based "ping" mechanism (e.g., orchestrator writes to `devin_blackboard/PING_B.md`, Agent B's session watches for it)?
+1. **User as transport layer:** ~~Currently, the user manually tells Agent B/C/D when to poll.~~ **RESOLVED (v4.0):** the orchestrator now spawns Agents B/C/D directly as local subagents via `run_subagent` — no user relay needed. Remaining question: is there value in a file-based "ping" mechanism for long-running async work (e.g., orchestrator writes to `devin_blackboard/PING_B.md`)?
 
 2. **Background watcher reliability:** The background watcher subagent polls every 60s. Is this the right interval? Too fast wastes resources; too slow delays cycle progression. Should it be configurable?
 
@@ -590,7 +612,7 @@ Since agents can't chat with each other directly, and background shells can't ma
 
 ## 17. Appendix: AGENTS.md (Project Rules)
 
-> Source file: `AGENTS.md` (repo root). Auto-loaded by every Devin session.
+> Source file: `AGENTS.md` (repo root). Auto-loaded by every Devin session. Updated 2026-09-12 for local `run_subagent` spawning.
 
 ~~~markdown
 # Project Rules — stock_ingestion (Multi-Agent Blackboard Protocol)
@@ -606,11 +628,48 @@ Since agents can't chat with each other directly, and background shells can't ma
 
 ## Orchestrator / PM role (main Devin session)
 
-The main Devin session is the Orchestrator (PM). It is NOT a coding agent. Its responsibilities:
-- Spawns subagents (planner, executor, challenger, critic) and coordinates the run loop.
+The main Devin CLI session is the Orchestrator (PM). It is NOT a coding agent. Its responsibilities:
+- Spawns agents B/C/D as **local subagents** via `run_subagent` (profile `subagent_general` — write-capable; `subagent_explore` is read-only and only for watchers) and coordinates the run loop. Local subagents share this workspace — no Devin Cloud session, no org quota needed. Devin Cloud MCP sessions (`devin_session_create`) are an OPTIONAL alternative when org quota is available.
 - Reviews implementation and QA evidence from all agents before marking a feature complete.
 - Resolves disagreements between agents (e.g. B vs C conflict) and determines next action.
 - Is the ONLY role that may approve requirement changes.
+
+## Role boundaries and escalation (MANDATORY)
+
+The Orchestrator is a coordination and blackboard-management role. It MUST NOT directly edit, modify, or generate code in `src/` or `tests/` files, or execute implementation steps on behalf of an agent.
+
+### What the Orchestrator MAY edit
+
+- `devin_blackboard/` files: `STATE.md`, `TASKS.json`, `EVENTS.log`, and lock files.
+- Documentation files such as `AGENTS.md` and `README.md`.
+- Task-management scripts such as `scripts/poll_tasks.py` and `scripts/add_cycle*_tasks.py`.
+
+### What the Orchestrator MUST NOT edit
+
+- Source code under `src/`.
+- Test files under `tests/`.
+- Workflow implementation details that belong to Agent B (executor), Agent C (challenger), or Agent D (critic).
+
+### Agent spawn failures
+
+If any required subagent (B, C, or D) cannot be spawned — whether local `run_subagent` fails or the optional Devin Cloud `devin_session_create` path errors (quota, billing, or any other error) — the Orchestrator MUST:
+
+1. STOP the current task.
+2. Record the blocker in `devin_blackboard/EVENTS.log` and `STATE.md`.
+3. Ask the user for direction. Do NOT implement the task in the orchestrator session.
+
+The only exception is an explicit user override containing the exact phrase **"orchestrator may code"**. Without that override, the Orchestrator must not proceed with implementation.
+
+### Explicit override protocol
+
+If the user wants the Orchestrator to implement directly, the user must say one of the following:
+
+- "orchestrator may code"
+- "orchestrator may implement"
+- "main devin may code"
+- "override role boundaries"
+
+Without one of these exact phrases, the Orchestrator must continue coordinating through the subagent workflow.
 
 ## Completion decision rule (MANDATORY)
 
@@ -627,7 +686,8 @@ Completion requires evidence against the explicit acceptance_criteria defined in
 - Goal: Centralize stock-data ingestion and provide program interfaces.
 - Storage backend: Cloudflare R2 (S3-compatible). Secrets: R2_ACCESS_KEY_ID, R2_ENDPOINT_URL, R2_SECRET_ACCESS_KEY (GitHub repo secrets).
 - Multi-agent workflow: see docs/workflow_idea/procedure_multi_agents01.md
-- Agent roles: planner (glm), executor (swe), challenger (glm), critic (swe)
+- Agent roles: orchestrator (A, main session), executor (B), challenger (C), critic (D) — spawned as local subagents via `run_subagent` with `subagent_general` (same model as orchestrator); `subagent_explore` (cheap, read-only) for watchers. Role separation comes from the prompt files in docs/workflow_idea/.
+- Task lifecycle: `python scripts/poll_tasks.py --claim <id> <role>` → edit output_files only → `--verify <id>` → `--done <id> <role> --evidence "..."` (or `--blocked` + STATE.md blocker) → append EVENTS.log.
 - Blackboard: /devin_blackboard/STATE.md, TASKS.json, EVENTS.log
 
 ## Project decisions (do NOT change without PM approval)
@@ -659,26 +719,29 @@ Completion requires evidence against the explicit acceptance_criteria defined in
 > Source file: `docs/workflow_idea/polling_workflow_protocol.md`
 
 ~~~markdown
-# Multi-Agent Workflow Protocol — Event-Driven Coordination
+# Multi-Agent Workflow Protocol — Local Subagent Coordination
 
 **Status:** ACTIVE
-**Date:** 2026-09-07
-**Version:** 3.0 — event-driven watcher (no foreground polling)
+**Date:** 2026-09-12
+**Version:** 4.0 — local `run_subagent` spawning (no Devin Cloud required)
 
 ---
 
 ## Overview
 
-Four Devin sessions, each with a dedicated LLM, coordinate through the blackboard files in `devin_blackboard/`. The Orchestrator (Session A) writes tasks and uses a **background watcher subagent** to detect state changes. Agents B/C/D poll once when instructed, execute, and report back.
+The Orchestrator (the main Devin CLI session, Agent A) coordinates Agents B/C/D through the blackboard files in `devin_blackboard/`. **Agents B/C/D are spawned as LOCAL subagents** via the Devin CLI's built-in `run_subagent` tool — no Devin Cloud session, no org quota, no cost beyond the local session's own model usage. Spawning is synchronous: each `run_subagent` call returns the subagent's report when it finishes.
 
-## Sessions
+## Agents
 
-| Session | Role | LLM | Responsibility |
+| Agent | Role | Spawned via | Responsibility |
 |---|---|---|---|
-| A | Orchestrator (PM) | GLM-5.2 High | Plans, writes tasks, spawns background watcher, reviews evidence, resolves blockers |
-| B | Executor | SWE-1.7 Medium | Implements features, fixes bugs, writes code in src/ |
-| C | Challenger | GLM-5.2 High | Independent review, alternative implementations, false-positive/negative analysis |
-| D | Critic | SWE-1.7 Medium | Tests, verifies acceptance criteria, regression checks, loop checker enforcement |
+| A | Orchestrator (PM) | Main Devin CLI session | Plans, writes tasks, spawns role subagents, reviews evidence, resolves blockers |
+| B | Executor | `run_subagent` + `subagent_general` | Implements features, fixes bugs, writes code in src/ |
+| C | Challenger | `run_subagent` + `subagent_general` | Independent review, alternative implementations, false-positive/negative analysis |
+| D | Critic | `run_subagent` + `subagent_general` | Tests, verifies acceptance criteria, regression checks, loop checker enforcement |
+| — | Watcher (optional) | `run_subagent` + `subagent_explore` | Read-only observation of TASKS.json state; cannot claim or write |
+
+Agents B/C/D all need the write-capable `subagent_general` profile because each must claim its task (`--claim` writes TASKS.json, EVENTS.log, and a lock file) and append evidence to the blackboard. `subagent_explore` is read-only and cheap (SWE-1.6) — suitable only for watching.
 
 ## Blackboard Files
 

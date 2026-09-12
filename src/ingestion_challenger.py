@@ -206,6 +206,12 @@ class _SplitMixin:
         Splits are filtered against the global aligned start date and
         ``splits_processed``.  All affected tickers are re-downloaded in
         one batch from the aligned start date.
+
+        The re-download happens BEFORE any destructive writes: only
+        tickers that actually returned rows have their old data deleted,
+        the new data upserted, and their splits recorded as processed.
+        A ticker missing from the re-download keeps its existing data and
+        its splits stay unprocessed so a later run retries them.
         """
         # Phase 1 — collect candidate splits for every ticker in one pass.
         # justified: yfinance has no batch split API — yf.Ticker(t).splits
@@ -251,25 +257,16 @@ class _SplitMixin:
         if not affected:
             return
 
-        # Phase 3 — batch SQL writes: record splits and delete old data.
-        all_split_records = [
-            (t, split_date, factor)
-            for t, unprocessed in affected
-            for split_date, factor in unprocessed
-        ]
-        self.db.batch_record_splits(all_split_records)
-
-        for t, _unprocessed in affected:
-            # justified: delete_ticker_data is the existing per-ticker DB API.
-            self.db.delete_ticker_data(t)
-
-        # Phase 4 — single batched re-download for all affected tickers.
+        # Phase 3 — single batched re-download for all affected tickers,
+        # performed BEFORE any destructive writes.  The previous ordering
+        # (record splits -> delete history -> re-download) permanently lost
+        # data when the re-download failed or returned empty.
         today = datetime.now().strftime("%Y-%m-%d")
         affected_tickers = [t for t, _ in affected]
 
         logger.warning(
             "RUNTIME EVENT: Stock split(s) detected for %d ticker(s): %s. "
-            "Deleted and re-downloading from %s to %s in one batch.",
+            "Re-downloading from %s to %s in one batch before replacing data.",
             len(affected_tickers),
             affected_tickers,
             aligned_start,
@@ -278,19 +275,63 @@ class _SplitMixin:
 
         try:
             df_redownload = self._batch_download(affected_tickers, aligned_start, today)
-            df_norm, _, _, _ = self._normalize_batch_df(df_redownload, affected_tickers)
-            self.db.upsert_dataframe(df_norm)
-            logger.info(
-                "Re-download complete for %d ticker(s): %s",
-                len(affected_tickers),
-                affected_tickers,
+            df_norm, redl_ok, _redl_failed, _redl_errors = self._normalize_batch_df(
+                df_redownload, affected_tickers
             )
         except Exception as e:
             logger.error(
-                "Failed batch re-download for split tickers %s: %s",
+                "Failed batch re-download for split tickers %s: %s. "
+                "Existing data preserved; splits left unprocessed for retry.",
                 affected_tickers,
                 e,
             )
+            return
+
+        # Phase 4 — replace data only for tickers that actually returned
+        # rows in the re-download.  Tickers missing from the re-download
+        # keep their existing data and their splits stay unprocessed so a
+        # later run retries them.
+        redownloaded = set(redl_ok)
+        missing = [t for t, _ in affected if t not in redownloaded]
+        if missing:
+            logger.warning(
+                "RUNTIME EVENT: Re-download returned no rows for %d of %d "
+                "split ticker(s): %s. Existing data kept; their splits stay "
+                "unprocessed and will be retried on a later run.",
+                len(missing),
+                len(affected_tickers),
+                missing,
+            )
+
+        if not redownloaded:
+            return
+
+        # justified: delete_ticker_data is the existing per-ticker DB API;
+        # deletes are fast SQL and the per-ticker call is kept for
+        # compatibility with tests/downstream mocks.
+        for t, _unprocessed in affected:
+            if t not in redownloaded:
+                continue
+            self.db.delete_ticker_data(t)
+
+        self.db.upsert_dataframe(df_norm)
+
+        # Record splits ONLY for tickers whose data was actually replaced;
+        # splits for missing tickers remain unprocessed for the next run.
+        split_records = [
+            (t, split_date, factor)
+            for t, unprocessed in affected
+            if t in redownloaded
+            for split_date, factor in unprocessed
+        ]
+        if split_records:
+            self.db.batch_record_splits(split_records)
+
+        logger.info(
+            "Re-download complete for %d ticker(s): %s",
+            len(redownloaded),
+            sorted(redownloaded),
+        )
 
     def _record_historical_splits(self, tickers: List[str]) -> None:
         """Record all historical splits for ``tickers`` as processed.

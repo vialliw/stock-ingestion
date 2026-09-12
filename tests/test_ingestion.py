@@ -443,6 +443,76 @@ def test_batch_redownload_for_multiple_split_tickers(
 
 
 # ---------------------------------------------------------------------------
+# 5d. F7-T12 regression: empty re-download must NOT destroy history
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_unprocessed_split_empty_redownload_preserves_history(
+    engine, db, cfg, module_name
+):
+    """Regression (F7-T12): unprocessed split + empty re-download.
+
+    Previously history was deleted BEFORE the re-download, so an empty or
+    failed response permanently wiped the ticker's rows (production
+    incident: BKNG, BWA, FNF, FTAI, LOGI, RLI).  The re-download now
+    happens first; a ticker absent from it keeps its existing rows and
+    its split stays unprocessed so a later run retries.
+    """
+    seed_df = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2023-06-01", "2023-06-02"]),
+            "Ticker": ["AAPL", "AAPL"],
+            "Open": [100.0, 101.0],
+            "High": [101.0, 102.0],
+            "Low": [99.0, 100.0],
+            "Close": [100.5, 101.5],
+            "Volume": [1000.0, 1100.0],
+        }
+    )
+    db.upsert_dataframe(seed_df)
+
+    splits = make_mock_splits(factors=(2.0,), dates=("2024-01-15",))
+    mock_ticker = MagicMock()
+    mock_ticker.splits = splits
+
+    # Call 1 = split re-download -> empty frame (transient yfinance failure).
+    # Call 2 = the normal fetch_and_clean download -> normal data.
+    empty_redownload = make_empty_download_df(["AAPL"])
+    normal_df = make_mock_download_df(
+        ["AAPL"], dates_range("2024-01-01", "2024-01-05")
+    )
+
+    dl_calls = {"count": 0}
+
+    def dl_side_effect(*args, **kwargs):
+        dl_calls["count"] += 1
+        if dl_calls["count"] == 1:
+            return empty_redownload
+        return normal_df
+
+    with patch(f"{module_name}.yf.Ticker", return_value=mock_ticker), \
+         patch(f"{module_name}.yf.download", side_effect=dl_side_effect), \
+         patch.object(
+             db, "delete_ticker_data", wraps=db.delete_ticker_data
+         ) as mock_delete:
+        engine.fetch_and_clean(["AAPL"], "2024-01-01", "2024-01-05")
+
+    # The re-download ran (call 1) but returned nothing for AAPL.
+    assert dl_calls["count"] >= 1
+    # Existing rows were NOT deleted.
+    mock_delete.assert_not_called()
+    remaining = db.execute_query(
+        "SELECT COUNT(*) AS n FROM daily_close WHERE Ticker = 'AAPL'"
+    )
+    assert remaining.column("n")[0].as_py() == 2
+    # The split was NOT recorded as processed — a later run must retry it.
+    assert db.is_split_processed("AAPL", "2024-01-15") is False
+
+
+# ---------------------------------------------------------------------------
 # 6. Excluded ticker is filtered at earliest stage (never downloaded)
 # ---------------------------------------------------------------------------
 

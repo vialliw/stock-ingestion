@@ -1511,3 +1511,34 @@ ISSUES:
 
 [2026-09-12T15:58:39.715762+00:00] [EXECUTOR] claimed F7-T14
 [2026-09-12T16:00:52.953579+00:00] [EXECUTOR] claimed F7-T12
+[2026-09-12T16:07:08.324346+00:00] [EXECUTOR] completed F7-T12 -> Reordered _check_and_apply_splits in src/ingestion.py + src/ingestion_challenger.py: batch re-download runs FIRST; only tickers present in the re-downloaded frame get delete_ticker_data + upsert + batch_record_splits. Tickers missing from the re-download keep existing data (warning logged) and their splits stay unprocessed for retry. New regression test test_unprocessed_split_empty_redownload_preserves_history (parametrized over both impls): empty re-download => 2 seeded rows kept, delete_ticker_data not called, split not in splits_processed. Verify: check_loops clean, --strict clean (14 files), pytest 237 passed.
+Evidence map:
+[
+  {
+    "id": "AC-1",
+    "check": "loop_checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (14 files checked)\n"
+  },
+  {
+    "id": "AC-2",
+    "check": "loop_checker_strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (14 files checked)\n"
+  },
+  {
+    "id": "AC-3",
+    "check": "pytest_suite",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "........................................................................ [ 30%]\n........................................................................ [ 60%]\n........................................................................ [ 91%]\n.....................                                                    [100%]\n237 passed in 43.02s\n"
+  }
+]

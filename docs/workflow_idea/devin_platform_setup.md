@@ -1,11 +1,25 @@
 # Devin Platform Integration Setup Guide
 
-> This document covers Tiers 1-3 of the workflow enhancement plan.
-> Prerequisite: Devin service user API key (`cog_` prefix) from https://app.devin.ai/settings/service-users
+> **Status: OPTIONAL — cloud alternative.** The DEFAULT workflow spawns agents as **local subagents** via the Devin CLI's built-in `run_subagent` tool (`subagent_general` for write-capable Agents B/C/D, `subagent_explore` for read-only watchers) — no Devin Cloud session, no org quota, no API key, no cost beyond the local session's model usage. See `polling_workflow_protocol.md` and `agent_a_prompt.md` for the default protocol.
+>
+> Everything below describes the **optional Devin Cloud path** (MCP `devin_session_create` + playbooks + dynamic workflows). Use it only when org ACU quota is available. If `devin_session_create` returns `out_of_quota`, fall back to local `run_subagent` spawning — the blackboard protocol and `poll_tasks.py` subcommands are identical in both modes.
+>
+> Prerequisite for this optional path: Devin service user API key (`cog_` prefix) from https://app.devin.ai/settings/service-users
 
 ---
 
-## Tier 1: Devin MCP Server + Playbooks
+## Tier 0: Local Subagents (DEFAULT — no setup needed)
+
+The default spawning mechanism needs none of the setup below. The orchestrator calls `run_subagent` with:
+
+| Agent | Profile | Why |
+|---|---|---|
+| B (Executor), C (Challenger), D (Critic) | `subagent_general` | Write-capable — must edit files and update the blackboard |
+| Watcher / read-only probes | `subagent_explore` | Read-only, cheap (SWE-1.6) — observe TASKS.json only |
+
+Local subagents share the orchestrator's workspace and model. They claim tasks via `python scripts/poll_tasks.py --claim <id> <role>`, edit only `output_files`, verify via `--verify`, mark done via `--done <id> <role> --evidence "..."`, and append to `EVENTS.log`. The role prompt files (`agent_b_prompt.md` / `agent_c_prompt.md` / `agent_d_prompt.md`) are written to be executed verbatim by a local subagent — paste the file body into the `run_subagent` prompt plus the concrete poll/claim instruction.
+
+## Tier 1: Devin MCP Server + Playbooks (OPTIONAL cloud alternative)
 
 ### Step 1: Get a Devin API key
 
@@ -117,9 +131,9 @@ Tags: stock-ingestion, critic, agent-d
 
 Content: Copy the body of `docs/workflow_idea/agent_d_prompt.md`.
 
-### Step 5: Update orchestrator to use MCP — DONE
+### Step 5: Update orchestrator to use MCP — DONE (now OPTIONAL)
 
-The orchestrator prompt (`docs/workflow_idea/agent_a_prompt.md`) has been updated with a full MCP Session Management section. The playbook on the Devin platform has been synced.
+The orchestrator prompt (`docs/workflow_idea/agent_a_prompt.md`) documents this MCP path under "Optional: Devin Cloud MCP sessions". As of 2026-09-12, local `run_subagent` spawning is the default; this section is retained for when org quota is available. The playbook on the Devin platform has been synced.
 
 **What changed:**
 - Added "MCP Session Management" section with playbook ID table

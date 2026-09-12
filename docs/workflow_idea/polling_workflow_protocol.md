@@ -1,32 +1,35 @@
-# Multi-Agent Workflow Protocol — Event-Driven Coordination
+# Multi-Agent Workflow Protocol — Local Subagent Coordination
 
 **Status:** ACTIVE
-**Date:** 2026-09-07
-**Version:** 3.0 — event-driven watcher (no foreground polling)
+**Date:** 2026-09-12
+**Version:** 4.0 — local `run_subagent` spawning (no Devin Cloud required)
 
 ---
 
 ## Overview
 
-Four Devin sessions, each with a dedicated LLM, coordinate through the blackboard files in `devin_blackboard/`. The Orchestrator (Session A) writes tasks and uses a **background watcher subagent** to detect state changes. Agents B/C/D poll once when instructed, execute, and report back.
+The Orchestrator (the main Devin CLI session, Agent A) coordinates Agents B/C/D through the blackboard files in `devin_blackboard/`. **Agents B/C/D are spawned as LOCAL subagents** via the Devin CLI's built-in `run_subagent` tool — no Devin Cloud session, no org quota, no cost beyond the local session's own model usage. Spawning is synchronous: each `run_subagent` call returns the subagent's report when it finishes.
 
-## Sessions
+## Agents
 
-| Session | Role | LLM | Responsibility |
+| Agent | Role | Spawned via | Responsibility |
 |---|---|---|---|
-| A | Orchestrator (PM) | GLM-5.2 High | Plans, writes tasks, spawns background watcher, reviews evidence, resolves blockers |
-| B | Executor | SWE-1.7 Medium | Implements features, fixes bugs, writes code in src/ |
-| C | Challenger | GLM-5.2 High | Independent review, alternative implementations, false-positive/negative analysis |
-| D | Critic | SWE-1.7 Medium | Tests, verifies acceptance criteria, regression checks, loop checker enforcement |
+| A | Orchestrator (PM) | Main Devin CLI session | Plans, writes tasks, spawns role subagents, reviews evidence, resolves blockers |
+| B | Executor | `run_subagent` + `subagent_general` | Implements features, fixes bugs, writes code in src/ |
+| C | Challenger | `run_subagent` + `subagent_general` | Independent review, alternative implementations, false-positive/negative analysis |
+| D | Critic | `run_subagent` + `subagent_general` | Tests, verifies acceptance criteria, regression checks, loop checker enforcement |
+| — | Watcher (optional) | `run_subagent` + `subagent_explore` | Read-only observation of TASKS.json state; cannot claim or write |
+
+Agents B/C/D all need the write-capable `subagent_general` profile because each must claim its task (`--claim` writes TASKS.json, EVENTS.log, and a lock file) and append evidence to the blackboard. `subagent_explore` is read-only and cheap (SWE-1.6) — suitable only for watching.
 
 ## Blackboard Files
 
 | File | Purpose | Who writes |
 |---|---|---|
-| `devin_blackboard/TASKS.json` | Task definitions with status + assignment | Orchestrator creates; Agents update status only |
+| `devin_blackboard/TASKS.json` | Task definitions with status + assignment | Orchestrator creates; Agents update status only (via `poll_tasks.py` subcommands) |
 | `devin_blackboard/STATE.md` | Current project state, what's done, blockers | All agents update their section |
 | `devin_blackboard/EVENTS.log` | Append-only log of all actions | All agents append |
-| `devin_blackboard/locks/<task_id>.lock` | Per-task lock files | Agent that claims the task |
+| `devin_blackboard/locks/<task_id>.lock` | Per-task lock files | Created/deleted by `poll_tasks.py --claim` / `--done` / `--blocked` |
 
 ---
 
@@ -38,9 +41,9 @@ todo  -->  in_progress  -->  done
 ```
 
 1. **todo**: Orchestrator writes task to TASKS.json with `status: "todo"`, `assigned_to: "B"` (or "C", "D")
-2. **in_progress**: Agent sees task assigned to them with status=todo, creates lock file, sets status="in_progress"
-3. **done**: Agent completes, sets status="done", appends to EVENTS.log, updates STATE.md, deletes lock file
-4. **blocked**: Agent hits a blocker, sets status="blocked", files blocker in STATE.md
+2. **in_progress**: Subagent claims via `python scripts/poll_tasks.py --claim <task_id> <role>` — atomic lock + status + commit in one command
+3. **done**: Subagent verifies via `--verify`, then `--done <task_id> <role> --evidence "..."` — sets status, appends evidence, deletes lock, commits
+4. **blocked**: Subagent hits a blocker → `--blocked <task_id> <role> --reason "..."`; files blocker in STATE.md
 
 ---
 
@@ -63,7 +66,7 @@ todo  -->  in_progress  -->  done
 | `python scripts/poll_tasks.py --blocked <task_id> <role> --reason <text>` | Mark blocked (sets status, deletes lock, commits) |
 | `python scripts/poll_tasks.py --clean-stale` | Remove stale locks (>10 min old), reset tasks to todo |
 
-### When instructed to poll (by user or after finishing a task):
+### When spawned by the orchestrator (or after finishing a task):
 
 ```
 STEP 1: Sync and poll
@@ -84,24 +87,24 @@ STEP 3: If READY task exists:
            python scripts/poll_tasks.py --verify <task_id>
         e. If pass, mark done:
            python scripts/poll_tasks.py --done <task_id> <role> --evidence "<summary + evidence>"
-           -> Report to user: "<task_id> complete. Polling for next task."
+           -> Report to the orchestrator in your final message: "<task_id> complete."
            -> Go back to STEP 1 (poll once more for next task)
         f. If fail, mark blocked:
            python scripts/poll_tasks.py --blocked <task_id> <role> --reason "<failure>"
-           -> Report to user: "<task_id> BLOCKED: <reason>. Awaiting orchestrator."
-           -> STOP — wait for user instruction
+           -> Report to the orchestrator: "<task_id> BLOCKED: <reason>."
+           -> STOP — your report is returned to the orchestrator
 
 STEP 4: If no READY task:
-        - Report to user: "No tasks ready for <role>. Waiting for orchestrator."
-        - STOP — wait for user to tell you to poll again
+        - Report to the orchestrator: "No tasks ready for <role>."
+        - STOP — the orchestrator will spawn you again when needed
         - Do NOT run background polling. Do NOT sleep in a loop.
 ```
 
 ---
 
-## Orchestrator Protocol (Session A) — Event-Driven with Background Watcher
+## Orchestrator Protocol (Agent A) — Local Subagent Spawning
 
-**CRITICAL:** Do NOT run foreground polling loops (`Start-Sleep`). They block user messages. Use a background watcher subagent instead.
+**CRITICAL:** Do NOT run foreground polling loops (`Start-Sleep`). They block user messages. Spawn subagents via `run_subagent`; each call returns the subagent's report when it finishes.
 
 ### Step 1: Initial state check
 ```
@@ -113,42 +116,52 @@ python scripts/poll_tasks.py D
 Assess:
 - All cycle tasks "done" → Step 2 (write next cycle)
 - Any task "blocked" → Step 4 (handle blocker)
-- Tasks "todo" or "in_progress" → Step 3 (spawn watcher)
+- Task stuck "in_progress" → `python scripts/poll_tasks.py --clean-stale`, then Step 3
+- Tasks "todo" → Step 3 (spawn next role subagent)
 
 ### Step 2: Write next cycle tasks
 a. Read `docs/dev_plan/phase2_dev_plan.md` for next cycle spec
 b. Write 3 task objects to TASKS.json (executor, challenger, critic)
 c. Append to EVENTS.log, update STATE.md, commit
-d. Tell user: "Cycle N complete. Cycle N+1 tasks written. Please tell Agent B to poll."
-e. Go to Step 3
+d. Go to Step 3
 
-### Step 3: Spawn background watcher
-Spawn a background subagent (`run_subagent` with `is_background=true`):
+### Step 3: Spawn the next role subagent (sequential B → C → D)
+
+Call `run_subagent` with `profile="subagent_general"`. The prompt = the full body of the role's prompt file (`docs/workflow_idea/agent_<role>_prompt.md`) + the concrete instruction:
 
 ```
-Watch TASKS.json for state changes.
-cd to C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion.
-Every 60 seconds: git pull, check TASKS.json for tasks assigned to B/C/D.
-Compare current statuses to previous poll.
-Return immediately when ANY task changes status (todo→in_progress, in_progress→done, in_progress→blocked).
-Report: which task(s) changed, old status, new status, new EVENTS.log entries.
-Do NOT edit files. Do NOT claim tasks. Only observe and report.
+cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+git pull
+python scripts/poll_tasks.py <role>
+Claim the READY task via --claim, execute it (output_files ONLY), verify via --verify,
+mark done via --done with evidence. Update STATE.md and EVENTS.log. Report back.
 ```
 
-When watcher notifies:
-- Task → "done": check if cycle complete → Step 2 or spawn new watcher
-- Task → "blocked": → Step 4
-- Task → "in_progress": note it, spawn new watcher
+The call blocks until the subagent finishes and returns its report. Then:
+- Task "done" → spawn the next role in sequence (B → C → D)
+- Task "blocked" → Step 4
+- Subagent failed/crashed without updating status → inspect its report; `--clean-stale` if needed; Step 4 or re-spawn
 
-**Main session stays free.** Respond to user messages immediately.
+No watcher is needed in the normal flow — each `run_subagent` call returns a report. For waiting on external state, a `subagent_explore` read-only watcher may observe TASKS.json and report.
 
 ### Step 4: Handle blockers
 a. Read STATE.md "Active Blockers" + EVENTS.log evidence
 b. Investigate, adjudicate, document decision
 c. Update TASKS.json (set back to "todo" or create new task)
 d. Append to EVENTS.log, update STATE.md, commit
-e. Tell user: "Blocker resolved. Please tell Agent <X> to poll."
-f. Go to Step 3
+e. Go to Step 3 (spawn the appropriate role subagent)
+
+---
+
+## Optional: Devin Cloud MCP sessions (alternative)
+
+When org quota is available, agents MAY be spawned as remote Devin Cloud sessions instead of local subagents:
+
+- `devin_session_create` with the role's `playbook_id` + `notify_on_response: true` (replaces `run_subagent`)
+- `devin_session_gather` to wait for the session to settle (replaces the synchronous return)
+- `devin_session_interact` to message/nudge/retrieve agent output (replaces the returned report)
+
+This path requires a `cog_` service-user API key (see `devin_platform_setup.md`) and consumes org ACU quota. If `devin_session_create` returns `out_of_quota`, fall back to the local `run_subagent` default above. The blackboard protocol and `poll_tasks.py` subcommands are identical in both modes — only the spawning mechanism differs.
 
 ---
 
@@ -160,7 +173,7 @@ python scripts/check_loops.py --src-dir src --strict  # must exit 0
 python -m pytest tests/ -q                            # must exit 0
 ```
 
-If any check fails: set status="blocked", file blocker in STATE.md, append to EVENTS.log, delete lock file.
+`python scripts/poll_tasks.py --verify <task_id>` runs all structured acceptance criteria automatically; `--done` refuses to mark done if any criterion fails. If any check fails: `--blocked <task_id> <role> --reason "..."`, file blocker in STATE.md, append to EVENTS.log.
 
 ---
 
@@ -180,12 +193,13 @@ If any check fails: set status="blocked", file blocker in STATE.md, append to EV
 1. **No agent-to-agent chat.** All communication through blackboard files.
 2. **EVENTS.log is append-only.** Never edit or delete previous entries.
 3. **STATE.md is updateable.** Each agent updates their own section.
-4. **TASKS.json is updateable.** Agents only update `status` for their own tasks.
-5. **Git commits are the durability layer.** Every blackboard change is committed immediately.
+4. **TASKS.json is updateable.** Agents only update `status` for their own tasks (via `poll_tasks.py` subcommands).
+5. **Git commits are the durability layer.** `poll_tasks.py` commits and pushes automatically.
 6. **Never commit secrets.** R2 credentials come from environment variables.
-7. **Pull before commit.** Always `git pull` before committing to avoid conflicts.
-8. **No background polling by agents B/C/D.** They poll once when instructed, then execute or stop.
-9. **No foreground polling by orchestrator.** Use background watcher subagent instead.
+7. **Pull before claim.** Always `git pull` before claiming to avoid conflicts.
+8. **No background polling by agents B/C/D.** They poll once when spawned, then execute or stop.
+9. **No foreground polling by orchestrator.** `run_subagent` calls are synchronous — the orchestrator waits on the subagent's return, not on a polling loop.
+10. **Subagent reports are ephemeral.** The blackboard (TASKS.json + EVENTS.log + STATE.md) is the durable record — subagents must write evidence there, not only in their returned message.
 
 ---
 
