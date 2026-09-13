@@ -253,6 +253,277 @@ class TestBuildAccelSql:
         assert df["rvol"].iloc[0] >= 1.8
 
 
+def _seed_weekly_db(db_path: str) -> None:
+    """Seed a ``daily_close`` table spanning 8 weeks (Mon–Fri rows per
+    week) with four tickers covering every weekly regime:
+
+    * ``SPIKE`` — flat 100 then a 500 latest week -> rvol ~3.33
+      ('Strong Acceleration')
+    * ``BUMP``  — flat 100 then a 250 latest week -> rvol ~2.11
+      ('Acceleration')
+    * ``MID``   — flat 100 then a 60 latest week -> rvol ~0.63
+      ('Deceleration')
+    * ``DRY``   — flat 100 then a 20 latest week -> rvol ~0.22
+      ('Strong Deceleration')
+    * ``FLAT``  — always 100 -> rvol ~1.0 ('Normal' / 'Other')
+    """
+    rows = []
+    last_week_volume = {
+        "SPIKE": 500.0,
+        "BUMP": 250.0,
+        "MID": 60.0,
+        "DRY": 20.0,
+        "FLAT": 100.0,
+    }
+    # justified: deterministic synthetic fixture rows — 8 weeks x 5
+    # trading days x 5 tickers, not data transformation.
+    for w in range(8):
+        for d in range(5):
+            day = (date(2026, 1, 5) + timedelta(weeks=w, days=d)).isoformat()
+            for ticker, last_vol in last_week_volume.items():
+                vol = last_vol if w == 7 else 100.0
+                rows.append((day, ticker, 1.0, 1.0, 1.0, 1.0, vol))
+    _seed_daily_close(db_path, rows)
+
+
+def _run_sql(db_path: str, sql: str) -> pd.DataFrame:
+    conn = duckdb.connect(db_path, read_only=True)
+    try:
+        return conn.execute(sql).df()
+    finally:
+        conn.close()
+
+
+class TestBuildWeeklyCombinedSql:
+    """Weekly combined builder — all four regimes among top-K liquid,
+    regime-priority ordering then rvol DESC."""
+
+    def test_defaults_injected(self):
+        sql = report_app.build_weekly_combined_sql()
+        assert "FROM daily_close" in sql
+        assert "DATE_TRUNC('week', Date)" in sql
+        assert "ARRAY_AGG" in sql
+        assert "week_rank <= 30" in sql
+        assert "dollar_rank <= 50" in sql
+        assert ">= 2.5 THEN 'Strong Acceleration'" in sql
+        assert ">= 1.8 THEN 'Acceleration'" in sql
+        # Weekly decel defaults differ from the daily 0.6 / 0.8.
+        assert "<= 0.5 THEN 'Strong Deceleration'" in sql
+        assert "<= 0.7 THEN 'Deceleration'" in sql
+        assert "ELSE 'Normal'" in sql
+        # All four regimes are kept.
+        for regime in (
+            "Strong Acceleration",
+            "Acceleration",
+            "Deceleration",
+            "Strong Deceleration",
+        ):
+            assert f"'{regime}'" in sql
+        # Regime-priority ordering, then rvol descending.
+        assert "WHEN 'Strong Acceleration' THEN 1" in sql
+        assert "WHEN 'Acceleration' THEN 2" in sql
+        assert "WHEN 'Deceleration' THEN 3" in sql
+        assert "WHEN 'Strong Deceleration' THEN 4" in sql
+        assert "rvol DESC" in sql
+
+    def test_params_injected(self):
+        sql = report_app.build_weekly_combined_sql(
+            lookback=12,
+            top_k=20,
+            strong_accel=3.0,
+            accel=2.0,
+            decel=0.6,
+            strong_decel=0.4,
+        )
+        assert "week_rank <= 12" in sql
+        assert "dollar_rank <= 20" in sql
+        assert ">= 3.0 THEN 'Strong Acceleration'" in sql
+        assert ">= 2.0 THEN 'Acceleration'" in sql
+        assert "<= 0.4 THEN 'Strong Deceleration'" in sql
+        assert "<= 0.6 THEN 'Deceleration'" in sql
+
+    def test_non_numeric_params_rejected(self):
+        with pytest.raises(TypeError):
+            report_app.build_weekly_combined_sql(lookback="30")
+        with pytest.raises(TypeError):
+            report_app.build_weekly_combined_sql(top_k=True)
+        with pytest.raises(TypeError):
+            report_app.build_weekly_combined_sql(decel="0.7")
+
+    def test_generated_sql_executes_on_duckdb(self, tmp_path):
+        """Runs on a seeded weekly dataset; 'Normal' names are
+        filtered out and rows come out in regime-priority order."""
+        db_path = str(tmp_path / "test.duckdb")
+        _seed_weekly_db(db_path)
+
+        df = _run_sql(db_path, report_app.build_weekly_combined_sql())
+
+        # Regime priority: Strong Accel (1), Accel (2), Decel (3),
+        # Strong Decel (4) — FLAT ('Normal') is filtered out.
+        assert list(df["Ticker"]) == ["SPIKE", "BUMP", "MID", "DRY"]
+        assert list(df["volume_regime"]) == [
+            "Strong Acceleration",
+            "Acceleration",
+            "Deceleration",
+            "Strong Deceleration",
+        ]
+        for col in (
+            "week_start",
+            "latest_week_end",
+            "latest_close",
+            "pct_change",
+            "avg_week_volume",
+            "rvol",
+            "latest_dollar_volume",
+            "avg_dollar_volume",
+            "relative_dollar_vol",
+        ):
+            assert col in df.columns
+
+
+class TestBuildWeeklyAccelSql:
+    """Weekly accel builder — accel regimes only, rvol DESC."""
+
+    def test_defaults_injected(self):
+        sql = report_app.build_weekly_accel_sql()
+        assert "FROM daily_close" in sql
+        assert "DATE_TRUNC('week', Date)" in sql
+        assert "week_rank <= 30" in sql
+        assert "dollar_rank <= 50" in sql
+        assert ">= 2.5 THEN 'Strong Acceleration'" in sql
+        assert ">= 1.8 THEN 'Acceleration'" in sql
+        assert "ELSE 'Other'" in sql
+        assert (
+            "volume_regime IN ('Acceleration', 'Strong Acceleration')"
+            in sql
+        )
+        # Decel bounds must not appear in the accel-only CASE.
+        assert "'Deceleration'" not in sql
+        assert "'Strong Deceleration'" not in sql
+        assert "ORDER BY rvol DESC, latest_dollar_volume DESC" in sql
+
+    def test_params_injected(self):
+        sql = report_app.build_weekly_accel_sql(
+            lookback=15, accel=2.0, strong_accel=3.0, top_k=10
+        )
+        assert "week_rank <= 15" in sql
+        assert "dollar_rank <= 10" in sql
+        assert ">= 3.0 THEN 'Strong Acceleration'" in sql
+        assert ">= 2.0 THEN 'Acceleration'" in sql
+
+    def test_non_numeric_params_rejected(self):
+        with pytest.raises(TypeError):
+            report_app.build_weekly_accel_sql(lookback="30")
+        with pytest.raises(TypeError):
+            report_app.build_weekly_accel_sql(top_k="50")
+        with pytest.raises(TypeError):
+            report_app.build_weekly_accel_sql(accel=None)
+
+    def test_generated_sql_executes_on_duckdb(self, tmp_path):
+        """Only acceleration names survive, ordered rvol DESC."""
+        db_path = str(tmp_path / "test.duckdb")
+        _seed_weekly_db(db_path)
+
+        df = _run_sql(db_path, report_app.build_weekly_accel_sql())
+
+        assert list(df["Ticker"]) == ["SPIKE", "BUMP"]
+        assert list(df["volume_regime"]) == [
+            "Strong Acceleration",
+            "Acceleration",
+        ]
+        assert list(df["rvol"]) == sorted(df["rvol"], reverse=True)
+
+
+class TestBuildWeeklyDecelSql:
+    """Weekly decel builder — decel regimes only, rvol ASC, weekly
+    defaults 0.50 / 0.70 (not the daily 0.6 / 0.8)."""
+
+    def test_defaults_injected(self):
+        sql = report_app.build_weekly_decel_sql()
+        assert "FROM daily_close" in sql
+        assert "DATE_TRUNC('week', Date)" in sql
+        assert "week_rank <= 30" in sql
+        assert "dollar_rank <= 50" in sql
+        assert "<= 0.5 THEN 'Strong Deceleration'" in sql
+        assert "<= 0.7 THEN 'Deceleration'" in sql
+        assert "ELSE 'Other'" in sql
+        assert (
+            "volume_regime IN ('Deceleration', 'Strong Deceleration')"
+            in sql
+        )
+        # Quietest names first — the mirror of the accel tab.
+        assert "ORDER BY rvol ASC, latest_dollar_volume DESC" in sql
+
+    def test_params_injected(self):
+        sql = report_app.build_weekly_decel_sql(
+            lookback=15, decel=0.6, strong_decel=0.4, top_k=10
+        )
+        assert "week_rank <= 15" in sql
+        assert "dollar_rank <= 10" in sql
+        assert "<= 0.4 THEN 'Strong Deceleration'" in sql
+        assert "<= 0.6 THEN 'Deceleration'" in sql
+
+    def test_non_numeric_params_rejected(self):
+        with pytest.raises(TypeError):
+            report_app.build_weekly_decel_sql(lookback="30")
+        with pytest.raises(TypeError):
+            report_app.build_weekly_decel_sql(top_k="50")
+        with pytest.raises(TypeError):
+            report_app.build_weekly_decel_sql(strong_decel=None)
+
+    def test_generated_sql_executes_on_duckdb(self, tmp_path):
+        """Only deceleration names survive, ordered rvol ASC
+        (quietest first)."""
+        db_path = str(tmp_path / "test.duckdb")
+        _seed_weekly_db(db_path)
+
+        df = _run_sql(db_path, report_app.build_weekly_decel_sql())
+
+        assert list(df["Ticker"]) == ["DRY", "MID"]
+        assert list(df["volume_regime"]) == [
+            "Strong Deceleration",
+            "Deceleration",
+        ]
+        assert list(df["rvol"]) == sorted(df["rvol"])
+
+
+class TestWeeklyInterpretationGuides:
+    """The interpretation-guide module constants are non-empty and
+    reproduce the guide sections of the source md files verbatim."""
+
+    REPO_ROOT = Path(__file__).parent.parent
+
+    @staticmethod
+    def _guide_from_md(name: str) -> str:
+        text = (
+            TestWeeklyInterpretationGuides.REPO_ROOT
+            / "docs"
+            / "report_idea"
+            / name
+        ).read_text(encoding="utf-8")
+        return text[text.index("### "):].strip()
+
+    def test_constants_non_empty(self):
+        for guide in (
+            report_app.WEEKLY_COMBINED_GUIDE,
+            report_app.WEEKLY_ACCEL_GUIDE,
+            report_app.WEEKLY_DECEL_GUIDE,
+        ):
+            assert isinstance(guide, str)
+            assert len(guide) > 100
+
+    def test_guides_match_source_md_verbatim(self):
+        assert report_app.WEEKLY_COMBINED_GUIDE.strip() == (
+            self._guide_from_md("report_weekly_trends.md")
+        )
+        assert report_app.WEEKLY_ACCEL_GUIDE.strip() == (
+            self._guide_from_md("report_weekly_trend_accelerating.md")
+        )
+        assert report_app.WEEKLY_DECEL_GUIDE.strip() == (
+            self._guide_from_md("report_weekly_trend_decelerating.md")
+        )
+
+
 class TestFetchDataframe:
     """Flight-first / direct-DuckDB fallback logic."""
 

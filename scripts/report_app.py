@@ -1,17 +1,38 @@
-"""Interactive Streamlit report app with two tabs:
+"""Interactive Streamlit report app with five tabs:
 
-* **Tab A — "Top 25 by Dollar Volume"**: the top-N tickers ranked by
+* **"Daily — Top 25 by Dollar Volume"**: the top-N tickers ranked by
   latest (most recent trading day) dollar volume, enriched with the
   RVOL / regime edge metrics (latest dollar volume, relative volume,
   pct change, volume regime classification, share of total average
   dollar volume).  The query is the one inside
   ``docs/report_idea/report_Acceleration Candidates (RVOL significantly
-  above norm).md`` — note the two md filenames are *swapped* vs their
-  contents; tabs are labelled by intent, not filename.
-* **Tab B — "Acceleration Candidates"**: filters ``rvol >= threshold``
+  above norm).md`` — note the two daily md filenames are *swapped* vs
+  their contents; tabs are labelled by intent, not filename.
+* **"Daily — Acceleration Candidates"**: filters ``rvol >= threshold``
   among the top-K most-liquid names by latest dollar volume, ordered
   by ``rvol`` descending.  The query is the one inside
   ``docs/report_idea/report_Top 25 by Approximate Dollar Volume.md``.
+* **"Weekly — Combined Regimes"**: the combined weekly report from
+  ``docs/report_idea/report_weekly_trends.md`` — all four non-Normal
+  volume regimes among the top-K most-liquid names, ordered by regime
+  priority (Strong Acceleration, Acceleration, Deceleration, Strong
+  Deceleration) then ``rvol`` descending.
+* **"Weekly — Acceleration"**: the weekly acceleration candidates from
+  ``docs/report_idea/report_weekly_trend_accelerating.md`` — only the
+  two acceleration regimes, ordered by ``rvol`` descending.
+* **"Weekly — Deceleration"**: the weekly deceleration candidates from
+  ``docs/report_idea/report_weekly_trend_decelerating.md`` — only the
+  two deceleration regimes, ordered by ``rvol`` ascending (quietest
+  names first).
+
+The weekly tabs aggregate ``daily_close`` into weekly bars
+(``DATE_TRUNC('week', Date)``, first-Open/last-Close via
+``ARRAY_AGG``, ``SUM(Volume)``, ``SUM(trade_money)``, and a
+``LAG``-based weekly pct change) and average over the last N *weeks*
+per ticker.  Note the weekly deceleration defaults differ from the
+daily ones: ``strong_decel=0.50`` / ``decel=0.70`` (the daily tabs use
+0.6 / 0.8).  Each weekly tab also renders its source md's
+interpretation guide verbatim in an expander.
 
 All interactive widget values are numeric (or drawn from the fixed
 ``VOLUME_REGIMES`` whitelist), so they are safely formatted into the
@@ -42,7 +63,9 @@ Two hardening behaviours on top of that:
 
 The module is importable and unit-testable *without* the Streamlit
 runtime: the SQL builder functions (:func:`build_top25_sql`,
-:func:`build_accel_sql`), the threshold helper
+:func:`build_accel_sql`, :func:`build_weekly_combined_sql`,
+:func:`build_weekly_accel_sql`, :func:`build_weekly_decel_sql`), the
+threshold helper
 (:func:`find_threshold_inversions`), the data fetch
 (:func:`fetch_dataframe`) and the xlsx serializer
 (:func:`dataframe_to_xlsx_bytes`) are plain functions;
@@ -112,6 +135,15 @@ DEFAULT_DECEL = 0.8            # rvol <= -> 'Deceleration'
 DEFAULT_STRONG_DECEL = 0.6     # rvol <= -> 'Strong Deceleration'
 DEFAULT_TOP_K = 50             # liquidity filter for tab B
 
+# Weekly deceleration defaults.  The weekly specs use tighter decel
+# bounds than the daily report (0.50 / 0.70 vs the daily 0.6 / 0.8),
+# so they get their own constants rather than sharing DEFAULT_DECEL /
+# DEFAULT_STRONG_DECEL.  The weekly acceleration bounds (2.5 / 1.8),
+# the 30-period lookback (now measured in weeks) and the top-K
+# liquidity bound (50) intentionally reuse the daily constants.
+DEFAULT_WEEKLY_STRONG_DECEL = 0.50  # weekly rvol <= -> 'Strong Deceleration'
+DEFAULT_WEEKLY_DECEL = 0.70         # weekly rvol <= -> 'Deceleration'
+
 # Fixed whitelist of volume_regime labels the SQL CASE can emit.  The
 # tab-A multiselect is restricted to these values and the builder
 # validates against them before formatting into SQL text.
@@ -127,6 +159,12 @@ _TAB_A_SHEET = "Top 25 by Dollar Volume"
 _TAB_A_FILENAME = "top25_by_dollar_volume.xlsx"
 _TAB_B_SHEET = "Acceleration Candidates"
 _TAB_B_FILENAME = "acceleration_candidates.xlsx"
+_TAB_WC_SHEET = "Weekly Combined Regimes"
+_TAB_WC_FILENAME = "weekly_combined_regimes.xlsx"
+_TAB_WA_SHEET = "Weekly Acceleration"
+_TAB_WA_FILENAME = "weekly_acceleration_candidates.xlsx"
+_TAB_WD_SHEET = "Weekly Deceleration"
+_TAB_WD_FILENAME = "weekly_deceleration_candidates.xlsx"
 
 
 # ------------------------------------------------------------------
@@ -408,6 +446,411 @@ WHERE volume_regime IN ('Acceleration', 'Strong Acceleration')
   AND dollar_rank <= {top_k}
 ORDER BY rvol DESC, latest_trade_money DESC
 """
+
+
+# ------------------------------------------------------------------
+# Weekly interpretation guides — verbatim text from the source
+# docs/report_idea/report_weekly*.md files, rendered in each weekly
+# tab via st.markdown inside an st.expander.
+# ------------------------------------------------------------------
+
+# docs/report_idea/report_weekly_trends.md — "Quick Interpretation
+# Guide (Combined Report)".
+WEEKLY_COMBINED_GUIDE = """\
+### Quick Interpretation Guide (Combined Report)
+
+| volume_regime          | Priority | What it usually means                          | Action Bias                     |
+|------------------------|----------|------------------------------------------------|---------------------------------|
+| **Strong Acceleration**| Highest  | Explosive volume expansion                     | Momentum / Breakout focus      |
+| **Acceleration**       | High     | Clearly elevated participation                 | Trend-following                |
+| **Deceleration**       | Medium   | Noticeably quieter than normal                 | Caution / Range / Wait         |
+| **Strong Deceleration**| High     | Volume has dried up significantly              | Exhaustion or quiet setup      |
+
+**Recommended reading order:**
+1. Strong Acceleration names first
+2. Then regular Acceleration
+3. Then Strong Deceleration
+4. Finally regular Deceleration
+
+This single query gives you the complete weekly volume-regime picture among the most liquid stocks every weekend."""
+
+# docs/report_idea/report_weekly_trend_accelerating.md —
+# "Interpretation Guide – Weekly Acceleration Candidates".
+WEEKLY_ACCEL_GUIDE = """\
+### Interpretation Guide – Weekly Acceleration Candidates
+
+| Signal | Meaning | Typical Trading Implication |
+|--------|---------|-----------------------------|
+| **Strong Acceleration** (RVOL ≥ 2.5) | Volume expanded dramatically vs the previous 30 weeks | Highest conviction. Often marks the start or acceleration of a multi-week trend (accumulation or distribution). Highest priority. |
+| **Acceleration** (RVOL 1.8 – 2.49) | Clearly elevated weekly volume | Solid confirmation of institutional interest. Good for swing trades in the direction of the weekly price change. |
+| **High RVOL + Rising Price** | Volume supporting the uptrend | Bullish continuation / breakout candidate. |
+| **High RVOL + Falling Price** | Heavy selling on expanding volume | Distribution or breakdown. Caution / potential short candidate. |
+| **High RVOL + Flat Price** | Quiet accumulation or absorption | Watch for upcoming directional move. |
+| **Top of the list (highest RVOL among top 50 $ volume)** | Liquidity + extreme expansion | Best risk/reward setups – avoid thin names automatically. |
+
+#### How to use the weekly report
+1. Run it every weekend (after Friday close).
+2. Focus first on **Strong Acceleration** names inside the top 50.
+3. Cross-check with the daily version for timing (weekly tells you *what* is trending, daily helps with *when* to enter).
+4. Best timeframes: 1–4 week swing trades.
+5. Combine with price structure (weekly breakout, pullback to moving average, etc.) for higher probability.
+
+#### Suggested thresholds you can tweak
+- More selective → change `1.8` to `2.0` or `2.2`
+- More signals → lower to `1.6`
+- Longer lookback → change `30` to `40` or `52` weeks"""
+
+# docs/report_idea/report_weekly_trend_decelerating.md —
+# "Interpretation Guide – Weekly Deceleration Candidates".
+WEEKLY_DECEL_GUIDE = """\
+### Interpretation Guide – Weekly Deceleration Candidates
+
+| Signal | Meaning | Typical Trading Implication |
+|--------|---------|-----------------------------|
+| **Strong Deceleration** (RVOL ≤ 0.50) | Volume dried up dramatically vs the previous 30 weeks | Highest conviction quietness. Can signal exhaustion of a prior trend, lack of interest, or quiet accumulation/distribution. |
+| **Deceleration** (RVOL 0.51 – 0.70) | Clearly below-average weekly volume | Reduced participation. Trend may be losing steam or the stock is consolidating. |
+| **Low RVOL + Rising Price** | Price rising on declining volume | Often a warning of weakening upside momentum (potential topping process). |
+| **Low RVOL + Falling Price** | Price falling on low volume | Can be a healthy pullback or lack of selling pressure (less bearish than high-volume decline). |
+| **Low RVOL + Flat Price** | Very quiet consolidation | Watch for the eventual breakout – low volume ranges often precede expansion. |
+| **Lowest RVOL among top 50 $ volume** | Liquid name that has gone unusually quiet | Highest quality “sleeping giant” or exhaustion candidates. |
+
+#### How to use the weekly Deceleration report
+1. Run together with the Acceleration report every weekend.
+2. Strong Deceleration in a previously strong name can mark the end of a multi-week move.
+3. Low volume + price holding up is often more constructive than low volume + price breaking down.
+4. Best used for mean-reversion ideas, range trades, or waiting for volume to return before entering.
+5. Pair with the daily version to see if volume is starting to pick up again inside the quiet weekly regime.
+
+#### Suggested threshold tweaks
+- Stricter → change `0.70` to `0.60` and `0.50` to `0.40`
+- More signals → raise to `0.80` / `0.60`"""
+
+
+# ------------------------------------------------------------------
+# Weekly SQL builders — the three docs/report_idea/report_weekly*.md
+# queries.  All share the same weekly-bar prologue (daily_base ->
+# weekly_bars -> weekly_with_change -> last_n_weeks -> avg_metrics ->
+# latest_week); each builder then adds its own combined CASE, the
+# dollar_rank liquidity filter, and its own ordering.
+# ------------------------------------------------------------------
+
+
+def _weekly_cte_prefix(lookback: int) -> str:
+    """Return the shared weekly CTE prologue (through ``latest_week``).
+
+    ``lookback`` bounds the trailing number of *weeks* averaged in
+    ``avg_metrics`` — it is a validated int by the time it gets here,
+    so it is safe to format into the SQL text.
+    """
+    return f"""
+WITH daily_base AS (
+  SELECT
+    Ticker,
+    Date,
+    Open,
+    High,
+    Low,
+    "Close",
+    Volume,
+    ((Open + High + Low + "Close") / 4.0) * Volume AS trade_money
+  FROM daily_close
+),
+
+-- Aggregate into weekly bars (weeks start Monday via DATE_TRUNC)
+weekly_bars AS (
+  SELECT
+    Ticker,
+    DATE_TRUNC('week', Date) AS week_start,
+    MIN(Date) AS week_start_date,
+    MAX(Date) AS week_end_date,
+
+    (ARRAY_AGG(Open ORDER BY Date ASC))[1] AS week_open,
+    MAX(High) AS week_high,
+    MIN(Low) AS week_low,
+    (ARRAY_AGG("Close" ORDER BY Date DESC))[1] AS week_close,
+
+    SUM(Volume) AS week_volume,
+    SUM(trade_money) AS week_trade_money
+  FROM daily_base
+  GROUP BY Ticker, DATE_TRUNC('week', Date)
+),
+
+-- Add weekly % change
+weekly_with_change AS (
+  SELECT
+    *,
+    ((week_close - LAG(week_close) OVER (PARTITION BY Ticker ORDER BY week_start))
+      / NULLIF(LAG(week_close) OVER (PARTITION BY Ticker ORDER BY week_start), 0)) * 100 AS week_pct_change
+  FROM weekly_bars
+),
+
+-- Last N weeks per ticker
+last_n_weeks AS (
+  SELECT
+    Ticker,
+    week_start,
+    week_trade_money,
+    week_volume,
+    ROW_NUMBER() OVER (PARTITION BY Ticker ORDER BY week_start DESC) AS week_rank
+  FROM weekly_with_change
+),
+
+-- Average metrics over the last N weeks
+avg_metrics AS (
+  SELECT
+    Ticker,
+    AVG(week_trade_money) AS avg_week_trade_money,
+    AVG(week_volume) AS avg_week_volume
+  FROM last_n_weeks
+  WHERE week_rank <= {lookback}
+  GROUP BY Ticker
+),
+
+-- Latest completed week
+latest_week AS (
+  SELECT
+    w.*,
+    ROW_NUMBER() OVER (PARTITION BY Ticker ORDER BY week_start DESC) AS rn
+  FROM weekly_with_change w
+)
+"""
+
+
+def build_weekly_combined_sql(
+    lookback: int = DEFAULT_LOOKBACK,
+    top_k: int = DEFAULT_TOP_K,
+    strong_accel: float = DEFAULT_STRONG_ACCEL,
+    accel: float = DEFAULT_ACCEL,
+    decel: float = DEFAULT_WEEKLY_DECEL,
+    strong_decel: float = DEFAULT_WEEKLY_STRONG_DECEL,
+) -> str:
+    """Weekly combined report — all four non-Normal regimes among the
+    ``top_k`` most-liquid names, regime-priority ordering.
+
+    Adapted from ``docs/report_idea/report_weekly_trends.md``:
+    ``lookback`` trailing weeks feed the averages; the CASE labels all
+    four regimes; the final SELECT filters out 'Normal' and orders by
+    regime priority (Strong Acceleration, Acceleration, Deceleration,
+    Strong Deceleration) then ``rvol`` descending.
+    """
+    lookback = int(_require_number("lookback", lookback))
+    top_k = int(_require_number("top_k", top_k))
+    strong_accel = float(_require_number("strong_accel", strong_accel))
+    accel = float(_require_number("accel", accel))
+    decel = float(_require_number("decel", decel))
+    strong_decel = float(_require_number("strong_decel", strong_decel))
+
+    return (
+        _weekly_cte_prefix(lookback)
+        + f""",
+combined AS (
+  SELECT
+    l.Ticker,
+    l.week_start,
+    l.week_end_date AS latest_week_end,
+    l.week_close AS latest_close,
+    ROUND(l.week_pct_change, 2) AS pct_change,
+    l.week_volume AS latest_volume,
+    a.avg_week_volume,
+    ROUND(l.week_volume * 1.0 / NULLIF(a.avg_week_volume, 0), 2) AS rvol,
+    l.week_trade_money AS latest_dollar_volume,
+    a.avg_week_trade_money,
+    ROUND(l.week_trade_money * 1.0 / NULLIF(a.avg_week_trade_money, 0), 2) AS relative_dollar_vol,
+    CASE
+      WHEN l.week_volume * 1.0 / NULLIF(a.avg_week_volume, 0) >= {strong_accel} THEN 'Strong Acceleration'
+      WHEN l.week_volume * 1.0 / NULLIF(a.avg_week_volume, 0) >= {accel} THEN 'Acceleration'
+      WHEN l.week_volume * 1.0 / NULLIF(a.avg_week_volume, 0) <= {strong_decel} THEN 'Strong Deceleration'
+      WHEN l.week_volume * 1.0 / NULLIF(a.avg_week_volume, 0) <= {decel} THEN 'Deceleration'
+      ELSE 'Normal'
+    END AS volume_regime
+  FROM latest_week l
+  JOIN avg_metrics a ON l.Ticker = a.Ticker
+  WHERE l.rn = 1
+),
+
+ranked AS (
+  SELECT
+    *,
+    ROW_NUMBER() OVER (ORDER BY latest_dollar_volume DESC) AS dollar_rank
+  FROM combined
+)
+
+SELECT
+  Ticker,
+  week_start,
+  latest_week_end,
+  latest_close,
+  pct_change,
+  latest_volume,
+  avg_week_volume,
+  rvol,
+  ROUND(latest_dollar_volume, 0) AS latest_dollar_volume,
+  ROUND(avg_week_trade_money, 0) AS avg_dollar_volume,
+  relative_dollar_vol,
+  volume_regime
+FROM ranked
+WHERE volume_regime IN (
+    'Strong Acceleration',
+    'Acceleration',
+    'Deceleration',
+    'Strong Deceleration'
+  )
+  AND dollar_rank <= {top_k}
+ORDER BY
+  CASE volume_regime
+    WHEN 'Strong Acceleration' THEN 1
+    WHEN 'Acceleration' THEN 2
+    WHEN 'Deceleration' THEN 3
+    WHEN 'Strong Deceleration' THEN 4
+  END,
+  rvol DESC
+"""
+    )
+
+
+def build_weekly_accel_sql(
+    lookback: int = DEFAULT_LOOKBACK,
+    accel: float = DEFAULT_ACCEL,
+    strong_accel: float = DEFAULT_STRONG_ACCEL,
+    top_k: int = DEFAULT_TOP_K,
+) -> str:
+    """Weekly acceleration candidates — the two acceleration regimes
+    among the ``top_k`` most-liquid names, ``rvol`` descending.
+
+    Adapted from
+    ``docs/report_idea/report_weekly_trend_accelerating.md``.
+    """
+    lookback = int(_require_number("lookback", lookback))
+    accel = float(_require_number("accel", accel))
+    strong_accel = float(_require_number("strong_accel", strong_accel))
+    top_k = int(_require_number("top_k", top_k))
+
+    return (
+        _weekly_cte_prefix(lookback)
+        + f""",
+combined AS (
+  SELECT
+    l.Ticker,
+    l.week_start,
+    l.week_end_date AS latest_week_end,
+    l.week_close AS latest_close,
+    ROUND(l.week_pct_change, 2) AS pct_change,
+    l.week_volume AS latest_volume,
+    a.avg_week_volume,
+    ROUND(l.week_volume * 1.0 / NULLIF(a.avg_week_volume, 0), 2) AS rvol,
+    l.week_trade_money AS latest_dollar_volume,
+    a.avg_week_trade_money,
+    ROUND(l.week_trade_money * 1.0 / NULLIF(a.avg_week_trade_money, 0), 2) AS relative_dollar_vol,
+    CASE
+      WHEN l.week_volume * 1.0 / NULLIF(a.avg_week_volume, 0) >= {strong_accel} THEN 'Strong Acceleration'
+      WHEN l.week_volume * 1.0 / NULLIF(a.avg_week_volume, 0) >= {accel} THEN 'Acceleration'
+      ELSE 'Other'
+    END AS volume_regime
+  FROM latest_week l
+  JOIN avg_metrics a ON l.Ticker = a.Ticker
+  WHERE l.rn = 1
+),
+
+ranked AS (
+  SELECT
+    *,
+    ROW_NUMBER() OVER (ORDER BY latest_dollar_volume DESC) AS dollar_rank
+  FROM combined
+)
+
+SELECT
+  Ticker,
+  week_start,
+  latest_week_end,
+  latest_close,
+  pct_change,
+  latest_volume,
+  avg_week_volume,
+  rvol,
+  ROUND(latest_dollar_volume, 0) AS latest_dollar_volume,
+  ROUND(avg_week_trade_money, 0) AS avg_dollar_volume,
+  relative_dollar_vol,
+  volume_regime
+FROM ranked
+WHERE volume_regime IN ('Acceleration', 'Strong Acceleration')
+  AND dollar_rank <= {top_k}
+ORDER BY rvol DESC, latest_dollar_volume DESC
+"""
+    )
+
+
+def build_weekly_decel_sql(
+    lookback: int = DEFAULT_LOOKBACK,
+    decel: float = DEFAULT_WEEKLY_DECEL,
+    strong_decel: float = DEFAULT_WEEKLY_STRONG_DECEL,
+    top_k: int = DEFAULT_TOP_K,
+) -> str:
+    """Weekly deceleration candidates — the two deceleration regimes
+    among the ``top_k`` most-liquid names, ``rvol`` ascending
+    (quietest names first).
+
+    Adapted from
+    ``docs/report_idea/report_weekly_trend_decelerating.md``.  Note the
+    weekly decel defaults (``strong_decel=0.50``, ``decel=0.70``) are
+    tighter than the daily ones.
+    """
+    lookback = int(_require_number("lookback", lookback))
+    decel = float(_require_number("decel", decel))
+    strong_decel = float(_require_number("strong_decel", strong_decel))
+    top_k = int(_require_number("top_k", top_k))
+
+    return (
+        _weekly_cte_prefix(lookback)
+        + f""",
+combined AS (
+  SELECT
+    l.Ticker,
+    l.week_start,
+    l.week_end_date AS latest_week_end,
+    l.week_close AS latest_close,
+    ROUND(l.week_pct_change, 2) AS pct_change,
+    l.week_volume AS latest_volume,
+    a.avg_week_volume,
+    ROUND(l.week_volume * 1.0 / NULLIF(a.avg_week_volume, 0), 2) AS rvol,
+    l.week_trade_money AS latest_dollar_volume,
+    a.avg_week_trade_money,
+    ROUND(l.week_trade_money * 1.0 / NULLIF(a.avg_week_trade_money, 0), 2) AS relative_dollar_vol,
+    CASE
+      WHEN l.week_volume * 1.0 / NULLIF(a.avg_week_volume, 0) <= {strong_decel} THEN 'Strong Deceleration'
+      WHEN l.week_volume * 1.0 / NULLIF(a.avg_week_volume, 0) <= {decel} THEN 'Deceleration'
+      ELSE 'Other'
+    END AS volume_regime
+  FROM latest_week l
+  JOIN avg_metrics a ON l.Ticker = a.Ticker
+  WHERE l.rn = 1
+),
+
+ranked AS (
+  SELECT
+    *,
+    ROW_NUMBER() OVER (ORDER BY latest_dollar_volume DESC) AS dollar_rank
+  FROM combined
+)
+
+SELECT
+  Ticker,
+  week_start,
+  latest_week_end,
+  latest_close,
+  pct_change,
+  latest_volume,
+  avg_week_volume,
+  rvol,
+  ROUND(latest_dollar_volume, 0) AS latest_dollar_volume,
+  ROUND(avg_week_trade_money, 0) AS avg_dollar_volume,
+  relative_dollar_vol,
+  volume_regime
+FROM ranked
+WHERE volume_regime IN ('Deceleration', 'Strong Deceleration')
+  AND dollar_rank <= {top_k}
+ORDER BY rvol ASC, latest_dollar_volume DESC
+"""
+    )
 
 
 # ------------------------------------------------------------------
@@ -853,6 +1296,298 @@ def _render_accel_tab(st, config: PipelineConfig) -> None:
     )
 
 
+def _render_weekly_combined_tab(st, config: PipelineConfig) -> None:
+    """Weekly — Combined Regimes: all four non-Normal weekly volume
+    regimes among the top-K most-liquid names, regime-priority
+    ordering (Strong Acceleration first, Strong Deceleration last)."""
+    with st.expander("Parameters", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            lookback = st.number_input(
+                "Lookback weeks",
+                min_value=2,
+                max_value=260,
+                value=DEFAULT_LOOKBACK,
+                step=1,
+                key="wc_lookback",
+            )
+            top_k = st.number_input(
+                "Liquidity top-K",
+                min_value=1,
+                max_value=2000,
+                value=DEFAULT_TOP_K,
+                step=1,
+                key="wc_top_k",
+            )
+        with col2:
+            strong_accel = st.number_input(
+                "Strong Acceleration RVOL >=",
+                min_value=0.0,
+                value=DEFAULT_STRONG_ACCEL,
+                step=0.1,
+                key="wc_strong_accel",
+            )
+            accel = st.number_input(
+                "Acceleration RVOL >=",
+                min_value=0.0,
+                value=DEFAULT_ACCEL,
+                step=0.1,
+                key="wc_accel",
+            )
+        with col3:
+            decel = st.number_input(
+                "Deceleration RVOL <=",
+                min_value=0.0,
+                value=DEFAULT_WEEKLY_DECEL,
+                step=0.1,
+                key="wc_decel",
+            )
+            strong_decel = st.number_input(
+                "Strong Deceleration RVOL <=",
+                min_value=0.0,
+                value=DEFAULT_WEEKLY_STRONG_DECEL,
+                step=0.1,
+                key="wc_strong_decel",
+            )
+        if st.button("Refresh data", key="wc_refresh"):
+            _get_cached_fetch(st).clear()
+
+    # Non-blocking warning: an inverted pair silently mislabels rows
+    # (the CASE checks the strong bound first), so surface it but still
+    # render the tab.
+    # justified: at most two warning strings — one per inverted
+    # threshold pair; a fixed tiny set, not data iteration.
+    for msg in find_threshold_inversions(
+        accel=accel,
+        strong_accel=strong_accel,
+        decel=decel,
+        strong_decel=strong_decel,
+    ):
+        st.warning(msg)
+
+    try:
+        sql = build_weekly_combined_sql(
+            lookback=lookback,
+            top_k=top_k,
+            strong_accel=strong_accel,
+            accel=accel,
+            decel=decel,
+            strong_decel=strong_decel,
+        )
+    except (TypeError, ValueError) as exc:
+        st.error(f"Invalid parameters: {exc}")
+        return
+
+    df = cached_fetch_dataframe(st, sql, config)
+    if df is None:
+        st.error(
+            "Could not fetch report data — the Flight server is "
+            "unreachable and the direct read-only DuckDB fallback "
+            "failed (the database write lock is probably held by "
+            "another process, or the database file is unavailable)."
+        )
+        return
+
+    st.caption(f"{len(df)} row(s)")
+    st.dataframe(df, width="stretch")
+    if not df.empty and "rvol" in df.columns:
+        st.bar_chart(df, x="Ticker", y="rvol")
+    st.download_button(
+        label="Download as Excel",
+        data=dataframe_to_xlsx_bytes(df, sheet_name=_TAB_WC_SHEET),
+        file_name=_TAB_WC_FILENAME,
+        mime=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        key="wc_download",
+    )
+    with st.expander("Interpretation guide"):
+        st.markdown(WEEKLY_COMBINED_GUIDE)
+
+
+def _render_weekly_accel_tab(st, config: PipelineConfig) -> None:
+    """Weekly — Acceleration: weekly acceleration candidates among the
+    top-K most-liquid names, ordered by rvol descending."""
+    with st.expander("Parameters", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            lookback = st.number_input(
+                "Lookback weeks",
+                min_value=2,
+                max_value=260,
+                value=DEFAULT_LOOKBACK,
+                step=1,
+                key="wa_lookback",
+            )
+            top_k = st.number_input(
+                "Liquidity top-K",
+                min_value=1,
+                max_value=2000,
+                value=DEFAULT_TOP_K,
+                step=1,
+                key="wa_top_k",
+            )
+        with col2:
+            accel = st.number_input(
+                "Acceleration RVOL >=",
+                min_value=0.0,
+                value=DEFAULT_ACCEL,
+                step=0.1,
+                key="wa_accel",
+            )
+        with col3:
+            strong_accel = st.number_input(
+                "Strong Acceleration RVOL >=",
+                min_value=0.0,
+                value=DEFAULT_STRONG_ACCEL,
+                step=0.1,
+                key="wa_strong_accel",
+            )
+        if st.button("Refresh data", key="wa_refresh"):
+            _get_cached_fetch(st).clear()
+
+    # Non-blocking warning: with strong_accel < accel the regime-label
+    # filter silently becomes rvol >= strong_accel — surface it but
+    # still render the tab.
+    # justified: at most one warning string for this tab's pair; a
+    # fixed tiny set, not data iteration.
+    for msg in find_threshold_inversions(
+        accel=accel, strong_accel=strong_accel
+    ):
+        st.warning(msg)
+
+    try:
+        sql = build_weekly_accel_sql(
+            lookback=lookback,
+            accel=accel,
+            strong_accel=strong_accel,
+            top_k=top_k,
+        )
+    except (TypeError, ValueError) as exc:
+        st.error(f"Invalid parameters: {exc}")
+        return
+
+    df = cached_fetch_dataframe(st, sql, config)
+    if df is None:
+        st.error(
+            "Could not fetch report data — the Flight server is "
+            "unreachable and the direct read-only DuckDB fallback "
+            "failed (the database write lock is probably held by "
+            "another process, or the database file is unavailable)."
+        )
+        return
+
+    st.caption(f"{len(df)} row(s)")
+    st.dataframe(df, width="stretch")
+    if not df.empty and "rvol" in df.columns:
+        st.bar_chart(df, x="Ticker", y="rvol")
+    st.download_button(
+        label="Download as Excel",
+        data=dataframe_to_xlsx_bytes(df, sheet_name=_TAB_WA_SHEET),
+        file_name=_TAB_WA_FILENAME,
+        mime=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        key="wa_download",
+    )
+    with st.expander("Interpretation guide"):
+        st.markdown(WEEKLY_ACCEL_GUIDE)
+
+
+def _render_weekly_decel_tab(st, config: PipelineConfig) -> None:
+    """Weekly — Deceleration: weekly deceleration candidates among the
+    top-K most-liquid names, ordered by rvol ascending (quietest
+    names first).  Weekly decel defaults are 0.50 / 0.70 — tighter
+    than the daily 0.6 / 0.8."""
+    with st.expander("Parameters", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            lookback = st.number_input(
+                "Lookback weeks",
+                min_value=2,
+                max_value=260,
+                value=DEFAULT_LOOKBACK,
+                step=1,
+                key="wd_lookback",
+            )
+            top_k = st.number_input(
+                "Liquidity top-K",
+                min_value=1,
+                max_value=2000,
+                value=DEFAULT_TOP_K,
+                step=1,
+                key="wd_top_k",
+            )
+        with col2:
+            decel = st.number_input(
+                "Deceleration RVOL <=",
+                min_value=0.0,
+                value=DEFAULT_WEEKLY_DECEL,
+                step=0.1,
+                key="wd_decel",
+            )
+        with col3:
+            strong_decel = st.number_input(
+                "Strong Deceleration RVOL <=",
+                min_value=0.0,
+                value=DEFAULT_WEEKLY_STRONG_DECEL,
+                step=0.1,
+                key="wd_strong_decel",
+            )
+        if st.button("Refresh data", key="wd_refresh"):
+            _get_cached_fetch(st).clear()
+
+    # Non-blocking warning: with strong_decel > decel the regime-label
+    # filter silently becomes rvol <= strong_decel — surface it but
+    # still render the tab.
+    # justified: at most one warning string for this tab's pair; a
+    # fixed tiny set, not data iteration.
+    for msg in find_threshold_inversions(
+        decel=decel, strong_decel=strong_decel
+    ):
+        st.warning(msg)
+
+    try:
+        sql = build_weekly_decel_sql(
+            lookback=lookback,
+            decel=decel,
+            strong_decel=strong_decel,
+            top_k=top_k,
+        )
+    except (TypeError, ValueError) as exc:
+        st.error(f"Invalid parameters: {exc}")
+        return
+
+    df = cached_fetch_dataframe(st, sql, config)
+    if df is None:
+        st.error(
+            "Could not fetch report data — the Flight server is "
+            "unreachable and the direct read-only DuckDB fallback "
+            "failed (the database write lock is probably held by "
+            "another process, or the database file is unavailable)."
+        )
+        return
+
+    st.caption(f"{len(df)} row(s)")
+    st.dataframe(df, width="stretch")
+    if not df.empty and "rvol" in df.columns:
+        st.bar_chart(df, x="Ticker", y="rvol")
+    st.download_button(
+        label="Download as Excel",
+        data=dataframe_to_xlsx_bytes(df, sheet_name=_TAB_WD_SHEET),
+        file_name=_TAB_WD_FILENAME,
+        mime=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        key="wd_download",
+    )
+    with st.expander("Interpretation guide"):
+        st.markdown(WEEKLY_DECEL_GUIDE)
+
+
 def main() -> None:
     """Streamlit entrypoint — run via ``streamlit run scripts/report_app.py``."""
     import streamlit as st
@@ -866,13 +1601,31 @@ def main() -> None:
         st.error(f"Failed to load configuration ({_CONFIG_PATH}): {exc}")
         return
 
-    tab_top25, tab_accel = st.tabs(
-        ["Top 25 by Dollar Volume", "Acceleration Candidates"]
+    (
+        tab_top25,
+        tab_accel,
+        tab_weekly_combined,
+        tab_weekly_accel,
+        tab_weekly_decel,
+    ) = st.tabs(
+        [
+            "Daily — Top 25 by Dollar Volume",
+            "Daily — Acceleration Candidates",
+            "Weekly — Combined Regimes",
+            "Weekly — Acceleration",
+            "Weekly — Deceleration",
+        ]
     )
     with tab_top25:
         _render_top25_tab(st, config)
     with tab_accel:
         _render_accel_tab(st, config)
+    with tab_weekly_combined:
+        _render_weekly_combined_tab(st, config)
+    with tab_weekly_accel:
+        _render_weekly_accel_tab(st, config)
+    with tab_weekly_decel:
+        _render_weekly_decel_tab(st, config)
 
 
 # ``streamlit run`` executes this file as __main__, while unit tests

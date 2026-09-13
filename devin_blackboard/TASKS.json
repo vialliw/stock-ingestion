@@ -2410,7 +2410,7 @@
     "title": "Weekly trend reports: add three weekly volume-regime tabs to the Streamlit app",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T23"
     ],
