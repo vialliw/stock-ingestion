@@ -2273,7 +2273,7 @@
     "title": "Hardening: restart-starvation (C1) + challenger lookback_days parity (C2)",
     "role": "executor",
     "model": "swe",
-    "status": "todo",
+    "status": "in_progress",
     "depends_on": [
       "F7-T17"
     ],
