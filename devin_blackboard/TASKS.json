@@ -2430,5 +2430,26 @@
     ],
     "acceptance_criteria": "(1) scripts/report_app.py gains THREE new tabs built on the docs/report_idea/report_weekly*.md SQLs, tab names chosen by intent: weekly combined accel+decel report (report_weekly_trends.md — all 4 regimes, regime-priority ordering Strong Accel/Accel/Decel/Strong Decel then rvol DESC), weekly acceleration candidates (report_weekly_trend_accelerating.md — accel regimes only, rvol DESC), weekly deceleration candidates (report_weekly_trend_decelerating.md — decel regimes only, rvol ASC). All three: weekly bars via DATE_TRUNC(week), last-N-weeks averages (default 30), liquidity filter dollar_rank<=K (default 50). NOTE weekly decel defaults differ from daily: strong_decel=0.50, decel=0.70 (daily uses 0.6/0.8) — keep the weekly defaults from the spec. (2) Interactive params per tab via widgets: lookback weeks (30), liquidity top-K (50), the relevant RVOL thresholds (weekly accel 2.5/1.8; weekly decel 0.50/0.70; combined all four). (3) Each weekly tab renders the interpretation guide from its source md VERBATIM (same wording — embed the guide text as module constants; st.markdown in an st.expander or equivalent). (4) SQL lives in module-level builders (build_weekly_*_sql) reusing _require_number / regime whitelist patterns; numerics TypeError-checked. (5) Reuse cached_fetch_dataframe + Refresh + st.dataframe + bar chart + xlsx download per tab; inverted-threshold warnings via find_threshold_inversions where the pair applies. (6) tests/test_report_app.py gains tests: weekly builders produce correct SQL (weekly CTEs, thresholds injected, decel ordering ASC vs accel DESC, liquidity bound), generated SQL executes on seeded DuckDB. (7) README.md + docs/README.md updated to document the 5-tab app. (8) pytest -q exit 0; check_loops + --strict exit 0.",
     "assigned_to": "B"
+  },
+  {
+    "id": "F7-T25",
+    "title": "Fix weekly combined ordering: rank Strong Deceleration #3 per the interpretation guide (PM-approved deviation from spec SQL)",
+    "role": "executor",
+    "model": "swe",
+    "status": "in_progress",
+    "depends_on": [
+      "F7-T24"
+    ],
+    "input_files": [
+      "/scripts/report_app.py",
+      "/tests/test_report_app.py",
+      "/docs/report_idea/report_weekly_trends.md"
+    ],
+    "output_files": [
+      "/scripts/report_app.py",
+      "/tests/test_report_app.py"
+    ],
+    "acceptance_criteria": "(1) build_weekly_combined_sql ORDER BY regime-priority CASE is changed from SA=1/A=2/D=3/SD=4 to SA=1/A=2/SD=3/D=4 so the result order matches the spec guide's Recommended reading order (Strong Acceleration, Acceleration, Strong Deceleration, Deceleration). PM-approved deviation from the md SQL which has them swapped (spec-internal inconsistency). (2) A brief code comment near the CASE notes the deliberate deviation from the source md. (3) tests/test_report_app.py updated: combined builder test asserts the new priority literals; seeded-DuckDB combined test asserts the new exact ordering (Strong Decel before Decel). (4) pytest -q exit 0; check_loops + --strict exit 0.",
+    "assigned_to": "B"
   }
 ]

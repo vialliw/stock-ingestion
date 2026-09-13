@@ -1915,3 +1915,5 @@ NON-BLOCKING findings: (N1) lookback=2.9 silently int-truncates to 2 — same pa
   REGRESSION: import report_app still streamlit-free; daily tabs unchanged in behavior.
   C NON-BLOCKER ASSESSMENT (recommend only): N1 (float lookback int-truncates — programmatic-only, widgets emit ints step=1) + N3 (lookback<=0 accepted — programmatic-only, UI min_value=2) + N4 (_require_number docstring says ValueError/TypeError but only raises TypeError, :177-180): all cosmetic, recommend folding into the already-recommended report-app polish task (F7-T23 N1 cross-pair overlap warning + F7-T23 N4 'never hit' comment) — still unscheduled, no F7-T25 exists. N2 (combined md guide lists Strong Decel read-order #3 while its own SQL ranks it #4 — spec-internal quirk faithfully reproduced; AC explicitly mandates the SQL ordering): not a defect, PM awareness only. NONE BLOCKING.
   NEW FINDINGS: none. No src/ scripts/ tests/ files modified by Critic. Blackboard only.
+
+[2026-09-13T18:32:16.010986+00:00] [EXECUTOR] claimed F7-T25
