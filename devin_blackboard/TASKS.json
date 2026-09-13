@@ -2404,5 +2404,31 @@
     ],
     "acceptance_criteria": "(1) When the user sets inverted RVOL regime thresholds (strong_accel < accel, or strong_decel > decel) the app surfaces a visible st.warning explaining the misordering instead of silently mislabeling/filtering on the wrong bound — both tabs covered. (2) fetch_dataframe results cached via st.cache_data keyed on the SQL text (or equivalent) so widget reruns do not re-query the Flight server/DuckDB when the SQL is unchanged; cache TTL or explicit refresh mechanism so stale data is not served indefinitely. (3) The warning logic lives in a module-level importable helper (e.g. find_threshold_inversions(...)) testable without streamlit. (4) tests/test_report_app.py gains tests: inversion detection (both directions), non-inverted passes clean, cache key derivation is SQL-dependent. (5) pytest -q exit 0; check_loops + --strict exit 0.",
     "assigned_to": "B"
+  },
+  {
+    "id": "F7-T24",
+    "title": "Weekly trend reports: add three weekly volume-regime tabs to the Streamlit app",
+    "role": "executor",
+    "model": "swe",
+    "status": "in_progress",
+    "depends_on": [
+      "F7-T23"
+    ],
+    "input_files": [
+      "/docs/report_idea/report_weekly_trends.md",
+      "/docs/report_idea/report_weekly_trend_accelerating.md",
+      "/docs/report_idea/report_weekly_trend_decelerating.md",
+      "/scripts/report_app.py",
+      "/tests/test_report_app.py",
+      "/README.md"
+    ],
+    "output_files": [
+      "/scripts/report_app.py",
+      "/tests/test_report_app.py",
+      "/README.md",
+      "/docs/README.md"
+    ],
+    "acceptance_criteria": "(1) scripts/report_app.py gains THREE new tabs built on the docs/report_idea/report_weekly*.md SQLs, tab names chosen by intent: weekly combined accel+decel report (report_weekly_trends.md — all 4 regimes, regime-priority ordering Strong Accel/Accel/Decel/Strong Decel then rvol DESC), weekly acceleration candidates (report_weekly_trend_accelerating.md — accel regimes only, rvol DESC), weekly deceleration candidates (report_weekly_trend_decelerating.md — decel regimes only, rvol ASC). All three: weekly bars via DATE_TRUNC(week), last-N-weeks averages (default 30), liquidity filter dollar_rank<=K (default 50). NOTE weekly decel defaults differ from daily: strong_decel=0.50, decel=0.70 (daily uses 0.6/0.8) — keep the weekly defaults from the spec. (2) Interactive params per tab via widgets: lookback weeks (30), liquidity top-K (50), the relevant RVOL thresholds (weekly accel 2.5/1.8; weekly decel 0.50/0.70; combined all four). (3) Each weekly tab renders the interpretation guide from its source md VERBATIM (same wording — embed the guide text as module constants; st.markdown in an st.expander or equivalent). (4) SQL lives in module-level builders (build_weekly_*_sql) reusing _require_number / regime whitelist patterns; numerics TypeError-checked. (5) Reuse cached_fetch_dataframe + Refresh + st.dataframe + bar chart + xlsx download per tab; inverted-threshold warnings via find_threshold_inversions where the pair applies. (6) tests/test_report_app.py gains tests: weekly builders produce correct SQL (weekly CTEs, thresholds injected, decel ordering ASC vs accel DESC, liquidity bound), generated SQL executes on seeded DuckDB. (7) README.md + docs/README.md updated to document the 5-tab app. (8) pytest -q exit 0; check_loops + --strict exit 0.",
+    "assigned_to": "B"
   }
 ]

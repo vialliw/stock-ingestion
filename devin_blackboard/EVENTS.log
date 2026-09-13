@@ -1887,3 +1887,5 @@ No src/ scripts/ tests/ files modified by Challenger C. Blackboard only.
   REGRESSION CHECK: fetch_dataframe(sql, config) signature intact at :538-550 (delegates to _fetch_dataframe_uncached); existing 5 fetch tests still exercise it and pass.
   C NON-BLOCKER ASSESSMENT (recommend, not decide): N1 (cross-pair overlap, e.g. accel=0.5 < decel=1.5 — overlapping bands silently resolved by CASE order, UI-reachable via number_inputs) is the only follow-up worth a task — same footgun class F7-T23 was created to close; recommend ONE small polish task extending find_threshold_inversions with an overlap check + folding in N4 (inaccurate 'never hit' comment at :587-589). N2 (NaN/bool no-warning — programmatic-only, widgets can't emit), N3 (Refresh clears whole per-function cache incl. other tab — harmless label-vs-effect), N5 (process-global store — by design, local single-user app): defer, no task needed.
   NEW FINDINGS: none. No src/ scripts/ tests/ files modified by Critic. Blackboard only.
+
+[2026-09-13T17:24:38.806922+00:00] [EXECUTOR] claimed F7-T24
