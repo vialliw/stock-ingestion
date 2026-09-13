@@ -1,10 +1,11 @@
 """Tests for ``scripts/report_app.py`` — the Streamlit report app.
 
 Only the non-UI surface is exercised: the SQL builders, the
-Flight-first / DuckDB-fallback fetch logic, and the in-memory xlsx
-serializer.  No Streamlit server is started; ``streamlit`` is never
-imported by these tests (report_app imports it lazily inside the UI
-functions only).
+threshold-inversion helper, the Flight-first / DuckDB-fallback fetch
+logic, the ``st.cache_data`` key derivation (via a fake ``st``), and
+the in-memory xlsx serializer.  No Streamlit server is started;
+``streamlit`` is never imported by these tests (report_app imports it
+lazily inside the UI functions only).
 """
 
 from __future__ import annotations
@@ -366,6 +367,221 @@ class TestFetchDataframe:
             )
 
         assert list(df["Ticker"]) == ["AAA"]
+
+
+class TestFindThresholdInversions:
+    """Module-level helper behind the per-tab ``st.warning`` calls —
+    pure function, exercised here without streamlit."""
+
+    def test_accel_pair_inverted(self):
+        """strong_accel < accel — the live-verified footgun: the CASE
+        checks strong first so rvol ~1.0 names get 'Strong
+        Acceleration' and tab B's filter silently becomes
+        rvol >= strong_accel."""
+        msgs = report_app.find_threshold_inversions(
+            accel=2.0, strong_accel=1.0
+        )
+        assert len(msgs) == 1
+        assert "Inverted" in msgs[0]
+        assert "Strong Acceleration" in msgs[0]
+        # Both bounds appear so the user sees the misordering.
+        assert "rvol >= 1" in msgs[0]
+        assert "rvol >= 2" in msgs[0]
+
+    def test_decel_pair_inverted(self):
+        """strong_decel > decel — the mirror-image misordering on the
+        deceleration side (tab A)."""
+        msgs = report_app.find_threshold_inversions(
+            decel=0.5, strong_decel=0.9
+        )
+        assert len(msgs) == 1
+        assert "Inverted" in msgs[0]
+        assert "Strong Deceleration" in msgs[0]
+        assert "rvol <= 0.9" in msgs[0]
+        assert "rvol <= 0.5" in msgs[0]
+
+    def test_both_pairs_inverted_reports_two(self):
+        msgs = report_app.find_threshold_inversions(
+            accel=2.0, strong_accel=1.0, decel=0.5, strong_decel=0.9
+        )
+        assert len(msgs) == 2
+        joined = " ".join(msgs)
+        assert "Strong Acceleration" in joined
+        assert "Strong Deceleration" in joined
+
+    def test_defaults_not_inverted(self):
+        assert (
+            report_app.find_threshold_inversions(
+                accel=report_app.DEFAULT_ACCEL,
+                strong_accel=report_app.DEFAULT_STRONG_ACCEL,
+                decel=report_app.DEFAULT_DECEL,
+                strong_decel=report_app.DEFAULT_STRONG_DECEL,
+            )
+            == []
+        )
+
+    def test_equal_bounds_not_inverted(self):
+        """Equal thresholds are not *inverted* — the strong label
+        legitimately absorbs the boundary."""
+        assert (
+            report_app.find_threshold_inversions(
+                accel=1.8, strong_accel=1.8, decel=0.8, strong_decel=0.8
+            )
+            == []
+        )
+
+    def test_none_pairs_skipped(self):
+        """Tab B only has the accel pair — a ``None`` decel pair must
+        produce no warning."""
+        assert (
+            report_app.find_threshold_inversions(
+                accel=1.8, strong_accel=2.5
+            )
+            == []
+        )
+        assert report_app.find_threshold_inversions() == []
+
+
+class _FakeCacheData:
+    """Minimal stand-in for the ``st`` object's ``cache_data``.
+
+    Implements the kwargs-decorator form (``@st.cache_data(ttl=...)``)
+    as an in-memory dict keyed on the wrapped function's positional
+    args — enough to prove the cache key is SQL-dependent — and records
+    the decorator kwargs so the TTL is assertable.  Exposes ``.clear()``
+    on the wrapper like the real ``st.cache_data`` function.
+    """
+
+    def __init__(self):
+        self.decorator_kwargs = []
+        self.store = {}
+
+    def cache_data(self, **kwargs):
+        self.decorator_kwargs.append(kwargs)
+        store = self.store
+
+        def decorator(fn):
+            def wrapper(*args):
+                if args not in store:
+                    store[args] = fn(*args)
+                return store[args]
+
+            def clear():
+                store.clear()
+
+            wrapper.clear = clear
+            return wrapper
+
+        return decorator
+
+
+class TestCachedFetch:
+    """The ``st.cache_data`` layer — built lazily via
+    ``_build_cached_fetch(st)`` / ``_get_cached_fetch(st)`` so it is
+    exercisable here with a fake ``st`` (no streamlit import)."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_cached_fetch_singleton(self):
+        saved = report_app._CACHED_FETCH
+        report_app._CACHED_FETCH = None
+        yield
+        report_app._CACHED_FETCH = saved
+
+    def test_cache_key_is_sql_dependent(self, tmp_path):
+        """Same SQL -> one underlying fetch; changed SQL (a widget
+        rerun that altered the query) -> re-fetch."""
+        fake_st = _FakeCacheData()
+        cached = report_app._build_cached_fetch(fake_st)
+        df = pd.DataFrame({"x": [1]})
+        with patch.object(
+            report_app, "_fetch_dataframe_uncached", return_value=df
+        ) as mock_fetch:
+            first = cached("SELECT 1", "grpc://h:1", "db1")
+            second = cached("SELECT 1", "grpc://h:1", "db1")
+            third = cached("SELECT 2", "grpc://h:1", "db1")
+
+        assert mock_fetch.call_count == 2
+        # Cache hit returns the stored object for the repeated key.
+        assert first is second
+        assert third is df
+        # The two underlying calls differ only in the SQL text.
+        sqls = [call.args[0] for call in mock_fetch.call_args_list]
+        assert sqls == ["SELECT 1", "SELECT 2"]
+
+    def test_cache_key_includes_connection_targets(self):
+        """Same SQL against a different Flight location or DB path is
+        a different cache entry."""
+        fake_st = _FakeCacheData()
+        cached = report_app._build_cached_fetch(fake_st)
+        with patch.object(
+            report_app,
+            "_fetch_dataframe_uncached",
+            return_value=pd.DataFrame({"x": [1]}),
+        ) as mock_fetch:
+            cached("SELECT 1", "grpc://a:1", "db1")
+            cached("SELECT 1", "grpc://b:1", "db1")
+            cached("SELECT 1", "grpc://a:1", "db2")
+            cached("SELECT 1", "grpc://a:1", "db1")
+
+        assert mock_fetch.call_count == 3
+
+    def test_ttl_is_configured(self):
+        fake_st = _FakeCacheData()
+        report_app._build_cached_fetch(fake_st)
+        assert len(fake_st.decorator_kwargs) == 1
+        assert (
+            fake_st.decorator_kwargs[0]["ttl"]
+            == report_app._CACHE_TTL_S
+        )
+        assert report_app._CACHE_TTL_S > 0
+
+    def test_clear_forces_refetch(self):
+        """The "Refresh data" buttons call ``.clear()`` — after it,
+        the same SQL is fetched again."""
+        fake_st = _FakeCacheData()
+        cached = report_app._build_cached_fetch(fake_st)
+        with patch.object(
+            report_app,
+            "_fetch_dataframe_uncached",
+            return_value=pd.DataFrame({"x": [1]}),
+        ) as mock_fetch:
+            cached("SELECT 1", "grpc://h:1", "db1")
+            cached.clear()
+            cached("SELECT 1", "grpc://h:1", "db1")
+
+        assert mock_fetch.call_count == 2
+
+    def test_cached_fetch_dataframe_derives_key_from_config(
+        self, tmp_path
+    ):
+        """``cached_fetch_dataframe`` maps config -> (location,
+        db_path) so the cache key is (sql, grpc target, db file)."""
+        config = _config(tmp_path)
+        fake_st = _FakeCacheData()
+        df = pd.DataFrame({"x": [1]})
+        with patch.object(
+            report_app, "_fetch_dataframe_uncached", return_value=df
+        ) as mock_fetch:
+            report_app.cached_fetch_dataframe(fake_st, "SELECT 1", config)
+            report_app.cached_fetch_dataframe(fake_st, "SELECT 1", config)
+
+        assert mock_fetch.call_count == 1
+        args = mock_fetch.call_args.args
+        assert args[0] == "SELECT 1"
+        assert args[1] == (
+            f"grpc://{config.server.flight_host}:"
+            f"{config.server.flight_port}"
+        )
+        assert args[2] == config.db_path
+
+    def test_get_cached_fetch_builds_singleton_once(self):
+        """The st.cache_data wrapper is built once and reused — a
+        fresh wrapper per rerun would never hit the cache."""
+        fake_st = _FakeCacheData()
+        first = report_app._get_cached_fetch(fake_st)
+        second = report_app._get_cached_fetch(fake_st)
+        assert first is second
+        assert len(fake_st.decorator_kwargs) == 1
 
 
 class TestDataframeToXlsxBytes:

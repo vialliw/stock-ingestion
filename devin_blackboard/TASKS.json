@@ -2390,7 +2390,7 @@
     "title": "Report app hardening: inverted-threshold warning + query caching (C-N1/C-N2 follow-ups)",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T22"
     ],

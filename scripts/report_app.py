@@ -26,11 +26,30 @@ call bound), and any Flight-path failure falls back to a direct
 *read-only* DuckDB connection.  When both fail the tab shows
 ``st.error``.
 
+Two hardening behaviours on top of that:
+
+* **Caching.**  The UI path fetches through an ``st.cache_data``
+  wrapper keyed on ``(sql, flight_location, db_path)`` with a TTL of
+  ``_CACHE_TTL_S`` seconds, so a widget rerun that leaves the SQL text
+  unchanged does not re-query the Flight server / DuckDB.  Each tab
+  also has a "Refresh data" button that clears the cache explicitly.
+* **Inverted-threshold warnings.**  The generated ``CASE`` checks the
+  *strong* RVOL bounds first, so thresholds only behave as labelled
+  when ``strong_accel >= accel`` and ``strong_decel <= decel``.
+  ``find_threshold_inversions`` reports each misordering and the UI
+  surfaces it as a non-blocking ``st.warning`` on both tabs (the tab
+  still renders — warn, don't refuse).
+
 The module is importable and unit-testable *without* the Streamlit
 runtime: the SQL builder functions (:func:`build_top25_sql`,
-:func:`build_accel_sql`), the data fetch (:func:`fetch_dataframe`) and
-the xlsx serializer (:func:`dataframe_to_xlsx_bytes`) are plain
-functions; ``streamlit`` is only imported inside the UI code paths.
+:func:`build_accel_sql`), the threshold helper
+(:func:`find_threshold_inversions`), the data fetch
+(:func:`fetch_dataframe`) and the xlsx serializer
+(:func:`dataframe_to_xlsx_bytes`) are plain functions;
+``streamlit`` is only imported inside the UI code paths — the
+``st.cache_data`` wrapper is likewise built lazily via
+``_build_cached_fetch(st)`` / ``_get_cached_fetch(st)`` so tests can
+exercise the cache-key derivation with a fake ``st``.
 
 Launch with:
 
@@ -44,7 +63,7 @@ import json
 import logging
 import os
 import sys
-from typing import Optional, Sequence
+from typing import List, Optional, Sequence
 
 # Ensure src/ is importable regardless of the caller's working
 # directory (mirrors scripts/daily_load_once.py /
@@ -75,6 +94,12 @@ _FLIGHT_GET_TIMEOUT_S = 120
 # Padding added to each auto-sized xlsx column so content is not flush
 # against the cell edge in Excel.
 _WIDTH_PADDING = 2
+
+# TTL for the st.cache_data wrapper: bounds how long a widget rerun may
+# serve data fetched before the underlying table changed.  Five minutes
+# keeps interactive tweaking snappy while still picking up fresh data
+# after a daily load; the "Refresh data" buttons clear the cache early.
+_CACHE_TTL_S = 300
 
 # ------------------------------------------------------------------
 # Report parameter defaults (tunable via the Streamlit widgets).
@@ -386,6 +411,65 @@ ORDER BY rvol DESC, latest_trade_money DESC
 
 
 # ------------------------------------------------------------------
+# Threshold sanity helper — pure function, testable without Streamlit.
+# ------------------------------------------------------------------
+
+
+def find_threshold_inversions(
+    accel: Optional[float] = None,
+    strong_accel: Optional[float] = None,
+    decel: Optional[float] = None,
+    strong_decel: Optional[float] = None,
+) -> List[str]:
+    """Return human-readable descriptions of inverted RVOL thresholds.
+
+    The generated ``CASE`` expressions check the *strong* bounds first,
+    so the regime labels only behave as labelled when
+    ``strong_accel >= accel`` and ``strong_decel <= decel``.  With an
+    inverted pair the query silently mislabels rows — e.g.
+    ``accel=2.0, strong_accel=1.0`` labels every ``rvol >= 1.0`` name
+    'Strong Acceleration' (never plain 'Acceleration'), and on tab B
+    the effective filter becomes ``rvol >= strong_accel`` because the
+    WHERE clause filters on the regime *label*, not on ``rvol >=
+    accel`` directly.  The decel pair is the mirror image.
+
+    Each ``None`` pair is skipped — tab B only uses the acceleration
+    pair.  Returns an empty list when nothing is inverted; the caller
+    renders one non-blocking ``st.warning`` per returned string.
+    """
+    inversions: List[str] = []
+    if (
+        accel is not None
+        and strong_accel is not None
+        and strong_accel < accel
+    ):
+        inversions.append(
+            f"Inverted thresholds: 'Strong Acceleration' "
+            f"(rvol >= {strong_accel:g}) is set BELOW 'Acceleration' "
+            f"(rvol >= {accel:g}). The SQL checks the strong bound "
+            f"first, so every row with rvol >= {strong_accel:g} is "
+            f"labelled 'Strong Acceleration' and the effective "
+            f"acceleration floor is {strong_accel:g}, not {accel:g}. "
+            f"Set 'Strong Acceleration' >= 'Acceleration'."
+        )
+    if (
+        decel is not None
+        and strong_decel is not None
+        and strong_decel > decel
+    ):
+        inversions.append(
+            f"Inverted thresholds: 'Strong Deceleration' "
+            f"(rvol <= {strong_decel:g}) is set ABOVE 'Deceleration' "
+            f"(rvol <= {decel:g}). The SQL checks the strong bound "
+            f"first, so every row with rvol <= {strong_decel:g} is "
+            f"labelled 'Strong Deceleration' and the effective "
+            f"deceleration bound is {strong_decel:g}, not {decel:g}. "
+            f"Set 'Strong Deceleration' <= 'Deceleration'."
+        )
+    return inversions
+
+
+# ------------------------------------------------------------------
 # Data access — Flight first, direct read-only DuckDB fallback.
 # ------------------------------------------------------------------
 
@@ -420,17 +504,17 @@ def _query_via_duckdb(db_path: str, sql: str) -> pd.DataFrame:
         conn.close()
 
 
-def fetch_dataframe(
-    sql: str, config: PipelineConfig
+def _fetch_dataframe_uncached(
+    sql: str, location: str, db_path: str
 ) -> Optional[pd.DataFrame]:
     """Fetch report rows: Flight first, direct read-only DB second.
 
-    Returns ``None`` when both paths fail (each failure is logged);
-    the UI turns that into ``st.error``.
+    ``location`` is the ``grpc://host:port`` Flight endpoint and
+    ``db_path`` the fallback DuckDB file — kept as plain strings (not
+    the config object) so the ``st.cache_data`` cache key stays small
+    and deterministic.  Returns ``None`` when both paths fail (each
+    failure is logged); the UI turns that into ``st.error``.
     """
-    location = (
-        f"grpc://{config.server.flight_host}:{config.server.flight_port}"
-    )
     try:
         return _query_via_flight(location, sql)
     except Exception as exc:
@@ -442,13 +526,91 @@ def fetch_dataframe(
         )
 
     try:
-        return _query_via_duckdb(config.db_path, sql)
+        return _query_via_duckdb(db_path, sql)
     except Exception:
         logger.exception(
             "Direct read-only DuckDB query also failed "
             "(write lock held or database unavailable)."
         )
         return None
+
+
+def fetch_dataframe(
+    sql: str, config: PipelineConfig
+) -> Optional[pd.DataFrame]:
+    """Uncached fetch for callers outside the Streamlit UI path.
+
+    Same Flight-first / read-only-fallback logic as the cached UI path,
+    minus ``st.cache_data`` — kept public so tests and any non-Streamlit
+    caller can exercise the fetch without the cache layer.
+    """
+    location = (
+        f"grpc://{config.server.flight_host}:{config.server.flight_port}"
+    )
+    return _fetch_dataframe_uncached(sql, location, config.db_path)
+
+
+# ------------------------------------------------------------------
+# Query-result caching (st.cache_data, built lazily in the UI path).
+# ------------------------------------------------------------------
+
+# Per-process holder for the lazily-built cached fetch.  ``None`` until
+# the first UI run builds it — keeps ``import report_app`` free of any
+# streamlit dependency.
+_CACHED_FETCH = None
+
+
+def _build_cached_fetch(st):
+    """Return an ``st.cache_data``-wrapped fetch keyed on the SQL text.
+
+    The wrapper's cache key is ``(sql, location, db_path)``: identical
+    SQL against the same targets is served from memory for up to
+    ``_CACHE_TTL_S`` seconds, so widget reruns that leave the generated
+    SQL unchanged do not re-query the Flight server / DuckDB.  ``st``
+    is passed in (never imported at module level) so tests can supply a
+    fake ``cache_data`` and exercise the key derivation directly.
+    """
+
+    @st.cache_data(ttl=_CACHE_TTL_S, show_spinner=False)
+    def _cached(
+        sql: str, location: str, db_path: str
+    ) -> Optional[pd.DataFrame]:
+        return _fetch_dataframe_uncached(sql, location, db_path)
+
+    return _cached
+
+
+def _get_cached_fetch(st):
+    """Return the process-wide cached fetch, building it on first use.
+
+    The ``st.cache_data`` wrapper must be created once and reused
+    across reruns — re-decorating on every rerun would build a fresh,
+    empty cache each time and never hit.  ``.clear()`` on the returned
+    callable empties the cache (wired to the "Refresh data" buttons).
+    """
+    global _CACHED_FETCH
+    if _CACHED_FETCH is None:
+        _CACHED_FETCH = _build_cached_fetch(st)
+    return _CACHED_FETCH
+
+
+def cached_fetch_dataframe(
+    st, sql: str, config: PipelineConfig
+) -> Optional[pd.DataFrame]:
+    """``fetch_dataframe`` through the ``st.cache_data`` layer.
+
+    The cache key derives from the SQL text plus the connection
+    targets, so a widget rerun that leaves the SQL unchanged is served
+    from cache; any changed widget value produces a different SQL
+    string and therefore a cache miss.  Results are cached for
+    ``_CACHE_TTL_S`` seconds; a ``None`` result (both paths failed) is
+    cached too — a transient Flight blip will not re-probe on every
+    rerun, and the "Refresh data" button clears it early.
+    """
+    location = (
+        f"grpc://{config.server.flight_host}:{config.server.flight_port}"
+    )
+    return _get_cached_fetch(st)(sql, location, config.db_path)
 
 
 # ------------------------------------------------------------------
@@ -547,6 +709,21 @@ def _render_top25_tab(st, config: PipelineConfig) -> None:
             default=list(VOLUME_REGIMES),
             key="a_regimes",
         )
+        if st.button("Refresh data", key="a_refresh"):
+            _get_cached_fetch(st).clear()
+
+    # Non-blocking warning: an inverted pair silently mislabels rows
+    # (the CASE checks the strong bound first), so surface it but still
+    # render the tab.
+    # justified: at most two warning strings — one per inverted
+    # threshold pair; a fixed tiny set, not data iteration.
+    for msg in find_threshold_inversions(
+        accel=accel,
+        strong_accel=strong_accel,
+        decel=decel,
+        strong_decel=strong_decel,
+    ):
+        st.warning(msg)
 
     try:
         sql = build_top25_sql(
@@ -562,7 +739,7 @@ def _render_top25_tab(st, config: PipelineConfig) -> None:
         st.error(f"Invalid parameters: {exc}")
         return
 
-    df = fetch_dataframe(sql, config)
+    df = cached_fetch_dataframe(st, sql, config)
     if df is None:
         st.error(
             "Could not fetch report data — the Flight server is "
@@ -626,6 +803,18 @@ def _render_accel_tab(st, config: PipelineConfig) -> None:
                 step=0.1,
                 key="b_strong_accel",
             )
+        if st.button("Refresh data", key="b_refresh"):
+            _get_cached_fetch(st).clear()
+
+    # Non-blocking warning: with strong_accel < accel the regime-label
+    # filter silently becomes rvol >= strong_accel — surface it but
+    # still render the tab.
+    # justified: at most one warning string for this tab's pair; a
+    # fixed tiny set, not data iteration.
+    for msg in find_threshold_inversions(
+        accel=accel, strong_accel=strong_accel
+    ):
+        st.warning(msg)
 
     try:
         sql = build_accel_sql(
@@ -638,7 +827,7 @@ def _render_accel_tab(st, config: PipelineConfig) -> None:
         st.error(f"Invalid parameters: {exc}")
         return
 
-    df = fetch_dataframe(sql, config)
+    df = cached_fetch_dataframe(st, sql, config)
     if df is None:
         st.error(
             "Could not fetch report data — the Flight server is "
