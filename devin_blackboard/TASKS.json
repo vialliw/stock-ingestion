@@ -2477,5 +2477,26 @@
     ],
     "acceptance_criteria": "(1) New module constant (e.g. BASIC_GUIDE) holding the GENERIC sections of docs/report_idea/report_basic.md VERBATIM — title block, Purpose & Trading Edge, Recommended Usage for Edge, Methodology Notes; session-specific data tables/named candidates/Key Insights EXCLUDED. Rendered in a top-level st.expander under the app title (applies to all reports). (2) New constants DAILY_TOP25_GUIDE and DAILY_ACCEL_GUIDE holding the interpretation/key-points sections VERBATIM from the two daily md files (Accel*.md: How-to-interpret table + Recommended thresholds + Optional enhancements; Top25*.md: Key points + closing tweak note); each daily tab renders it via st.expander(Interpretation guide)+st.markdown like the weekly tabs. (3) All five bar charts render bars in the SAME order as the query ORDER BY (the table default order) — replace st.bar_chart with a shared helper using altair/vega-lite with sort=None on the category axis (altair ships with streamlit; no new pip dep). NOTE: following the user-clicked table sort is impossible (st.dataframe exposes no sort state) — PM-approved alternative is query order. (4) st.tabs order changed to weekly-first: Weekly Combined, Weekly Acceleration, Weekly Deceleration, Daily Top 25, Daily Acceleration. (5) tests/test_report_app.py gains tests: new guide constants non-empty + verbatim-vs-md (same extraction pattern as the weekly guide test); chart helper produces a spec preserving row order (e.g. x sort None / data order assertion) without streamlit. (6) README.md + docs/README.md updated (guide expanders + weekly-first order), kept byte-identical. (7) pytest -q exit 0; check_loops + --strict exit 0.",
     "assigned_to": "B"
+  },
+  {
+    "id": "F7-T27",
+    "title": "BASIC_GUIDE cleanup: drop the 3 stale session-dated lines (PM-approved verbatim exception)",
+    "role": "executor",
+    "model": "swe",
+    "status": "in_progress",
+    "depends_on": [
+      "F7-T26"
+    ],
+    "input_files": [
+      "/scripts/report_app.py",
+      "/tests/test_report_app.py",
+      "/docs/report_idea/report_basic.md"
+    ],
+    "output_files": [
+      "/scripts/report_app.py",
+      "/tests/test_report_app.py"
+    ],
+    "acceptance_criteria": "(1) scripts/report_app.py BASIC_GUIDE drops exactly 3 stale session-dated lines from the verbatim extract (PM-approved deviation): the title-block line \"Session: September 11, 2026 (most recent full trading day as of Sep 13)\", the \"Data sources: MarketBeat, MarketGrep, Yahoo Finance, Seeking Alpha/AP most-actives, ...\" line, and the Methodology bullet \"Markets closed Sep 13; this reflects the Sep 11 session. Refresh with live feeds for the next open.\" — everything else in the constant stays byte-verbatim to report_basic.md. Add a brief comment noting the deliberate drop. (2) tests/test_report_app.py: relax/adjust the BASIC_GUIDE verbatim test so it still pins the extraction (e.g. assert verbatim after removing those 3 lines from the source slices, or assert the constant equals head+tail minus the dropped lines — NOT just non-empty), plus an explicit test that the 3 dropped strings are absent. (3) pytest -q exit 0; check_loops + --strict exit 0.",
+    "assigned_to": "B"
   }
 ]
