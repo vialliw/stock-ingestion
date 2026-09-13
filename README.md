@@ -13,6 +13,7 @@ A quantitative stock-data ingestion service that centralizes daily equity data f
 - [Usage](#usage)
   - [Running the Flight Server](#running-the-flight-server)
   - [Running the Scheduler (Standalone)](#running-the-scheduler-standalone)
+  - [Scheduling the Daily Load on Windows](#scheduling-the-daily-load-on-windows)
   - [Querying via Arrow Flight (do_get)](#querying-via-arrow-flight-do_get)
   - [Triggering Ingestion Actions (do_action)](#triggering-ingestion-actions-do_action)
   - [Uploading Data via Arrow Flight (do_put)](#uploading-data-via-arrow-flight-do_put)
@@ -80,9 +81,11 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 ### Data Ingestion
 
 - **Initial load** — fetches 6 years of daily OHLCV data for all configured tickers.
-- **Daily load** — fetches the latest trading day's data; skips weekends and NYSE market holidays.
+- **Daily load** — fetches the latest trading day's data. Two modes:
+  - **Trading-day gated (default)** — skips weekends and NYSE market holidays. Used by the APScheduler daemon and GitHub Actions CI.
+  - **Catch-up (`force=True`)** — runs even on non-trading days so a machine that was off on a trading day downloads the missed data on the next day it is on. Uses the configured `daily_lookback_days` window (default 4). Used by the local Windows scheduled task.
 - **On-request load** — fetches a custom date range for specific tickers.
-- **Split adjustment** — tracks processed splits in a dedicated table to avoid double-adjustment.
+- **Split adjustment** — tracks processed splits in a dedicated table to avoid double-adjustment. Re-downloads happen **before** any delete, and only tickers that returned data are replaced — a failed or empty re-download preserves existing history and leaves the split unprocessed for retry.
 - **Ticker exclusion** — an `exclude_tickers` list filters out unwanted tickers during ingestion and `do_put`.
 
 ### Arrow Flight Server
@@ -112,6 +115,14 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 - Opens its own read-write DuckDB connection; retries with exponential backoff if the file is locked.
 - Graceful shutdown on SIGINT/SIGTERM.
 - Runs as a standalone process (`scheduler_main.py`) — does not start the Flight server.
+
+### Local Scheduled Task (Windows)
+
+- `scripts/register_daily_task.ps1` registers a Windows Task Scheduler job via `schtasks.exe` (idempotent, `/f` replaces).
+- Reads `scheduler.schedule_time` + `scheduler.timezone` from `config.yaml` and converts to **machine-local time** (handles DST; warns on invalid/ambiguous local times).
+- Invokes `scripts/daily_load_once.py` — a one-shot runner that runs one daily-load cycle with `force=True` (catch-up mode, 4-day lookback) then exits.
+- Exit codes are Task Scheduler-visible: `1` on DuckDB lock exhaustion or uncaught exception (full traceback to the configured log file), `0` otherwise.
+- See [Scheduling the Daily Load on Windows](#scheduling-the-daily-load-on-windows).
 
 ### Logging
 
@@ -158,6 +169,7 @@ stock-ingestion/
 │   ├── test_ingestion.py
 │   ├── test_integration.py
 │   ├── test_logging.py
+│   ├── test_lookback_days.py
 │   ├── test_phase2_integration.py
 │   ├── test_poll_tasks.py
 │   ├── test_query_timeout.py
@@ -166,9 +178,15 @@ stock-ingestion/
 │   └── test_store_csv.py
 ├── scripts/
 │   ├── check_loops.py          # AST-based loop justification checker
+│   ├── ci_daily_load.py        # GitHub Actions one-shot daily load (R2 download/upload)
+│   ├── daily_load_once.py      # Windows Task one-shot runner (catch-up mode, exit codes)
 │   ├── poll_tasks.py           # Multi-agent task lifecycle manager
 │   ├── pre_commit_check_loops.py  # Pre-commit hook wrapper
+│   ├── register_daily_task.ps1 # schtasks registration (timezone conversion, idempotent)
 │   └── workflow_phase2.py      # Dynamic Workflow orchestration script
+├── .github/workflows/
+│   ├── daily_load.yml          # CI daily load (cron, trading days)
+│   └── verify_secrets.yml      # R2 secrets sanity check
 ├── devin_blackboard/
 │   ├── STATE.md                # Canonical project state
 │   ├── EVENTS.log              # Append-only event log
@@ -286,6 +304,29 @@ python -m src.scheduler_main
 ```
 
 This starts the APScheduler process. It does **not** start the Flight server. The scheduler triggers `daily_load` at the configured time (default 16:30 ET), checks the NYSE calendar, and opens its own DuckDB connection with lock retry/backoff.
+
+### Scheduling the Daily Load on Windows
+
+For a local machine that is not on every day, register a Windows scheduled task instead of running the daemon:
+
+```powershell
+# Register (reads schedule_time + timezone from src/config.yaml)
+powershell -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1
+
+# Custom time (bypasses timezone conversion — treated as local time)
+powershell -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -Time 16:30
+
+# Remove the task
+powershell -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -Unregister
+```
+
+The registration script converts `scheduler.schedule_time` from `scheduler.timezone` (e.g. `16:14 America/New_York`) to machine-local time, accounting for DST. The task invokes `scripts/daily_load_once.py`, which:
+
+- Runs one daily-load cycle with **`force=True`** — it does **not** skip on non-trading days, so a machine that was off on a trading day catches up on the next day it is on (e.g. PC off Friday → Saturday run downloads Friday's data). The window is `ingestion.daily_lookback_days` (default 4 calendar days).
+- Retries the DuckDB open with backoff; exits `1` if the lock cannot be acquired or an unexpected exception occurs (full traceback in the configured log file) so Task Scheduler records the failure.
+- Logs to `logging.log_file` in the configured text/JSON format.
+
+This differs from the GitHub Actions path (`scripts/ci_daily_load.py`), which still skips on market-closed days — CI runs on a weekday cron schedule, so catching up is unnecessary there.
 
 ### Querying via Arrow Flight (do_get)
 
@@ -480,7 +521,7 @@ python -m pytest tests/test_flight_server.py -q
 python -m pytest tests/ -v
 ```
 
-The test suite includes 217 tests covering:
+The test suite includes 241 tests covering:
 
 | Test File | Coverage |
 |-----------|----------|
@@ -493,6 +534,7 @@ The test suite includes 217 tests covering:
 | `test_ingestion.py` | IngestionEngine: initial/daily/on-request loads |
 | `test_integration.py` | End-to-end Flight server integration |
 | `test_logging.py` | JSON/text logging, log file path |
+| `test_lookback_days.py` | daily_lookback_days config, load windows, force/catch-up flag |
 | `test_phase2_integration.py` | Phase 2 end-to-end: scheduler → load → audit → R2 → health |
 | `test_poll_tasks.py` | Task lifecycle manager (claim/done/blocked/stale) |
 | `test_query_timeout.py` | Query timeout enforcement, no LIMIT injection |
@@ -535,7 +577,7 @@ This project was built using a coordinated multi-agent workflow with durable Git
 | C | Challenger | `run_subagent` + `subagent_general` | Reviews executor output, reports concerns | None (review only) |
 | D | Critic | `run_subagent` + `subagent_general` | Verifies acceptance criteria, final gate | `tests/` |
 
-`subagent_general` is write-capable (required — every role must claim its task and update the blackboard). `subagent_explore` is a cheap read-only profile used only for watchers. Role prompts live in `docs/workflow_idea/agent_<role>_prompt.md` and are pasted into the `run_subagent` prompt.
+`subagent_general` is write-capable (required — every role must claim its task and update the blackboard). `subagent_explore` is a cheap read-only profile used only for watchers. Role prompts live in `docs/workflow_idea/agent_<role>_prompt.md` — the single source of truth; `.devin/agents/{executor,challenger,critic}.md` profiles and Devin Cloud playbooks are thin pointers to them, so subagents are spawned with `run_subagent(profile="executor", ...)`.
 
 ### Workflow
 
