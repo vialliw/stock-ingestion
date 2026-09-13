@@ -69,30 +69,6 @@ def _parse_result(result):
     return json.loads(result.body.to_pybytes().decode("utf-8"))
 
 
-def _correct_health_info(db_instance):
-    """Workaround ``DatabaseManager.get_health_info`` swapped fields.
-
-    The current production method maps ``schema_version`` to the last-run
-    timestamp and ``last_run`` to the schema version number, and returns a
-    non-serializable ``datetime`` for ``schema_version``.  This helper calls
-    the original method and returns a corrected, JSON-serializable dict with
-    the counts unchanged.
-    """
-    raw = DatabaseManager.get_health_info(db_instance)
-    corrected = dict(raw)
-    last_run_value = raw.get("schema_version")
-    schema_version_value = raw.get("last_run")
-    if isinstance(last_run_value, datetime):
-        corrected["last_run"] = last_run_value.strftime("%Y-%m-%dT%H:%M:%S.%f")
-    else:
-        corrected["last_run"] = last_run_value
-    try:
-        corrected["schema_version"] = int(schema_version_value)
-    except (TypeError, ValueError):
-        corrected["schema_version"] = schema_version_value
-    return corrected
-
-
 class _TestServer(MarketDataFlightServer):
     """Flight server subclass that skips the gRPC port-binding ``__init__``."""
 
@@ -207,7 +183,6 @@ def test_scheduler_end_to_end_daily_load_audit_r2_and_health_check(components, m
     args, _ = mock_client.upload_file.call_args
     assert os.path.basename(args[0]) == "phase2_test.duckdb"
 
-    monkeypatch.setattr(db, "get_health_info", lambda: _correct_health_info(db))
     result = server.do_action(None, _make_action("health_check"))
     data = _parse_result(result)
     assert data["status"] == "SUCCESS"
@@ -216,6 +191,11 @@ def test_scheduler_end_to_end_daily_load_audit_r2_and_health_check(components, m
     assert data["ingestion_runs_count"] > 0
     assert data["ticker_count"] > 0
     assert data["last_run"] is not None
+    # F7-T17 regression guard: schema_version must be the INTEGER version
+    # and last_run must be a timestamp string — not swapped.
+    assert isinstance(data["schema_version"], int)
+    assert data["schema_version"] >= 1
+    datetime.fromisoformat(str(data["last_run"]))  # raises if not a timestamp
 
 
 def test_do_put_do_get_roundtrip(running_server):
