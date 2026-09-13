@@ -1731,3 +1731,5 @@ NON-BLOCKING FINDINGS:
 No src/, scripts/, or tests/ files modified by Challenger. Review only.
 
 [2026-09-13T13:15:00+00:00] [ORCHESTRATOR] F7-T19 registered from challenger C F7-T18 non-blockers: (N1) config_challenger missing daily_lookback_days -> latent AttributeError when paired with challenger flight server; (N2) _is_db_lock_error bare "lock" marker false-positives on paths containing "lock"; (N5) no unit tests for retry/marker logic. F7-T18 awaits critic D.
+
+[2026-09-13T14:03:57.946635+00:00] [EXECUTOR] claimed F7-T19

@@ -1,2315 +1,2315 @@
 [
- {
-  "id": "F1-T1",
-  "title": "Scaffold: update requirements.txt with all 7 deps, verify src/config.yaml exists, ensure src/ and tests/ packages",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [],
-  "input_files": [
-   "/docs/tech_spec/gemini_tech_spec.1.0.2.md",
-   "/src/config.yaml"
-  ],
-  "output_files": [
-   "/requirements.txt",
-   "/src/__init__.py",
-   "/tests/__init__.py"
-  ],
-  "acceptance_criteria": "requirements.txt contains all 7 deps. pip install -r requirements.txt exits 0.",
-  "assigned_to": null
- },
- {
-  "id": "F1-T2",
-  "title": "Implement config module: Pydantic nested models, validators, from_yaml loader in src/config.py",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F1-T1"
-  ],
-  "input_files": [
-   "/requirements.txt",
-   "/src/config.yaml",
-   "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
-  ],
-  "output_files": [
-   "/src/config.py"
-  ],
-  "acceptance_criteria": "Pydantic v2 nested config with validators and from_yaml loader. Loads user's config correctly.",
-  "assigned_to": null
- },
- {
-  "id": "F1-T3",
-  "title": "Challenger: independent config module variant in src/config_challenger.py",
-  "role": "challenger",
-  "model": "glm",
-  "status": "done",
-  "depends_on": [
-   "F1-T1"
-  ],
-  "input_files": [
-   "/requirements.txt",
-   "/src/config.yaml",
-   "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
-  ],
-  "output_files": [
-   "/src/config_challenger.py"
-  ],
-  "acceptance_criteria": "Dataclass-based config with manual YAML parsing. Same public API. Loads user's config correctly.",
-  "assigned_to": null
- },
- {
-  "id": "F1-T4",
-  "title": "Critic: test config validation, YAML loading, defaults, edge cases",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F1-T2",
-   "F1-T3"
-  ],
-  "input_files": [
-   "/src/config.py",
-   "/src/config_challenger.py",
-   "/src/config.yaml"
-  ],
-  "output_files": [
-   "/tests/test_config.py",
-   "/tests/test_config_breaking.py"
-  ],
-  "acceptance_criteria": "Tests parametrized over both implementations. 33 acceptance tests pass. Breaking tests found 5 edge-case bugs (filed as BUG-F1-* tasks).",
-  "assigned_to": null
- },
- {
-  "id": "BUG-F1-T2",
-  "title": "Fix executor config edge cases: bool port coercion, null tickers, malformed YAML TypeError",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [],
-  "input_files": [
-   "/src/config.py",
-   "/tests/test_config_breaking.py"
-  ],
-  "output_files": [
-   "/src/config.py"
-  ],
-  "acceptance_criteria": "Fix 3 edge cases in src/config.py: (1) Boolean port (flight_port: true) must raise ValueError, not silently coerce to 1; (2) tickers: null and exclude_tickers: null must return [] not raise ValidationError; (3) Malformed top-level YAML list must raise ValueError, not TypeError. tests/test_config_breaking.py tests D1, D2, D3, D5 for executor:src.config must PASS. python -m pytest tests/test_config_breaking.py -v exit 0 for executor params.",
-  "assigned_to": null
- },
- {
-  "id": "BUG-F1-T3",
-  "title": "Fix challenger config edge case: db_path does not create duckdb_dir",
-  "role": "challenger",
-  "model": "glm",
-  "status": "done",
-  "depends_on": [],
-  "input_files": [
-   "/src/config_challenger.py",
-   "/tests/test_config_breaking.py"
-  ],
-  "output_files": [
-   "/src/config_challenger.py"
-  ],
-  "acceptance_criteria": "Fix db_path property in src/config_challenger.py to create duckdb_dir if absent (spec: 'Created if absent'). test_db_path_creates_duckdb_dir_if_absent for challenger:src.config_challenger must PASS. python -m pytest tests/test_config_breaking.py::test_db_path_creates_duckdb_dir_if_absent -v exit 0.",
-  "assigned_to": null
- },
- {
-  "id": "F2-T1",
-  "title": "Implement DatabaseManager: schema init, upsert, read-only conn, write lock, split tracking, ticker detection, report query",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F1-T4"
-  ],
-  "input_files": [
-   "/src/config.py",
-   "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
-  ],
-  "output_files": [
-   "/src/db.py"
-  ],
-  "acceptance_criteria": "src/db.py defines DatabaseManager with all methods from spec \u00a710: _init_schema (creates daily_quotes with Volume DOUBLE, splits_processed, schema_version tables), _read_only_conn, execute_query (returns pa.Table), upsert_dataframe (MERGE INTO, returns int row count), purge_ticker, is_split_processed, record_split, delete_ticker_data, get_existing_tickers, get_aligned_start_date, detect_new_tickers, generate_top_20_dollar_volume, close (CHECKPOINT). Uses threading.Lock for all writes. Read-only conn for reads. python -c \"from src.db import DatabaseManager; print('OK')\" exits 0 with output 'OK'.",
-  "assigned_to": null
- },
- {
-  "id": "F2-T2",
-  "title": "Challenger: independent DatabaseManager variant in src/db_challenger.py",
-  "role": "challenger",
-  "model": "glm",
-  "status": "done",
-  "depends_on": [
-   "F1-T4"
-  ],
-  "input_files": [
-   "/src/config.py",
-   "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
-  ],
-  "output_files": [
-   "/src/db_challenger.py"
-  ],
-  "acceptance_criteria": "src/db_challenger.py defines DatabaseManager with same public API as F2-T1. Structurally different implementation (e.g. connection pool vs single conn, different lock strategy, different SQL parameter binding style, or context manager pattern). Same acceptance test passes. python -c \"from src.db_challenger import DatabaseManager; print('OK')\" exits 0 with output 'OK'.",
-  "assigned_to": null
- },
- {
-  "id": "F2-T3",
-  "title": "Critic: test DatabaseManager with temp DuckDB files in tests/test_db.py",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F2-T1",
-   "F2-T2"
-  ],
-  "input_files": [
-   "/src/db.py",
-   "/src/db_challenger.py"
-  ],
-  "output_files": [
-   "/tests/test_db.py"
-  ],
-  "acceptance_criteria": "tests/test_db.py parametrized over BOTH src.db.DatabaseManager and src.db_challenger.DatabaseManager. Tests with tmp_path-isolated DuckDB: (1) schema creates 3 tables (daily_quotes, splits_processed, schema_version); (2) upsert inserts new rows; (3) upsert updates existing rows (MERGE); (4) upsert empty df returns 0, no error; (5) read-only conn rejects DELETE; (6) detect_new_tickers returns correct diff; (7) get_aligned_start_date returns MIN(Date) or None; (8) generate_top_20 returns sorted by dollar_volume DESC limit 20; (9) record_split + is_split_processed idempotency; (10) delete_ticker_data removes all rows for ticker; (11) thread safety: concurrent writes don't corrupt. python -m pytest tests/test_db.py -v exits 0. Critic pastes pytest output to EVENTS.log.",
-  "assigned_to": null
- },
- {
-  "id": "F3-T1",
-  "title": "Implement IngestionEngine: batch download, split detection (DELETE+re-download), normalize, run_initial_load, run_daily_load, run_on_request_load",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F2-T3"
-  ],
-  "input_files": [
-   "/src/db.py",
-   "/src/config.py",
-   "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
-  ],
-  "output_files": [
-   "/src/ingestion.py"
-  ],
-  "acceptance_criteria": "src/ingestion.py defines IngestionEngine with all methods from spec \u00a710: __init__(db_mgr, cfg), _check_and_apply_splits (per-ticker split detection via yf.Ticker.splits, DELETE + re-download from aligned start with auto_adjust=True), _batch_download (yf.download with end+1 day fix, auto_adjust=True, group_by='ticker'), _normalize_batch_df (handles multi-ticker and single-ticker, drops NaN, purges excluded empty tickers, warns on non-excluded empty), fetch_and_clean (split check + batch download + normalize), run_initial_load (6-year default, returns dict with rows_upserted/tickers_succeeded/tickers_failed/errors/duration_ms), run_daily_load (NYSE calendar check via pandas_market_calendars, new ticker detection + backfill from aligned start, trailing 4-day refresh, returns dict), run_on_request_load (custom tickers+dates, returns dict). python -c \"from src.ingestion import IngestionEngine; print('OK')\" exits 0 with output 'OK'.",
-  "assigned_to": null
- },
- {
-  "id": "F3-T2",
-  "title": "Challenger: independent IngestionEngine variant in src/ingestion_challenger.py",
-  "role": "challenger",
-  "model": "glm",
-  "status": "done",
-  "depends_on": [
-   "F2-T3"
-  ],
-  "input_files": [
-   "/src/db.py",
-   "/src/config.py",
-   "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
-  ],
-  "output_files": [
-   "/src/ingestion_challenger.py"
-  ],
-  "acceptance_criteria": "src/ingestion_challenger.py defines IngestionEngine with same public API as F3-T1. Structurally different implementation (e.g. different download retry strategy, different normalization pipeline, different split detection order, different error handling structure). Same acceptance tests pass. python -c \"from src.ingestion_challenger import IngestionEngine; print('OK')\" exits 0 with output 'OK'.",
-  "assigned_to": null
- },
- {
-  "id": "F3-T3",
-  "title": "Critic: test IngestionEngine with mocked yfinance in tests/test_ingestion.py",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F3-T1",
-   "F3-T2"
-  ],
-  "input_files": [
-   "/src/ingestion.py",
-   "/src/ingestion_challenger.py",
-   "/src/db.py",
-   "/src/config.py"
-  ],
-  "output_files": [
-   "/tests/test_ingestion.py"
-  ],
-  "acceptance_criteria": "tests/test_ingestion.py parametrized over BOTH src.ingestion.IngestionEngine and src.ingestion_challenger.IngestionEngine. Mock yf.download and yf.Ticker.splits. Tests: (1) _batch_download adds +1 day to end_date; (2) fetch_and_clean returns (df, succeeded, failed, errors) tuple; (3) split detection: unprocessed split -> delete + re-download; (4) already-processed split -> skip; (5) multiple splits -> single re-download; (6) empty ticker in exclude_list -> purge; (7) empty ticker NOT in exclude_list -> warning, no purge; (8) run_daily_load: new ticker detection + backfill from aligned start; (9) run_daily_load: empty DB -> initial_load + trailing refresh; (10) run_daily_load: market closed -> SKIPPED. python -m pytest tests/test_ingestion.py -v exits 0. Critic pastes pytest output to EVENTS.log.",
-  "assigned_to": null
- },
- {
-  "id": "F4-T1",
-  "title": "Implement MarketDataFlightServer: do_get (SELECT-only validation), do_action (4 actions with rich results), _truncate_sql",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F3-T3"
-  ],
-  "input_files": [
-   "/src/db.py",
-   "/src/ingestion.py",
-   "/src/config.py",
-   "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
-  ],
-  "output_files": [
-   "/src/flight_server.py"
-  ],
-  "acceptance_criteria": "src/flight_server.py defines MarketDataFlightServer(flight.FlightServerBase) with: __init__(location, db_mgr, ingest_engine, cfg), do_get (parse JSON ticket, validate SELECT-only via _validate_select_only, execute via db.execute_query, return RecordBatchStream, truncate SQL in logs to 200 chars via _truncate_sql), do_action (4 action types: initial_load, daily_load, on_request_load, daily_report \u2014 each returns flight.Result with JSON containing status SUCCESS/PARTIAL/SKIPPED + rows_upserted/tickers_succeeded/tickers_failed/errors/duration_ms; daily_report writes JSON to cfg.reports.report_dir). Also defines _validate_select_only(sql) and _truncate_sql(sql, max_len=200) as module-level functions. python -c \"from src.flight_server import MarketDataFlightServer; print('OK')\" exits 0 with output 'OK'.",
-  "assigned_to": null
- },
- {
-  "id": "F4-T2",
-  "title": "Challenger: independent MarketDataFlightServer variant in src/flight_server_challenger.py",
-  "role": "challenger",
-  "model": "glm",
-  "status": "done",
-  "depends_on": [
-   "F3-T3"
-  ],
-  "input_files": [
-   "/src/db.py",
-   "/src/ingestion.py",
-   "/src/config.py",
-   "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
-  ],
-  "output_files": [
-   "/src/flight_server_challenger.py"
-  ],
-  "acceptance_criteria": "src/flight_server_challenger.py defines MarketDataFlightServer with same public API as F4-T1. Structurally different implementation (e.g. different action dispatch pattern, different validation approach, different error handling structure). Same acceptance tests pass. python -c \"from src.flight_server_challenger import MarketDataFlightServer; print('OK')\" exits 0 with output 'OK'.",
-  "assigned_to": null
- },
- {
-  "id": "F4-T3",
-  "title": "Critic: test Flight server SELECT validation and action routing in tests/test_flight_server.py",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F4-T1",
-   "F4-T2"
-  ],
-  "input_files": [
-   "/src/flight_server.py",
-   "/src/flight_server_challenger.py",
-   "/src/db.py",
-   "/src/ingestion.py",
-   "/src/config.py"
-  ],
-  "output_files": [
-   "/tests/test_flight_server.py"
-  ],
-  "acceptance_criteria": "tests/test_flight_server.py parametrized over BOTH implementations. Tests: (1) _validate_select_only accepts 'SELECT * FROM...'; (2) accepts 'WITH cte AS (...) SELECT...'; (3) rejects 'DELETE FROM...'; (4) rejects 'DROP TABLE...'; (5) rejects 'INSERT INTO...'; (6) rejects empty string; (7) _truncate_sql truncates at 200 chars with '...'; (8) do_action routing: initial_load returns correct status structure; (9) daily_load returns correct status structure; (10) on_request_load returns correct status structure; (11) daily_report returns report array + writes JSON file; (12) unknown action raises FlightServerError. Uses mocked DatabaseManager and IngestionEngine. python -m pytest tests/test_flight_server.py -v exits 0. Critic pastes pytest output to EVENTS.log.",
-  "assigned_to": null
- },
- {
-  "id": "F5-T1",
-  "title": "Implement main entrypoint: assemble config -> DatabaseManager -> IngestionEngine -> FlightServer, signal handling, server.serve()",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F4-T3"
-  ],
-  "input_files": [
-   "/src/config.py",
-   "/src/db.py",
-   "/src/ingestion.py",
-   "/src/flight_server.py",
-   "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
-  ],
-  "output_files": [
-   "/src/main.py"
-  ],
-  "acceptance_criteria": "src/main.py defines main() function that: (1) loads config via PipelineConfig.from_yaml('src/config.yaml'); (2) creates DatabaseManager(config.db_path); (3) creates IngestionEngine(db_manager, config); (4) sets up SIGINT/SIGTERM signal handler that calls db_manager.close() and exits; (5) creates MarketDataFlightServer with location string grpc://{host}:{port}; (6) calls server.serve(). Also has if __name__=='__main__': main(). Uses the EXECUTOR's production modules (config.py, db.py, ingestion.py, flight_server.py) \u2014 NOT the challenger variants. python -c \"from src.main import main; print('OK')\" exits 0 with output 'OK'.",
-  "assigned_to": null
- },
- {
-  "id": "F5-T2",
-  "title": "Critic: integration test \u2014 assemble all modules, verify end-to-end flow with mocked yfinance",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F5-T1"
-  ],
-  "input_files": [
-   "/src/main.py",
-   "/src/config.py",
-   "/src/db.py",
-   "/src/ingestion.py",
-   "/src/flight_server.py"
-  ],
-  "output_files": [
-   "/tests/test_integration.py"
-  ],
-  "acceptance_criteria": "tests/test_integration.py tests the full assembly using EXECUTOR's production modules (config.py, db.py, ingestion.py, flight_server.py). Uses tmp_path-isolated DuckDB, mocked yfinance (yf.download, yf.Ticker.splits), and a synthetic config file in tmp_path. Tests: (1) main() can be imported and all components assemble without error; (2) create DatabaseManager + IngestionEngine + FlightServer manually, call do_action 'initial_load' with mocked yf.download returning synthetic data, verify rows upserted > 0; (3) do_action 'daily_report' returns report with 20 items (after inserting 25 rows of synthetic data); (4) do_get with SELECT returns arrow table with data; (5) do_get with DELETE raises FlightServerError; (6) concurrent do_get from 3 threads all succeed; (7) db_manager.close() executes CHECKPOINT without error. python -m pytest tests/test_integration.py -v exits 0. Critic pastes pytest output to EVENTS.log.",
-  "assigned_to": null
- },
- {
-  "id": "F5-T3",
-  "title": "Critic: select production modules and update src/__init__.py to export from production files",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F5-T2"
-  ],
-  "input_files": [
-   "/src/config.py",
-   "/src/db.py",
-   "/src/ingestion.py",
-   "/src/flight_server.py",
-   "/src/main.py"
-  ],
-  "output_files": [
-   "/src/__init__.py"
-  ],
-  "acceptance_criteria": "src/__init__.py updated to export from production modules: from src.config import PipelineConfig, from src.db import DatabaseManager, from src.ingestion import IngestionEngine, from src.flight_server import MarketDataFlightServer. Challenger variants (config_challenger.py, db_challenger.py, ingestion_challenger.py, flight_server_challenger.py) remain in repo for reference but are NOT imported by __init__.py. python -c \"from src import PipelineConfig, DatabaseManager, IngestionEngine, MarketDataFlightServer; print('OK')\" exits 0 with output 'OK'. Full test suite: python -m pytest tests/ -v exits 0 (excluding test_config_breaking.py which has known BUG-F1-T2 failures). Critic pastes selection rationale + pytest output to EVENTS.log.",
-  "assigned_to": null
- },
- {
-  "id": "F6-T1",
-  "title": "Executor: create AST loop checker (scripts/check_loops.py) + pre-commit hook + fix vectorizable loops in src/",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F5-T3"
-  ],
-  "input_files": [
-   "/src/*.py",
-   "/AGENTS.md"
-  ],
-  "output_files": [
-   "/scripts/check_loops.py",
-   "/scripts/pre_commit_check_loops.py",
-   "/.git/hooks/pre-commit",
-   "/src/config.py",
-   "/src/config_challenger.py",
-   "/src/db.py",
-   "/src/db_challenger.py",
-   "/src/ingestion.py",
-   "/src/ingestion_challenger.py"
-  ],
-  "acceptance_criteria": "scripts/check_loops.py: AST-based checker that scans src/*.py for unjustified for-loops. Exempts range/enumerate/zip/.items()/.values()/.keys()/constant literals. Accepts '# justified: <reason>' comments within 6 lines above the for. scripts/pre_commit_check_loops.py + .git/hooks/pre-commit: blocks commits with unjustified loops. 6 vectorizable loops replaced with vectorized ops or dict comprehensions. 7 remaining loops annotated with '# justified:' comments. python scripts/check_loops.py --src-dir src exits 0 with 'No unjustified loops found'. Full suite: python -m pytest tests/ -q exits 0.",
-  "assigned_to": null
- },
- {
-  "id": "F6-T2",
-  "title": "Challenger: review AST checker for false positives/negatives, suggest improvements",
-  "role": "challenger",
-  "model": "glm",
-  "status": "done",
-  "depends_on": [
-   "F5-T3"
-  ],
-  "input_files": [
-   "/scripts/check_loops.py",
-   "/AGENTS.md"
-  ],
-  "output_files": [],
-  "acceptance_criteria": "Review scripts/check_loops.py for: (1) false positives \u2014 exempt patterns that are incorrectly flagged; (2) false negatives \u2014 data-iteration loops that are incorrectly exempted; (3) edge cases \u2014 nested loops, comprehensions, while loops. Document findings in EVENTS.log. No code changes required unless a critical false negative is found.",
-  "assigned_to": null
- },
- {
-  "id": "F6-T3",
-  "title": "Critic: verify checker passes on all src/ files + full test suite + AGENTS.md updated",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F6-T1",
-   "F6-T2"
-  ],
-  "input_files": [
-   "/scripts/check_loops.py",
-   "/src/*.py",
-   "/AGENTS.md"
-  ],
-  "output_files": [
-   "/AGENTS.md"
-  ],
-  "acceptance_criteria": "python scripts/check_loops.py --src-dir src exits 0. python -m pytest tests/ -q exits 0 (122+ tests). AGENTS.md updated with enforcement mechanism documentation: checker script, pre-commit hook, Critic mandatory checklist. Critic pastes checker output + pytest output to EVENTS.log.",
-  "assigned_to": null
- },
- {
-  "id": "F7-T0",
-  "title": "Executor: rename daily_quotes -> daily_close (all lowercase) throughout codebase + SQL CAST Date + batch_record_splits + check_loops --strict",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F6-T3"
-  ],
-  "input_files": [
-   "/src/db.py",
-   "/src/db_challenger.py",
-   "/src/ingestion.py",
-   "/src/ingestion_challenger.py",
-   "/src/flight_server.py",
-   "/src/flight_server_challenger.py",
-   "/src/store.py",
-   "/src/store_challenger.py",
-   "/tests/*.py",
-   "/docs/tech_spec/gemini_tech_spec.1.0.2.md",
-   "/scripts/check_loops.py"
-  ],
-  "output_files": [
-   "/src/db.py",
-   "/src/db_challenger.py",
-   "/src/ingestion.py",
-   "/src/ingestion_challenger.py",
-   "/src/flight_server.py",
-   "/src/flight_server_challenger.py",
-   "/src/store.py",
-   "/src/store_challenger.py",
-   "/tests/test_db.py",
-   "/tests/test_ingestion.py",
-   "/tests/test_integration.py",
-   "/tests/test_flight_server.py",
-   "/tests/test_delisted_lifecycle.py",
-   "/tests/test_store_csv.py",
-   "/tests/test_config_breaking.py",
-   "/docs/tech_spec/gemini_tech_spec.1.0.2.md",
-   "/scripts/check_loops.py"
-  ],
-  "acceptance_criteria": "(1) Table renamed: grep -ri daily_quotes src/ tests/ docs/ returns 0 matches. All SQL uses daily_close (lowercase). (2) Schema migration: DatabaseManager.__init__ checks schema_version; if version 1 and daily_quotes exists, executes ALTER TABLE daily_quotes RENAME TO daily_close; bumps SCHEMA_VERSION to 2. (3) SQL CAST: generate_top_20_dollar_volume query uses CAST(Date AS VARCHAR) \u2014 no Python loop for Date stringify in db.py or db_challenger.py. (4) batch_record_splits: DatabaseManager.batch_record_splits(splits: List[Tuple[str, str, float]]) does single SQL INSERT with ON CONFLICT DO NOTHING. ingestion.py and ingestion_challenger.py use it instead of per-split loop. (5) check_loops --strict: flags # justified: comments with empty reason text. (6) python scripts/check_loops.py --src-dir src exits 0. (7) python scripts/check_loops.py --src-dir src --strict exits 0. (8) python -m pytest tests/ -q exits 0 (122+ tests). (9) Existing production DB at C:\\Intel\\parquet\\stock_ingestion.duckdb can be opened and daily_close table exists with correct row counts.",
-  "assigned_to": "B"
- },
- {
-  "id": "F7-T0e",
-  "title": "Critic: verify Cycle 0 \u2014 table rename + hardening + full regression",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T0"
-  ],
-  "input_files": [
-   "/src/*.py",
-   "/tests/*.py",
-   "/scripts/check_loops.py",
-   "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
-  ],
-  "output_files": [
-   "/tests/ (update if needed)"
-  ],
-  "acceptance_criteria": "(1) grep -ri daily_quotes src/ tests/ docs/ returns 0 matches. (2) python scripts/check_loops.py --src-dir src exits 0. (3) python scripts/check_loops.py --src-dir src --strict exits 0. (4) python -m pytest tests/ -q exits 0 (122+ tests). (5) No # justified: loops remain for Date stringify or record_split (those should be eliminated by CAST and batch INSERT). (6) Critic pastes full grep output + checker output + pytest output to EVENTS.log.",
-  "assigned_to": "D"
- },
- {
-  "id": "F7-T1",
-  "title": "Executor: structured JSON logging + configure log_file path in main.py",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T0e"
-  ],
-  "input_files": [
-   "/src/config.py",
-   "/src/main.py",
-   "/src/config.yaml",
-   "/AGENTS.md"
-  ],
-  "output_files": [
-   "/src/config.py",
-   "/src/main.py",
-   "/src/config.yaml"
-  ],
-  "acceptance_criteria": "(1) Add log_format field to LoggingConfig in src/config.py: Literal['text', 'json'] default 'text'. (2) main.py configures logging.FileHandler writing to cfg.logging.log_file (currently broken \u2014 basicConfig doesn't use configured path). (3) Also configure console handler (StreamHandler) for visible output. (4) When log_format='json', use pythonjsonlogger.jsonlogger.JsonFormatter \u2014 all existing logger.* calls work unchanged. (5) When log_format='text', use existing plain text formatter. (6) Log file parent directory created if absent (os.makedirs(exist_ok=True)). (7) Add log_format: 'text' to src/config.yaml logging section. (8) New dependency python-json-logger installed via pip. (9) python scripts/check_loops.py --src-dir src exits 0. (10) python scripts/check_loops.py --src-dir src --strict exits 0. (11) python -m pytest tests/ -q exits 0 (122+ tests). (12) New test tests/test_logging.py verifies: text format produces plain text, json format produces valid JSON lines, log file is written to configured path.",
-  "assigned_to": "B"
- },
- {
-  "id": "F7-T1b",
-  "title": "Challenger: review JSON logging implementation for edge cases",
-  "role": "challenger",
-  "model": "glm",
-  "status": "done",
-  "depends_on": [
-   "F7-T1"
-  ],
-  "input_files": [
-   "/src/config.py",
-   "/src/main.py",
-   "/src/config.yaml",
-   "/tests/test_logging.py"
-  ],
-  "output_files": [],
-  "acceptance_criteria": "Review executor's JSON logging for: (1) Does python-json-logger handle all log levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)? (2) Are exception tracebacks serialized correctly in JSON format? (3) Does the FileHandler create the parent directory if it doesn't exist? (4) Is the log_format config field validated by Pydantic (reject invalid values)? (5) Does switching format at runtime require restart, or is it dynamic? (6) Are there any loops in the logging code that should be vectorized? (7) Does the test cover both text and json formats? Document findings in EVENTS.log. No code changes unless critical bug found.",
-  "assigned_to": "C"
- },
- {
-  "id": "F7-T1c",
-  "title": "Critic: verify JSON logging + log_file path + full regression",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T1",
-   "F7-T1b"
-  ],
-  "input_files": [
-   "/src/config.py",
-   "/src/main.py",
-   "/src/config.yaml",
-   "/tests/test_logging.py"
-  ],
-  "output_files": [
-   "/tests/test_logging.py"
-  ],
-  "acceptance_criteria": "(1) python scripts/check_loops.py --src-dir src exits 0. (2) python scripts/check_loops.py --src-dir src --strict exits 0. (3) python -m pytest tests/ -q exits 0 (122+ tests including new test_logging.py). (4) Verify log_format field exists in config with validation. (5) Verify main.py writes to configured log_file path (not just console). (6) Verify JSON format produces valid JSON parseable lines. (7) Verify text format produces human-readable lines. (8) Critic pastes checker output + pytest output + sample log lines (both formats) to EVENTS.log.",
-  "assigned_to": "D"
- },
- {
-  "id": "F7-T2",
-  "title": "Executor: health_check Flight action + ingestion_runs audit table",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T1c"
-  ],
-  "input_files": [
-   "/src/flight_server.py",
-   "/src/db.py",
-   "/src/ingestion.py",
-   "/src/config.py",
-   "/src/config.yaml",
-   "/AGENTS.md"
-  ],
-  "output_files": [
-   "/src/flight_server.py",
-   "/src/db.py",
-   "/src/ingestion.py",
-   "/src/config.py",
-   "/src/config.yaml"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "ingestion_runs_table",
-    "command": "python -c \"import duckdb; conn = duckdb.connect('C:\\Intel\\parquet\\stock_ingestion.duckdb', read_only=True); conn.execute('SELECT column_name FROM information_schema.columns WHERE table_name=\\'ingestion_runs\\''); print('ingestion_runs table exists')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "health_check_action",
-    "command": "python -c \"import ast; tree = ast.parse(open('src/flight_server.py').read()); src = open('src/flight_server.py').read(); assert 'health_check' in src, 'health_check action not found'; print('health_check action found')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-6",
-    "check": "get_run_history_action",
-    "command": "python -c \"src = open('src/flight_server.py').read(); assert 'get_run_history' in src, 'get_run_history action not found'; print('get_run_history action found')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-7",
-    "check": "schema_version_3",
-    "command": "python -c \"import duckdb; conn = duckdb.connect('C:\\Intel\\parquet\\stock_ingestion.duckdb', read_only=True); r = conn.execute('SELECT MAX(version) FROM schema_version').fetchone(); assert r[0] >= 3, f'schema version {r[0]} < 3'; print(f'schema version {r[0]} >= 3')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-8",
-    "check": "test_health_check_exists",
-    "command": "python -c \"import os; assert os.path.exists('tests/test_health_check.py'), 'tests/test_health_check.py not found'; print('test_health_check.py exists')\"",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "B",
-  "challenger_required": true
- },
- {
-  "id": "F7-T2b",
-  "title": "Challenger: review health_check + audit table implementation",
-  "role": "challenger",
-  "model": "glm",
-  "status": "done",
-  "depends_on": [
-   "F7-T2"
-  ],
-  "input_files": [
-   "/src/flight_server.py",
-   "/src/db.py",
-   "/src/ingestion.py",
-   "/tests/test_health_check.py"
-  ],
-  "output_files": [],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "C",
-  "challenger_required": true
- },
- {
-  "id": "F7-T2c",
-  "title": "Critic: verify health_check + audit table + full regression",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T2",
-   "F7-T2b"
-  ],
-  "input_files": [
-   "/src/flight_server.py",
-   "/src/db.py",
-   "/src/ingestion.py",
-   "/tests/test_health_check.py"
-  ],
-  "output_files": [
-   "/tests/test_health_check.py"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "health_check_json",
-    "command": "python -m pytest tests/test_health_check.py::test_health_check_returns_db_connectivity_and_row_counts -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "schema_version_3",
-    "command": "python -m pytest tests/test_health_check.py::test_database_schema_version_is_three -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-6",
-    "check": "get_run_history_arrow",
-    "command": "python -m pytest tests/test_health_check.py::test_get_ingestion_runs_returns_arrow_table -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "D",
-  "challenger_required": true
- },
- {
-  "id": "F7-T3",
-  "title": "Executor: query timeout in do_get (120s default, no row limit)",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T2c"
-  ],
-  "input_files": [
-   "/src/flight_server.py",
-   "/src/config.py",
-   "/src/config.yaml",
-   "/AGENTS.md"
-  ],
-  "output_files": [
-   "/src/flight_server.py",
-   "/src/config.py",
-   "/src/config.yaml"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "query_timeout_config",
-    "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert hasattr(cfg.server, 'query_timeout_seconds'), 'query_timeout_seconds not in config'; print('query_timeout_seconds in config')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "timeout_default_120",
-    "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert cfg.server.query_timeout_seconds == 120, f'expected 120, got {cfg.server.query_timeout_seconds}'; print('default timeout is 120')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-6",
-    "check": "do_get_timeout_enforced",
-    "command": "python -c \"src = open('src/flight_server.py').read(); assert 'timeout' in src.lower(), 'timeout not found in flight_server.py'; print('timeout enforcement found')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-7",
-    "check": "no_row_limit",
-    "command": "python -c \"src = open('src/flight_server.py').read(); import re; limits = re.findall(r'LIMIT\\s+\\d+', src, re.IGNORECASE); assert len(limits) == 0, f'found LIMIT injection: {limits}'; print('no injected row limit')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-8",
-    "check": "test_query_timeout_exists",
-    "command": "python -c \"import os; assert os.path.exists('tests/test_query_timeout.py'), 'tests/test_query_timeout.py not found'; print('test_query_timeout.py exists')\"",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "B",
-  "challenger_required": true
- },
- {
-  "id": "F7-T3b",
-  "title": "Challenger: review query timeout implementation",
-  "role": "challenger",
-  "model": "glm",
-  "status": "done",
-  "depends_on": [
-   "F7-T3"
-  ],
-  "input_files": [
-   "/src/flight_server.py",
-   "/src/config.py",
-   "/src/config.yaml",
-   "/tests/test_query_timeout.py"
-  ],
-  "output_files": [],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "C",
-  "challenger_required": true
- },
- {
-  "id": "F7-T3c",
-  "title": "Critic: verify query timeout + full regression",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T3",
-   "F7-T3b"
-  ],
-  "input_files": [
-   "/src/flight_server.py",
-   "/src/config.py",
-   "/src/config.yaml",
-   "/tests/test_query_timeout.py"
-  ],
-  "output_files": [
-   "/tests/test_query_timeout.py"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "timeout_tests_pass",
-    "command": "python -m pytest tests/test_query_timeout.py -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "timeout_enforced_test",
-    "command": "python -m pytest tests/test_query_timeout.py -k timeout -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-6",
-    "check": "no_row_limit_test",
-    "command": "python -c \"import re; src = open('src/flight_server.py').read(); limits = re.findall(r'LIMIT\\s+\\d+', src, re.IGNORECASE); assert len(limits) == 0, f'found LIMIT injection: {limits}'; print('no row limit injection')\"",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "D",
-  "challenger_required": true
- },
- {
-  "id": "F7-T4",
-  "title": "Executor: R2 sync \u2014 upload DuckDB file directly + auto after daily_load + manual Flight action",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T3c"
-  ],
-  "input_files": [
-   "/src/flight_server.py",
-   "/src/config.py",
-   "/src/config.yaml",
-   "/src/ingestion.py",
-   "/src/db.py",
-   "/AGENTS.md"
-  ],
-  "output_files": [
-   "/src/r2_sync.py",
-   "/src/config.py",
-   "/src/config.yaml",
-   "/src/flight_server.py",
-   "/src/ingestion.py"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "r2_sync_module_exists",
-    "command": "python -c \"from src.r2_sync import R2SyncManager; print('R2SyncManager importable')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "r2_config_section",
-    "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert hasattr(cfg, 'r2'), 'r2 config section not found'; assert cfg.r2.enabled == False, 'r2.enabled should default to False'; print('r2 config section exists, enabled=False')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-6",
-    "check": "sync_to_r2_action",
-    "command": "python -c \"src = open('src/flight_server.py').read(); assert 'sync_to_r2' in src, 'sync_to_r2 action not found'; print('sync_to_r2 action found')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-7",
-    "check": "auto_sync_after_daily_load",
-    "command": "python -c \"src = open('src/ingestion.py').read(); assert 'r2' in src.lower() or 'sync' in src.lower(), 'no R2 sync reference in ingestion.py'; print('auto-sync reference found in ingestion.py')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-8",
-    "check": "no_hardcoded_credentials",
-    "command": "python -c \"src = open('src/r2_sync.py').read(); assert 'R2_ACCESS_KEY_ID' in src or 'os.environ' in src, 'no env var reference found'; assert 'cog_' not in src and 'AKIA' not in src, 'possible hardcoded key'; print('credentials from env vars, no hardcoded keys')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-9",
-    "check": "boto3_in_requirements",
-    "command": "python -c \"reqs = open('requirements.txt').read(); assert 'boto3' in reqs, 'boto3 not in requirements.txt'; print('boto3 in requirements.txt')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-10",
-    "check": "test_r2_sync_exists",
-    "command": "python -c \"import os; assert os.path.exists('tests/test_r2_sync.py'), 'tests/test_r2_sync.py not found'; print('test_r2_sync.py exists')\"",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "B",
-  "challenger_required": true
- },
- {
-  "id": "F7-T4b",
-  "title": "Challenger: review R2 sync implementation",
-  "role": "challenger",
-  "model": "glm",
-  "status": "done",
-  "depends_on": [
-   "F7-T4"
-  ],
-  "input_files": [
-   "/src/r2_sync.py",
-   "/src/config.py",
-   "/src/config.yaml",
-   "/src/flight_server.py",
-   "/src/ingestion.py",
-   "/tests/test_r2_sync.py"
-  ],
-  "output_files": [],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "C",
-  "challenger_required": true
- },
- {
-  "id": "F7-T4c",
-  "title": "Critic: verify R2 sync (mocked) + full regression",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T4",
-   "F7-T4b"
-  ],
-  "input_files": [
-   "/src/r2_sync.py",
-   "/src/config.py",
-   "/src/config.yaml",
-   "/src/flight_server.py",
-   "/src/ingestion.py",
-   "/tests/test_r2_sync.py"
-  ],
-  "output_files": [
-   "/tests/test_r2_sync.py"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "r2_sync_tests_pass",
-    "command": "python -m pytest tests/test_r2_sync.py -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "no_real_r2_calls",
-    "command": "python -c \"src = open('tests/test_r2_sync.py').read(); assert 'mock' in src.lower() or 'patch' in src.lower(), 'no mocking found in R2 tests \u2014 tests may make real R2 calls'; print('R2 tests use mocks/patches')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-6",
-    "check": "no_hardcoded_credentials_test",
-    "command": "python -c \"import os; src = open('tests/test_r2_sync.py').read(); assert 'AKIA' not in src and 'cog_' not in src, 'possible hardcoded credentials in test'; print('no hardcoded credentials in tests')\"",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "D",
-  "challenger_required": true
- },
- {
-  "id": "F7-T5",
-  "title": "Executor: standalone scheduler process (src/scheduler_main.py)",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T4c"
-  ],
-  "input_files": [
-   "/src/config.py",
-   "/src/config.yaml",
-   "/src/ingestion.py",
-   "/src/db.py",
-   "/src/main.py",
-   "/AGENTS.md"
-  ],
-  "output_files": [
-   "/src/scheduler.py",
-   "/src/scheduler_main.py",
-   "/src/config.py",
-   "/src/config.yaml"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "scheduler_module_exists",
-    "command": "python -c \"from src.scheduler import PipelineScheduler; print('PipelineScheduler importable')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "scheduler_main_exists",
-    "command": "python -c \"import os; assert os.path.exists('src/scheduler_main.py'), 'src/scheduler_main.py not found'; print('scheduler_main.py exists')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-6",
-    "check": "scheduler_config",
-    "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert hasattr(cfg, 'scheduler'), 'scheduler config section not found'; assert cfg.scheduler.enabled == False, 'scheduler.enabled should default to False'; print('scheduler config exists, enabled=False')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-7",
-    "check": "apscheduler_in_requirements",
-    "command": "python -c \"reqs = open('requirements.txt').read(); assert 'APScheduler' in reqs or 'apscheduler' in reqs, 'APScheduler not in requirements.txt'; print('APScheduler in requirements.txt')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-8",
-    "check": "test_scheduler_exists",
-    "command": "python -c \"import os; assert os.path.exists('tests/test_scheduler.py'), 'tests/test_scheduler.py not found'; print('test_scheduler.py exists')\"",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "B",
-  "challenger_required": true
- },
- {
-  "id": "F7-T5b",
-  "title": "Challenger: review scheduler implementation",
-  "role": "challenger",
-  "model": "glm",
-  "status": "done",
-  "depends_on": [
-   "F7-T5"
-  ],
-  "input_files": [
-   "/src/scheduler.py",
-   "/src/scheduler_main.py",
-   "/src/config.py",
-   "/src/config.yaml",
-   "/tests/test_scheduler.py"
-  ],
-  "output_files": [],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "C",
-  "challenger_required": true
- },
- {
-  "id": "F7-T5c",
-  "title": "Critic: verify scheduler (mocked) + full regression",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T5",
-   "F7-T5b"
-  ],
-  "input_files": [
-   "/src/scheduler.py",
-   "/src/scheduler_main.py",
-   "/src/config.py",
-   "/src/config.yaml",
-   "/tests/test_scheduler.py"
-  ],
-  "output_files": [
-   "/tests/test_scheduler.py"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "scheduler_tests_pass",
-    "command": "python -m pytest tests/test_scheduler.py -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "scheduler_uses_mocks",
-    "command": "python -c \"src = open('tests/test_scheduler.py').read(); assert 'mock' in src.lower() or 'patch' in src.lower(), 'no mocking found in scheduler tests'; print('scheduler tests use mocks')\"",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "D",
-  "challenger_required": true
- },
- {
-  "id": "F7-T6",
-  "title": "Executor: do_put in Flight server \u2014 accept external batch data into daily_close",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T5c"
-  ],
-  "input_files": [
-   "/src/flight_server.py",
-   "/src/db.py",
-   "/src/config.py",
-   "/AGENTS.md"
-  ],
-  "output_files": [
-   "/src/flight_server.py",
-   "/src/db.py"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "do_put_exists",
-    "command": "python -c \"src = open('src/flight_server.py').read(); assert 'do_put' in src, 'do_put not found in flight_server.py'; print('do_put found')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "schema_validation",
-    "command": "python -c \"src = open('src/flight_server.py').read(); assert 'schema' in src.lower(), 'no schema validation found in do_put'; print('schema validation found')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-6",
-    "check": "exclude_tickers_filter",
-    "command": "python -c \"src = open('src/flight_server.py').read(); assert 'exclude_tickers' in src, 'exclude_tickers filter not found in do_put'; print('exclude_tickers filter found')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-7",
-    "check": "test_do_put_exists",
-    "command": "python -c \"import os; assert os.path.exists('tests/test_do_put.py'), 'tests/test_do_put.py not found'; print('test_do_put.py exists')\"",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "B",
-  "challenger_required": true
- },
- {
-  "id": "F7-T6b",
-  "title": "Challenger: review do_put implementation",
-  "role": "challenger",
-  "model": "glm",
-  "status": "done",
-  "depends_on": [
-   "F7-T6"
-  ],
-  "input_files": [
-   "/src/flight_server.py",
-   "/src/db.py",
-   "/tests/test_do_put.py"
-  ],
-  "output_files": [],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "C",
-  "challenger_required": true
- },
- {
-  "id": "F7-T6c",
-  "title": "Critic: verify do_put + full regression",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T6",
-   "F7-T6b"
-  ],
-  "input_files": [
-   "/src/flight_server.py",
-   "/src/db.py",
-   "/tests/test_do_put.py"
-  ],
-  "output_files": [
-   "/tests/test_do_put.py"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "do_put_tests_pass",
-    "command": "python -m pytest tests/test_do_put.py -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "schema_rejection_test",
-    "command": "python -m pytest tests/test_do_put.py -k schema -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "D",
-  "challenger_required": true
- },
- {
-  "id": "F7-T7",
-  "title": "Executor: integration tests for all Phase 2 features",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T6c"
-  ],
-  "input_files": [
-   "/src/flight_server.py",
-   "/src/ingestion.py",
-   "/src/db.py",
-   "/src/scheduler.py",
-   "/src/r2_sync.py",
-   "/src/config.py",
-   "/AGENTS.md"
-  ],
-  "output_files": [
-   "/tests/test_phase2_integration.py"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "integration_tests_exist",
-    "command": "python -c \"import os; assert os.path.exists('tests/test_phase2_integration.py'), 'tests/test_phase2_integration.py not found'; print('test_phase2_integration.py exists')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "integration_tests_pass",
-    "command": "python -m pytest tests/test_phase2_integration.py -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "B",
-  "challenger_required": false
- },
- {
-  "id": "F7-T7b",
-  "title": "Critic: full regression + Phase 2 acceptance",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T7"
-  ],
-  "input_files": [
-   "/tests/test_phase2_integration.py",
-   "/src/flight_server.py",
-   "/src/ingestion.py",
-   "/src/db.py",
-   "/src/scheduler.py",
-   "/src/r2_sync.py",
-   "/src/config.py"
-  ],
-  "output_files": [
-   "/tests/"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "no_daily_quotes_refs",
-    "command": "python -c \"import subprocess; r = subprocess.run(['git', 'grep', '-ri', 'daily_quotes', 'src/'], capture_output=True, text=True); lines = r.stdout.splitlines(); migration = [l for l in lines if 'ALTER TABLE' not in l and 'rename' not in l.lower() and 'in tables' not in l and '# ' not in l]; assert len(migration) == 0, 'daily_quotes refs remain: ' + str(migration); print('no daily_quotes refs in src/ (except migration code)')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "phase2_integration_pass",
-    "command": "python -m pytest tests/test_phase2_integration.py -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "D",
-  "challenger_required": false
- },
- {
-  "id": "F7-T8",
-  "title": "Executor: add daily_lookback_days parameter (default 4, CI/scheduler uses 1)",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T7b"
-  ],
-  "input_files": [
-   "/src/config.py",
-   "/src/config.yaml",
-   "/src/ingestion.py",
-   "/src/scheduler.py",
-   "/src/flight_server.py",
-   "/scripts/ci_daily_load.py",
-   "/AGENTS.md"
-  ],
-  "output_files": [
-   "/src/config.py",
-   "/src/config.yaml",
-   "/src/ingestion.py",
-   "/src/scheduler.py",
-   "/scripts/ci_daily_load.py"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "config_has_lookback_days",
-    "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert hasattr(cfg.ingestion, 'daily_lookback_days'), 'daily_lookback_days not in IngestionConfig'; assert cfg.ingestion.daily_lookback_days == 4, f'expected default 4, got {cfg.ingestion.daily_lookback_days}'; print('daily_lookback_days default=4 OK')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "run_daily_load_accepts_param",
-    "command": "python -c \"import inspect; from src.ingestion import IngestionEngine; sig = inspect.signature(IngestionEngine.run_daily_load); assert 'lookback_days' in sig.parameters, 'run_daily_load must accept lookback_days parameter'; assert sig.parameters['lookback_days'].default == 4, f'expected default 4, got {sig.parameters[\"lookback_days\"].default}'; print('run_daily_load(lookback_days=4) default OK')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-6",
-    "check": "no_hardcoded_4",
-    "command": "python -c \"src = open('src/ingestion.py').read(); assert 'timedelta(days=4)' not in src, 'hardcoded timedelta(days=4) still in ingestion.py'; print('no hardcoded days=4 in ingestion.py')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-7",
-    "check": "scheduler_uses_1",
-    "command": "python -c \"src = open('src/scheduler.py').read(); assert 'lookback_days=1' in src or 'lookback_days = 1' in src, 'scheduler does not pass lookback_days=1'; print('scheduler uses lookback_days=1 OK')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-8",
-    "check": "ci_uses_1",
-    "command": "python -c \"src = open('scripts/ci_daily_load.py').read(); assert 'lookback_days=1' in src or 'lookback_days = 1' in src, 'ci_daily_load.py does not pass lookback_days=1'; print('ci_daily_load uses lookback_days=1 OK')\"",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "B",
-  "challenger_required": true
- },
- {
-  "id": "F7-T8b",
-  "title": "Challenger: review daily_lookback_days parameter",
-  "role": "challenger",
-  "model": "glm",
-  "status": "done",
-  "depends_on": [
-   "F7-T8"
-  ],
-  "input_files": [
-   "/src/config.py",
-   "/src/config.yaml",
-   "/src/ingestion.py",
-   "/src/scheduler.py",
-   "/scripts/ci_daily_load.py"
-  ],
-  "output_files": [],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "C",
-  "challenger_required": true
- },
- {
-  "id": "F7-T8c",
-  "title": "Critic: verify daily_lookback_days + full regression",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T8",
-   "F7-T8b"
-  ],
-  "input_files": [
-   "/src/config.py",
-   "/src/config.yaml",
-   "/src/ingestion.py",
-   "/src/scheduler.py",
-   "/scripts/ci_daily_load.py"
-  ],
-  "output_files": [
-   "/tests/"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "default_is_4",
-    "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert cfg.ingestion.daily_lookback_days == 4; print('default=4 OK')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "scheduler_uses_1",
-    "command": "python -c \"src = open('src/scheduler.py').read(); assert 'lookback_days=1' in src or 'lookback_days = 1' in src; print('scheduler=1 OK')\"",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "D",
-  "challenger_required": true
- },
- {
-  "id": "F7-T9",
-  "title": "Executor: fix split detection false positives from stale/empty splits_processed table",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T8c"
-  ],
-  "input_files": [
-   "/src/ingestion.py",
-   "/src/db.py",
-   "/AGENTS.md"
-  ],
-  "output_files": [
-   "/src/ingestion.py",
-   "/src/db.py"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "db_has_get_ticker_earliest_date",
-    "command": "python -c \"from src.db import DatabaseManager; assert hasattr(DatabaseManager, 'get_ticker_earliest_date'); print('get_ticker_earliest_date exists')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "ingestion_filters_old_splits",
-    "command": "python -c \"import inspect; from src.ingestion import IngestionEngine; src = inspect.getsource(IngestionEngine._check_and_apply_splits); assert 'get_ticker_earliest_date' in src or 'earliest_date' in src, 'split check does not use earliest date'; assert 'split_date <' in src or 'split_date >=' in src or 'split_dt <' in src, 'splits are not filtered by date'; print('split filtering present')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-6",
-    "check": "no_hardcoded_delete",
-    "command": "python -c \"src = open('src/ingestion.py').read(); assert '1987' not in src, 'hardcoded 1987 reference found'; print('no hardcoded date found')\"",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "B",
-  "challenger_required": true
- },
- {
-  "id": "F7-T9b",
-  "title": "Challenger: review split detection fix",
-  "role": "challenger",
-  "model": "glm",
-  "status": "done",
-  "depends_on": [
-   "F7-T9"
-  ],
-  "input_files": [
-   "/src/ingestion.py",
-   "/src/db.py"
-  ],
-  "output_files": [],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "C",
-  "challenger_required": true,
-  "evidence": "Challenger review (orchestrator with explicit user override). Reviewed src/ingestion.py and src/db.py. Confirmed: tickers with no stored data are skipped, splits before the ticker\\'s earliest date are filtered out, unprocessed splits on/after earliest date trigger re-download. Loop checker clean. 235/235 tests pass."
- },
- {
-  "id": "F7-T9c",
-  "title": "Critic: verify split detection fix + regression",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T9",
-   "F7-T9b"
-  ],
-  "input_files": [
-   "/src/ingestion.py",
-   "/src/db.py"
-  ],
-  "output_files": [
-   "/tests/"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "test_split_filtering",
-    "command": "python -m pytest tests/test_ingestion.py -k split -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "D",
-  "challenger_required": true,
-  "evidence": "Critic verification (orchestrator with explicit user override). AC-1..AC-4 verified: loop checker clean (plain and strict), 235/235 pytest tests pass, split-filter tests pass."
- },
- {
-  "id": "F7-T10",
-  "title": "Executor: batch split re-downloads instead of per-ticker calls",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T9c"
-  ],
-  "input_files": [
-   "/src/ingestion.py",
-   "/src/ingestion_challenger.py",
-   "/src/db.py",
-   "/src/db_challenger.py",
-   "/AGENTS.md"
-  ],
-  "output_files": [
-   "/src/ingestion.py",
-   "/src/ingestion_challenger.py"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "batch_redownload",
-    "command": "python -c \"import inspect; from src.ingestion import IngestionEngine; src = inspect.getsource(IngestionEngine._check_and_apply_splits); assert '_batch_download([' not in src or src.count('_batch_download([') == 0, 'still using per-ticker _batch_download([t])'; print('no per-ticker _batch_download calls')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "challenger_batch_redownload",
-    "command": "python -c \"import inspect; from src.ingestion_challenger import IngestionEngine; src = inspect.getsource(IngestionEngine._check_and_apply_splits); assert '_batch_download([' not in src or src.count('_batch_download([') == 0, 'challenger still using per-ticker _batch_download([t])'; print('challenger no per-ticker calls')\"",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "B",
-  "challenger_required": true,
-  "evidence": "Executor (orchestrator with explicit user override). Refactored _check_and_apply_splits in src/ingestion.py and src/ingestion_challenger.py to collect affected tickers and re-download them in a single _batch_download call. Added _record_historical_splits() to record splits after initial load and backfill, preventing unnecessary re-downloads. 235/235 tests pass, loop checker clean."
- },
- {
-  "id": "F7-T10b",
-  "title": "Challenger: review batch split re-download implementation",
-  "role": "challenger",
-  "model": "glm",
-  "status": "done",
-  "depends_on": [
-   "F7-T10"
-  ],
-  "input_files": [
-   "/src/ingestion.py",
-   "/src/ingestion_challenger.py"
-  ],
-  "output_files": [],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "C",
-  "challenger_required": true,
-  "evidence": "Challenger review (orchestrator with explicit user override). Reviewed batch split re-download in both implementations. Confirmed: per-ticker yf.Ticker.splits calls remain (no batch API), unprocessed splits are collected per ticker, all affected tickers are re-downloaded in one _batch_download call using the minimum earliest date (executor) or aligned start (challenger), deletes remain per-ticker, list comprehensions flatten split records. 235/235 tests pass."
- },
- {
-  "id": "F7-T10c",
-  "title": "Critic: verify batch split re-download + regression",
-  "role": "critic",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T10",
-   "F7-T10b"
-  ],
-  "input_files": [
-   "/src/ingestion.py",
-   "/src/ingestion_challenger.py"
-  ],
-  "output_files": [
-   "/tests/"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "batch_redownload_test",
-    "command": "python -m pytest tests/test_ingestion.py -k batch -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "D",
-  "challenger_required": true,
-  "evidence": "Critic verification (orchestrator with explicit user override). AC-1..AC-4 verified: loop checker clean (plain and strict), 235/235 pytest tests pass, batch re-download test passes (4 split tests)."
- },
- {
-  "id": "F7-T11",
-  "title": "Executor: Windows scheduled task script for daily load",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T10c"
-  ],
-  "input_files": [
-   "/src/config.yaml",
-   "/src/scheduler_main.py",
-   "/src/scheduler.py",
-   "/src/ingestion.py",
-   "/AGENTS.md"
-  ],
-  "output_files": [
-   "/scripts/"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-4",
-    "check": "script_exists",
-    "command": "python -c \"import os; assert any(f.endswith(('.ps1','.bat','.cmd')) and 'task' in f.lower() for f in os.listdir('scripts')), 'no scheduled-task script found in scripts/'; print('script found')\"",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-5",
-    "check": "script_uses_schtasks",
-    "command": "python -c \"import os; c=''; [c:=c+open(os.path.join('scripts',f),encoding='utf-8',errors='ignore').read() for f in os.listdir('scripts') if f.endswith(('.ps1','.bat','.cmd')) and 'task' in f.lower()]; assert 'schtasks' in c.lower(), 'script does not use schtasks.exe'; print('schtasks usage confirmed')\"",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "B",
-  "challenger_required": true,
-  "evidence": "Executor (orchestrator with explicit user override). Created scripts/register_daily_task.ps1 (schtasks /create /sc DAILY /f, idempotent, -Unregister supported, reads schedule_time from src/config.yaml) and scripts/daily_load_once.py (runs PipelineScheduler.run_once with default config, logs to cfg.logging.log_file). Verified: task registered as StockIngestion-DailyLoad daily 16:14, runner executed end-to-end on 2026-09-12 (Saturday) -> NYSE closed skip, exit 0. Loop checker clean plain+strict, 235/235 pytest pass."
- },
- {
-  "id": "F7-T12",
-  "title": "Executor: split repair must not destroy history on failed re-download",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T10c"
-  ],
-  "input_files": [
-   "/src/ingestion.py",
-   "/src/ingestion_challenger.py",
-   "/tests/test_ingestion.py",
-   "/AGENTS.md"
-  ],
-  "output_files": [
-   "/src/ingestion.py",
-   "/src/ingestion_challenger.py",
-   "/tests/test_ingestion.py"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "B",
-  "challenger_required": true,
-  "description": "BUG: _check_and_apply_splits deletes a ticker's entire history BEFORE re-downloading. When the batch re-download returns empty/failed for a ticker (transient yfinance failure), that history is permanently lost \u2014 happened on 2026-09-10 to BKNG, BWA, FNF, FTAI, LOGI, RLI (left with only 2 rows). FIX (option 2): in both src/ingestion.py and src/ingestion_challenger.py, change ordering to (1) batch download first, (2) for each affected ticker only delete+upsert if the re-downloaded frame actually contains rows for that ticker; if a ticker is missing/empty in the re-download, keep its existing data and warn (do NOT record its splits as processed \u2014 leave them unprocessed so a later run can retry). Splits already recorded in bulk before the download should be reverted/skipped for failed tickers, or better: only record splits for tickers that were successfully re-downloaded. Add regression test: ticker with unprocessed split whose re-download returns empty keeps its existing rows and its split stays unprocessed."
- },
- {
-  "id": "F7-T13",
-  "title": "Executor: fix scheduled-task timezone + silent failure exit code",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T11"
-  ],
-  "input_files": [
-   "/scripts/register_daily_task.ps1",
-   "/scripts/daily_load_once.py",
-   "/src/config.yaml",
-   "/src/scheduler.py",
-   "/AGENTS.md"
-  ],
-  "output_files": [
-   "/scripts/register_daily_task.ps1",
-   "/scripts/daily_load_once.py"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "loop_checker_strict",
-    "command": "python scripts/check_loops.py --src-dir src --strict",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-3",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "B",
-  "challenger_required": true,
-  "description": "Challenger findings on F7-T11: (1) HIGH timezone bug \u2014 schtasks /st uses machine-local time but register_daily_task.ps1 copies scheduler.schedule_time verbatim while config timezone is America/New_York; on a GMT machine the task fires 16:14 UK = 11:14 ET mid-session producing partial intraday bars. Fix: convert scheduler.schedule_time from cfg scheduler.timezone to the machine's local timezone at registration (PowerShell TimeZoneInfo.ConvertTime with System.TimeZoneInfo::FindSystemTimeZoneById + Get-TimeZone), warn on DST-ambiguous edge cases, and keep -Time override. (2) HIGH silent failure \u2014 when DuckDB is locked daily_load_once.py exits 0 so Task Scheduler cannot detect failure. Fix: run_once result should propagate \u2014 make the runner exit non-zero when the load did not run/failed (e.g. catch exceptions, log traceback to cfg.logging.log_file, sys.exit(1); also have PipelineScheduler.run_once or the runner surface lock-retry exhaustion as a failure exit code). (3) MEDIUM unhandled exceptions go to stderr which Task Scheduler discards \u2014 wrap main() so all tracebacks land in the configured log file before exit(1). (4) honor cfg.logging.log_format like scheduler_main._configure_logging. After editing, re-run register_daily_task.ps1 to refresh the live task (verify with schtasks /query)."
- },
- {
-  "id": "F7-T14",
-  "title": "Executor: update workflow docs for local-subagent (no Devin Cloud) usage",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [],
-  "input_files": [
-   "/docs/workflow_idea/",
-   "/AGENTS.md",
-   "/README.md",
-   "/scripts/poll_tasks.py",
-   "/devin_blackboard/STATE.md"
-  ],
-  "output_files": [
-   "/docs/workflow_idea/",
-   "/README.md",
-   "/AGENTS.md"
-  ],
-  "acceptance_criteria": [
-   {
-    "id": "AC-1",
-    "check": "loop_checker",
-    "command": "python scripts/check_loops.py --src-dir src",
-    "expected_exit": 0
-   },
-   {
-    "id": "AC-2",
-    "check": "pytest_suite",
-    "command": "python -m pytest tests/ -q",
-    "expected_exit": 0
-   }
-  ],
-  "assigned_to": "B",
-  "challenger_required": false,
-  "description": "Update the multi-agent workflow documentation to describe the LOCAL-subagent approach (Devin CLI run_subagent with subagent_general / subagent_explore profiles) as the fully-free default, since Devin Cloud devin_session_create requires org quota that may be unavailable. Revise docs/workflow_idea/procedure_multi_agents01.md, devin_platform_setup.md, polling_workflow_protocol.md, and agent_*_prompt.md files so agent prompts describe claiming tasks via scripts/poll_tasks.py, editing only output_files, writing evidence to EVENTS.log \u2014 all executable by local subagents. Keep cloud-session spawning documented as an optional alternative. Update README.md and AGENTS.md workflow sections to match (AGENTS.md keeps role boundaries and the 'orchestrator may code' override rule)."
- },
- {
-  "id": "F7-T15",
-  "title": "Local daily load catch-up: bypass market-closed gate for scheduled local runs so missed trading days are downloaded",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T13"
-  ],
-  "input_files": [
-   "/src/scheduler.py",
-   "/src/ingestion.py",
-   "/src/ingestion_challenger.py",
-   "/src/config.py",
-   "/scripts/daily_load_once.py",
-   "/scripts/ci_daily_load.py",
-   "/tests/test_scheduler.py",
-   "/tests/test_ingestion.py"
-  ],
-  "output_files": [
-   "/src/scheduler.py",
-   "/src/ingestion.py",
-   "/src/ingestion_challenger.py",
-   "/scripts/daily_load_once.py",
-   "/tests/test_scheduler.py",
-   "/tests/test_ingestion.py"
-  ],
-  "acceptance_criteria": "Local one-shot runner (scripts/daily_load_once.py) performs the daily download even when today is NOT a trading day, so a PC that was off on a trading day catches up on the next day it is on (e.g. PC off Friday -> Saturday run downloads Friday data). GitHub CI path (scripts/ci_daily_load.py -> run_daily_load default) UNCHANGED: still returns SKIPPED on market-closed days. The bypass is opt-in (e.g. a force/ignore_market_closed flag) so APScheduler daemon (scheduler_main.py) keeps its existing trading-day gate. Local runner uses lookback = config.ingestion.daily_lookback_days (4), not the hardcoded 1. Both ingestion implementations (src/ingestion.py AND src/ingestion_challenger.py) support the bypass. Regression test proves: market-closed day + force flag -> download path taken (not SKIPPED). python scripts/check_loops.py --src-dir src exit 0; python -m pytest tests/ -q exit 0.",
-  "assigned_to": "B"
- },
- {
-  "id": "F7-T16",
-  "title": "Flight server as Windows service + route daily load through service do_action",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T15"
-  ],
-  "input_files": [
-   "/src/main.py",
-   "/src/flight_server.py",
-   "/src/flight_server_challenger.py",
-   "/src/scheduler.py",
-   "/scripts/daily_load_once.py",
-   "/scripts/register_daily_task.ps1",
-   "/tests/test_flight_server.py",
-   "/tests/test_scheduler.py",
-   "/README.md"
-  ],
-  "output_files": [
-   "/src/flight_server.py",
-   "/src/flight_server_challenger.py",
-   "/scripts/daily_load_once.py",
-   "/scripts/run_flight_server.py",
-   "/scripts/register_flight_service.ps1",
-   "/tests/test_flight_server.py",
-   "/tests/test_scheduler.py",
-   "/README.md",
-   "/docs/README.md"
-  ],
-  "acceptance_criteria": "(1) do_action(\"daily_load\", {\"force\": true}) reaches run_daily_load(force=True) in BOTH src/flight_server.py and src/flight_server_challenger.py; payload absent -> force=False default preserved. (2) NEW scripts/run_flight_server.py: cwd-safe wrapper (sys.path.insert + os.chdir to repo root, mirroring daily_load_once.py pattern) that calls src.main.main(). (3) NEW scripts/register_flight_service.ps1 registers scheduled task StockIngestion-FlightServer: AtStartup trigger, absolute python.exe path, restart-on-failure (RestartCount>=3, RestartInterval>=1min), ExecutionTimeLimit zero, idempotent re-registration, -Unregister switch removes task. (4) scripts/daily_load_once.py tries Flight first: builds grpc://{cfg.server.flight_host}:{cfg.server.flight_port}, calls do_action daily_load with {\"force\": true}, short connect timeout, parses JSON result; SUCCESS/PARTIAL -> exit 0; Flight server error/timeout -> exit 1; on CONNECTION failure (server unreachable) logs and falls back to existing direct path _execute_daily_load(db_manager, force=True). Exit codes otherwise preserved (lock->1, crash->1, enabled=false->0). (5) Tests: flight_server daily_load action forwards force from payload (mocked engine); daily_load_once service path tested with mocked FlightClient (success -> no direct DB open; connect failure -> fallback taken). (6) README.md documents running the Flight server as a Windows scheduled task and states scheduler_main.py must NOT run while the service runs (single writer); docs/README.md synced as a verbatim copy. (7) python scripts/check_loops.py --src-dir src exit 0; python -m pytest tests/ -q exit 0.",
-  "assigned_to": "B"
- },
- {
-  "id": "F7-T17",
-  "title": "BUG: do_action returns bare flight.Result (TypeError over wire) + get_health_info index swap",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T16"
-  ],
-  "input_files": [
-   "/src/flight_server.py",
-   "/src/flight_server_challenger.py",
-   "/src/db.py",
-   "/src/db_challenger.py",
-   "/tests/test_flight_server.py",
-   "/tests/test_health_check.py"
-  ],
-  "output_files": [
-   "/src/flight_server.py",
-   "/src/flight_server_challenger.py",
-   "/src/db.py",
-   "/tests/test_flight_server.py",
-   "/tests/test_health_check.py"
-  ],
-  "acceptance_criteria": "(1) Every do_action branch in src/flight_server.py returns an ITERABLE of flight.Result (e.g. return [flight.Result(...)] or yield) \u2014 TypeError Result not iterable gone. Same fix in src/flight_server_challenger.py. (2) src/db.py get_health_info index swap fixed: schema_version key gets the INTEGER schema version, last_run key gets the run timestamp (currently last_run=row[4]=version int-as-str and schema_version=row[5]=datetime -> json.dumps crash). Verify challenger db.py for the same bug and fix if present. (3) NEW over-the-wire test: real pyarrow.flight.FlightClient against a real server instance on an ephemeral port \u2014 at minimum daily_load (mocked engine) and health_check succeed end-to-end with parseable JSON results. (4) All existing tests still pass: python -m pytest tests/ -q exit 0; python scripts/check_loops.py --src-dir src exit 0.",
-  "assigned_to": "B"
- },
- {
-  "id": "F7-T18",
-  "title": "Hardening: restart-starvation (C1) + challenger lookback_days parity (C2)",
-  "role": "executor",
-  "model": "swe",
-  "status": "done",
-  "depends_on": [
-   "F7-T17"
-  ],
-  "input_files": [
-   "/scripts/run_flight_server.py",
-   "/scripts/register_flight_service.ps1",
-   "/src/flight_server_challenger.py"
-  ],
-  "output_files": [
-   "/scripts/run_flight_server.py",
-   "/scripts/register_flight_service.ps1",
-   "/src/flight_server_challenger.py"
-  ],
-  "acceptance_criteria": "(1) Restart-starvation fix (challenger C1): the service must not die permanently when the DB is locked by a long-running fallback load. Either run_flight_server.py retries the DB open with its own backoff loop (bounded, e.g. up to ~10min) before exiting, or register_flight_service.ps1 uses more restarts/longer interval \u2014 pick the more robust option and justify. (2) flight_server_challenger.py _handle_daily_load forwards cfg.ingestion.daily_lookback_days like the executor impl (parity). (3) python -m pytest tests/ -q exit 0; check_loops exit 0.",
-  "assigned_to": "B"
- },
- {
-  "id": "F7-T19",
-  "title": "Follow-ups from F7-T18 review: tighten lock-error markers, config_challenger daily_lookback_days, retry-logic tests",
-  "role": "executor",
-  "model": "swe",
-  "status": "todo",
-  "depends_on": [
-   "F7-T18"
-  ],
-  "input_files": [
-   "/scripts/run_flight_server.py",
-   "/src/config_challenger.py",
-   "/tests/test_scheduler.py"
-  ],
-  "output_files": [
-   "/scripts/run_flight_server.py",
-   "/src/config_challenger.py",
-   "/tests/test_scheduler.py"
-  ],
-  "acceptance_criteria": "(1) run_flight_server.py _is_db_lock_error markers tightened so a path containing the substring \"lock\" (e.g. blocked_dir) does NOT false-positive \u2014 use more specific markers (e.g. \"set lock\"/\"lock on\"/\"being used by another process\") verified against real duckdb 1.4.3 error text. (2) src/config_challenger.py IngestionConfig gains daily_lookback_days: int = 4 (parity with src/config.py) \u2014 pairing challenger flight server + challenger config no longer AttributeErrors on daily_load. (3) Unit tests added for _is_db_lock_error marker logic (true/false cases incl. path-with-lock-substring) and challenger daily_load lookback_days forwarding. (4) pytest -q exit 0; check_loops exit 0.",
-  "assigned_to": "B"
- }
+  {
+    "id": "F1-T1",
+    "title": "Scaffold: update requirements.txt with all 7 deps, verify src/config.yaml exists, ensure src/ and tests/ packages",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [],
+    "input_files": [
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md",
+      "/src/config.yaml"
+    ],
+    "output_files": [
+      "/requirements.txt",
+      "/src/__init__.py",
+      "/tests/__init__.py"
+    ],
+    "acceptance_criteria": "requirements.txt contains all 7 deps. pip install -r requirements.txt exits 0.",
+    "assigned_to": null
+  },
+  {
+    "id": "F1-T2",
+    "title": "Implement config module: Pydantic nested models, validators, from_yaml loader in src/config.py",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F1-T1"
+    ],
+    "input_files": [
+      "/requirements.txt",
+      "/src/config.yaml",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
+    ],
+    "output_files": [
+      "/src/config.py"
+    ],
+    "acceptance_criteria": "Pydantic v2 nested config with validators and from_yaml loader. Loads user's config correctly.",
+    "assigned_to": null
+  },
+  {
+    "id": "F1-T3",
+    "title": "Challenger: independent config module variant in src/config_challenger.py",
+    "role": "challenger",
+    "model": "glm",
+    "status": "done",
+    "depends_on": [
+      "F1-T1"
+    ],
+    "input_files": [
+      "/requirements.txt",
+      "/src/config.yaml",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
+    ],
+    "output_files": [
+      "/src/config_challenger.py"
+    ],
+    "acceptance_criteria": "Dataclass-based config with manual YAML parsing. Same public API. Loads user's config correctly.",
+    "assigned_to": null
+  },
+  {
+    "id": "F1-T4",
+    "title": "Critic: test config validation, YAML loading, defaults, edge cases",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F1-T2",
+      "F1-T3"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/src/config_challenger.py",
+      "/src/config.yaml"
+    ],
+    "output_files": [
+      "/tests/test_config.py",
+      "/tests/test_config_breaking.py"
+    ],
+    "acceptance_criteria": "Tests parametrized over both implementations. 33 acceptance tests pass. Breaking tests found 5 edge-case bugs (filed as BUG-F1-* tasks).",
+    "assigned_to": null
+  },
+  {
+    "id": "BUG-F1-T2",
+    "title": "Fix executor config edge cases: bool port coercion, null tickers, malformed YAML TypeError",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [],
+    "input_files": [
+      "/src/config.py",
+      "/tests/test_config_breaking.py"
+    ],
+    "output_files": [
+      "/src/config.py"
+    ],
+    "acceptance_criteria": "Fix 3 edge cases in src/config.py: (1) Boolean port (flight_port: true) must raise ValueError, not silently coerce to 1; (2) tickers: null and exclude_tickers: null must return [] not raise ValidationError; (3) Malformed top-level YAML list must raise ValueError, not TypeError. tests/test_config_breaking.py tests D1, D2, D3, D5 for executor:src.config must PASS. python -m pytest tests/test_config_breaking.py -v exit 0 for executor params.",
+    "assigned_to": null
+  },
+  {
+    "id": "BUG-F1-T3",
+    "title": "Fix challenger config edge case: db_path does not create duckdb_dir",
+    "role": "challenger",
+    "model": "glm",
+    "status": "done",
+    "depends_on": [],
+    "input_files": [
+      "/src/config_challenger.py",
+      "/tests/test_config_breaking.py"
+    ],
+    "output_files": [
+      "/src/config_challenger.py"
+    ],
+    "acceptance_criteria": "Fix db_path property in src/config_challenger.py to create duckdb_dir if absent (spec: 'Created if absent'). test_db_path_creates_duckdb_dir_if_absent for challenger:src.config_challenger must PASS. python -m pytest tests/test_config_breaking.py::test_db_path_creates_duckdb_dir_if_absent -v exit 0.",
+    "assigned_to": null
+  },
+  {
+    "id": "F2-T1",
+    "title": "Implement DatabaseManager: schema init, upsert, read-only conn, write lock, split tracking, ticker detection, report query",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F1-T4"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
+    ],
+    "output_files": [
+      "/src/db.py"
+    ],
+    "acceptance_criteria": "src/db.py defines DatabaseManager with all methods from spec §10: _init_schema (creates daily_quotes with Volume DOUBLE, splits_processed, schema_version tables), _read_only_conn, execute_query (returns pa.Table), upsert_dataframe (MERGE INTO, returns int row count), purge_ticker, is_split_processed, record_split, delete_ticker_data, get_existing_tickers, get_aligned_start_date, detect_new_tickers, generate_top_20_dollar_volume, close (CHECKPOINT). Uses threading.Lock for all writes. Read-only conn for reads. python -c \"from src.db import DatabaseManager; print('OK')\" exits 0 with output 'OK'.",
+    "assigned_to": null
+  },
+  {
+    "id": "F2-T2",
+    "title": "Challenger: independent DatabaseManager variant in src/db_challenger.py",
+    "role": "challenger",
+    "model": "glm",
+    "status": "done",
+    "depends_on": [
+      "F1-T4"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
+    ],
+    "output_files": [
+      "/src/db_challenger.py"
+    ],
+    "acceptance_criteria": "src/db_challenger.py defines DatabaseManager with same public API as F2-T1. Structurally different implementation (e.g. connection pool vs single conn, different lock strategy, different SQL parameter binding style, or context manager pattern). Same acceptance test passes. python -c \"from src.db_challenger import DatabaseManager; print('OK')\" exits 0 with output 'OK'.",
+    "assigned_to": null
+  },
+  {
+    "id": "F2-T3",
+    "title": "Critic: test DatabaseManager with temp DuckDB files in tests/test_db.py",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F2-T1",
+      "F2-T2"
+    ],
+    "input_files": [
+      "/src/db.py",
+      "/src/db_challenger.py"
+    ],
+    "output_files": [
+      "/tests/test_db.py"
+    ],
+    "acceptance_criteria": "tests/test_db.py parametrized over BOTH src.db.DatabaseManager and src.db_challenger.DatabaseManager. Tests with tmp_path-isolated DuckDB: (1) schema creates 3 tables (daily_quotes, splits_processed, schema_version); (2) upsert inserts new rows; (3) upsert updates existing rows (MERGE); (4) upsert empty df returns 0, no error; (5) read-only conn rejects DELETE; (6) detect_new_tickers returns correct diff; (7) get_aligned_start_date returns MIN(Date) or None; (8) generate_top_20 returns sorted by dollar_volume DESC limit 20; (9) record_split + is_split_processed idempotency; (10) delete_ticker_data removes all rows for ticker; (11) thread safety: concurrent writes don't corrupt. python -m pytest tests/test_db.py -v exits 0. Critic pastes pytest output to EVENTS.log.",
+    "assigned_to": null
+  },
+  {
+    "id": "F3-T1",
+    "title": "Implement IngestionEngine: batch download, split detection (DELETE+re-download), normalize, run_initial_load, run_daily_load, run_on_request_load",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F2-T3"
+    ],
+    "input_files": [
+      "/src/db.py",
+      "/src/config.py",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
+    ],
+    "output_files": [
+      "/src/ingestion.py"
+    ],
+    "acceptance_criteria": "src/ingestion.py defines IngestionEngine with all methods from spec §10: __init__(db_mgr, cfg), _check_and_apply_splits (per-ticker split detection via yf.Ticker.splits, DELETE + re-download from aligned start with auto_adjust=True), _batch_download (yf.download with end+1 day fix, auto_adjust=True, group_by='ticker'), _normalize_batch_df (handles multi-ticker and single-ticker, drops NaN, purges excluded empty tickers, warns on non-excluded empty), fetch_and_clean (split check + batch download + normalize), run_initial_load (6-year default, returns dict with rows_upserted/tickers_succeeded/tickers_failed/errors/duration_ms), run_daily_load (NYSE calendar check via pandas_market_calendars, new ticker detection + backfill from aligned start, trailing 4-day refresh, returns dict), run_on_request_load (custom tickers+dates, returns dict). python -c \"from src.ingestion import IngestionEngine; print('OK')\" exits 0 with output 'OK'.",
+    "assigned_to": null
+  },
+  {
+    "id": "F3-T2",
+    "title": "Challenger: independent IngestionEngine variant in src/ingestion_challenger.py",
+    "role": "challenger",
+    "model": "glm",
+    "status": "done",
+    "depends_on": [
+      "F2-T3"
+    ],
+    "input_files": [
+      "/src/db.py",
+      "/src/config.py",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
+    ],
+    "output_files": [
+      "/src/ingestion_challenger.py"
+    ],
+    "acceptance_criteria": "src/ingestion_challenger.py defines IngestionEngine with same public API as F3-T1. Structurally different implementation (e.g. different download retry strategy, different normalization pipeline, different split detection order, different error handling structure). Same acceptance tests pass. python -c \"from src.ingestion_challenger import IngestionEngine; print('OK')\" exits 0 with output 'OK'.",
+    "assigned_to": null
+  },
+  {
+    "id": "F3-T3",
+    "title": "Critic: test IngestionEngine with mocked yfinance in tests/test_ingestion.py",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F3-T1",
+      "F3-T2"
+    ],
+    "input_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/src/db.py",
+      "/src/config.py"
+    ],
+    "output_files": [
+      "/tests/test_ingestion.py"
+    ],
+    "acceptance_criteria": "tests/test_ingestion.py parametrized over BOTH src.ingestion.IngestionEngine and src.ingestion_challenger.IngestionEngine. Mock yf.download and yf.Ticker.splits. Tests: (1) _batch_download adds +1 day to end_date; (2) fetch_and_clean returns (df, succeeded, failed, errors) tuple; (3) split detection: unprocessed split -> delete + re-download; (4) already-processed split -> skip; (5) multiple splits -> single re-download; (6) empty ticker in exclude_list -> purge; (7) empty ticker NOT in exclude_list -> warning, no purge; (8) run_daily_load: new ticker detection + backfill from aligned start; (9) run_daily_load: empty DB -> initial_load + trailing refresh; (10) run_daily_load: market closed -> SKIPPED. python -m pytest tests/test_ingestion.py -v exits 0. Critic pastes pytest output to EVENTS.log.",
+    "assigned_to": null
+  },
+  {
+    "id": "F4-T1",
+    "title": "Implement MarketDataFlightServer: do_get (SELECT-only validation), do_action (4 actions with rich results), _truncate_sql",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F3-T3"
+    ],
+    "input_files": [
+      "/src/db.py",
+      "/src/ingestion.py",
+      "/src/config.py",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
+    ],
+    "output_files": [
+      "/src/flight_server.py"
+    ],
+    "acceptance_criteria": "src/flight_server.py defines MarketDataFlightServer(flight.FlightServerBase) with: __init__(location, db_mgr, ingest_engine, cfg), do_get (parse JSON ticket, validate SELECT-only via _validate_select_only, execute via db.execute_query, return RecordBatchStream, truncate SQL in logs to 200 chars via _truncate_sql), do_action (4 action types: initial_load, daily_load, on_request_load, daily_report — each returns flight.Result with JSON containing status SUCCESS/PARTIAL/SKIPPED + rows_upserted/tickers_succeeded/tickers_failed/errors/duration_ms; daily_report writes JSON to cfg.reports.report_dir). Also defines _validate_select_only(sql) and _truncate_sql(sql, max_len=200) as module-level functions. python -c \"from src.flight_server import MarketDataFlightServer; print('OK')\" exits 0 with output 'OK'.",
+    "assigned_to": null
+  },
+  {
+    "id": "F4-T2",
+    "title": "Challenger: independent MarketDataFlightServer variant in src/flight_server_challenger.py",
+    "role": "challenger",
+    "model": "glm",
+    "status": "done",
+    "depends_on": [
+      "F3-T3"
+    ],
+    "input_files": [
+      "/src/db.py",
+      "/src/ingestion.py",
+      "/src/config.py",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
+    ],
+    "output_files": [
+      "/src/flight_server_challenger.py"
+    ],
+    "acceptance_criteria": "src/flight_server_challenger.py defines MarketDataFlightServer with same public API as F4-T1. Structurally different implementation (e.g. different action dispatch pattern, different validation approach, different error handling structure). Same acceptance tests pass. python -c \"from src.flight_server_challenger import MarketDataFlightServer; print('OK')\" exits 0 with output 'OK'.",
+    "assigned_to": null
+  },
+  {
+    "id": "F4-T3",
+    "title": "Critic: test Flight server SELECT validation and action routing in tests/test_flight_server.py",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F4-T1",
+      "F4-T2"
+    ],
+    "input_files": [
+      "/src/flight_server.py",
+      "/src/flight_server_challenger.py",
+      "/src/db.py",
+      "/src/ingestion.py",
+      "/src/config.py"
+    ],
+    "output_files": [
+      "/tests/test_flight_server.py"
+    ],
+    "acceptance_criteria": "tests/test_flight_server.py parametrized over BOTH implementations. Tests: (1) _validate_select_only accepts 'SELECT * FROM...'; (2) accepts 'WITH cte AS (...) SELECT...'; (3) rejects 'DELETE FROM...'; (4) rejects 'DROP TABLE...'; (5) rejects 'INSERT INTO...'; (6) rejects empty string; (7) _truncate_sql truncates at 200 chars with '...'; (8) do_action routing: initial_load returns correct status structure; (9) daily_load returns correct status structure; (10) on_request_load returns correct status structure; (11) daily_report returns report array + writes JSON file; (12) unknown action raises FlightServerError. Uses mocked DatabaseManager and IngestionEngine. python -m pytest tests/test_flight_server.py -v exits 0. Critic pastes pytest output to EVENTS.log.",
+    "assigned_to": null
+  },
+  {
+    "id": "F5-T1",
+    "title": "Implement main entrypoint: assemble config -> DatabaseManager -> IngestionEngine -> FlightServer, signal handling, server.serve()",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F4-T3"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/src/db.py",
+      "/src/ingestion.py",
+      "/src/flight_server.py",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
+    ],
+    "output_files": [
+      "/src/main.py"
+    ],
+    "acceptance_criteria": "src/main.py defines main() function that: (1) loads config via PipelineConfig.from_yaml('src/config.yaml'); (2) creates DatabaseManager(config.db_path); (3) creates IngestionEngine(db_manager, config); (4) sets up SIGINT/SIGTERM signal handler that calls db_manager.close() and exits; (5) creates MarketDataFlightServer with location string grpc://{host}:{port}; (6) calls server.serve(). Also has if __name__=='__main__': main(). Uses the EXECUTOR's production modules (config.py, db.py, ingestion.py, flight_server.py) — NOT the challenger variants. python -c \"from src.main import main; print('OK')\" exits 0 with output 'OK'.",
+    "assigned_to": null
+  },
+  {
+    "id": "F5-T2",
+    "title": "Critic: integration test — assemble all modules, verify end-to-end flow with mocked yfinance",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F5-T1"
+    ],
+    "input_files": [
+      "/src/main.py",
+      "/src/config.py",
+      "/src/db.py",
+      "/src/ingestion.py",
+      "/src/flight_server.py"
+    ],
+    "output_files": [
+      "/tests/test_integration.py"
+    ],
+    "acceptance_criteria": "tests/test_integration.py tests the full assembly using EXECUTOR's production modules (config.py, db.py, ingestion.py, flight_server.py). Uses tmp_path-isolated DuckDB, mocked yfinance (yf.download, yf.Ticker.splits), and a synthetic config file in tmp_path. Tests: (1) main() can be imported and all components assemble without error; (2) create DatabaseManager + IngestionEngine + FlightServer manually, call do_action 'initial_load' with mocked yf.download returning synthetic data, verify rows upserted > 0; (3) do_action 'daily_report' returns report with 20 items (after inserting 25 rows of synthetic data); (4) do_get with SELECT returns arrow table with data; (5) do_get with DELETE raises FlightServerError; (6) concurrent do_get from 3 threads all succeed; (7) db_manager.close() executes CHECKPOINT without error. python -m pytest tests/test_integration.py -v exits 0. Critic pastes pytest output to EVENTS.log.",
+    "assigned_to": null
+  },
+  {
+    "id": "F5-T3",
+    "title": "Critic: select production modules and update src/__init__.py to export from production files",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F5-T2"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/src/db.py",
+      "/src/ingestion.py",
+      "/src/flight_server.py",
+      "/src/main.py"
+    ],
+    "output_files": [
+      "/src/__init__.py"
+    ],
+    "acceptance_criteria": "src/__init__.py updated to export from production modules: from src.config import PipelineConfig, from src.db import DatabaseManager, from src.ingestion import IngestionEngine, from src.flight_server import MarketDataFlightServer. Challenger variants (config_challenger.py, db_challenger.py, ingestion_challenger.py, flight_server_challenger.py) remain in repo for reference but are NOT imported by __init__.py. python -c \"from src import PipelineConfig, DatabaseManager, IngestionEngine, MarketDataFlightServer; print('OK')\" exits 0 with output 'OK'. Full test suite: python -m pytest tests/ -v exits 0 (excluding test_config_breaking.py which has known BUG-F1-T2 failures). Critic pastes selection rationale + pytest output to EVENTS.log.",
+    "assigned_to": null
+  },
+  {
+    "id": "F6-T1",
+    "title": "Executor: create AST loop checker (scripts/check_loops.py) + pre-commit hook + fix vectorizable loops in src/",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F5-T3"
+    ],
+    "input_files": [
+      "/src/*.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/scripts/check_loops.py",
+      "/scripts/pre_commit_check_loops.py",
+      "/.git/hooks/pre-commit",
+      "/src/config.py",
+      "/src/config_challenger.py",
+      "/src/db.py",
+      "/src/db_challenger.py",
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py"
+    ],
+    "acceptance_criteria": "scripts/check_loops.py: AST-based checker that scans src/*.py for unjustified for-loops. Exempts range/enumerate/zip/.items()/.values()/.keys()/constant literals. Accepts '# justified: <reason>' comments within 6 lines above the for. scripts/pre_commit_check_loops.py + .git/hooks/pre-commit: blocks commits with unjustified loops. 6 vectorizable loops replaced with vectorized ops or dict comprehensions. 7 remaining loops annotated with '# justified:' comments. python scripts/check_loops.py --src-dir src exits 0 with 'No unjustified loops found'. Full suite: python -m pytest tests/ -q exits 0.",
+    "assigned_to": null
+  },
+  {
+    "id": "F6-T2",
+    "title": "Challenger: review AST checker for false positives/negatives, suggest improvements",
+    "role": "challenger",
+    "model": "glm",
+    "status": "done",
+    "depends_on": [
+      "F5-T3"
+    ],
+    "input_files": [
+      "/scripts/check_loops.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [],
+    "acceptance_criteria": "Review scripts/check_loops.py for: (1) false positives — exempt patterns that are incorrectly flagged; (2) false negatives — data-iteration loops that are incorrectly exempted; (3) edge cases — nested loops, comprehensions, while loops. Document findings in EVENTS.log. No code changes required unless a critical false negative is found.",
+    "assigned_to": null
+  },
+  {
+    "id": "F6-T3",
+    "title": "Critic: verify checker passes on all src/ files + full test suite + AGENTS.md updated",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F6-T1",
+      "F6-T2"
+    ],
+    "input_files": [
+      "/scripts/check_loops.py",
+      "/src/*.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/AGENTS.md"
+    ],
+    "acceptance_criteria": "python scripts/check_loops.py --src-dir src exits 0. python -m pytest tests/ -q exits 0 (122+ tests). AGENTS.md updated with enforcement mechanism documentation: checker script, pre-commit hook, Critic mandatory checklist. Critic pastes checker output + pytest output to EVENTS.log.",
+    "assigned_to": null
+  },
+  {
+    "id": "F7-T0",
+    "title": "Executor: rename daily_quotes -> daily_close (all lowercase) throughout codebase + SQL CAST Date + batch_record_splits + check_loops --strict",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F6-T3"
+    ],
+    "input_files": [
+      "/src/db.py",
+      "/src/db_challenger.py",
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/src/flight_server.py",
+      "/src/flight_server_challenger.py",
+      "/src/store.py",
+      "/src/store_challenger.py",
+      "/tests/*.py",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md",
+      "/scripts/check_loops.py"
+    ],
+    "output_files": [
+      "/src/db.py",
+      "/src/db_challenger.py",
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/src/flight_server.py",
+      "/src/flight_server_challenger.py",
+      "/src/store.py",
+      "/src/store_challenger.py",
+      "/tests/test_db.py",
+      "/tests/test_ingestion.py",
+      "/tests/test_integration.py",
+      "/tests/test_flight_server.py",
+      "/tests/test_delisted_lifecycle.py",
+      "/tests/test_store_csv.py",
+      "/tests/test_config_breaking.py",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md",
+      "/scripts/check_loops.py"
+    ],
+    "acceptance_criteria": "(1) Table renamed: grep -ri daily_quotes src/ tests/ docs/ returns 0 matches. All SQL uses daily_close (lowercase). (2) Schema migration: DatabaseManager.__init__ checks schema_version; if version 1 and daily_quotes exists, executes ALTER TABLE daily_quotes RENAME TO daily_close; bumps SCHEMA_VERSION to 2. (3) SQL CAST: generate_top_20_dollar_volume query uses CAST(Date AS VARCHAR) — no Python loop for Date stringify in db.py or db_challenger.py. (4) batch_record_splits: DatabaseManager.batch_record_splits(splits: List[Tuple[str, str, float]]) does single SQL INSERT with ON CONFLICT DO NOTHING. ingestion.py and ingestion_challenger.py use it instead of per-split loop. (5) check_loops --strict: flags # justified: comments with empty reason text. (6) python scripts/check_loops.py --src-dir src exits 0. (7) python scripts/check_loops.py --src-dir src --strict exits 0. (8) python -m pytest tests/ -q exits 0 (122+ tests). (9) Existing production DB at C:\\Intel\\parquet\\stock_ingestion.duckdb can be opened and daily_close table exists with correct row counts.",
+    "assigned_to": "B"
+  },
+  {
+    "id": "F7-T0e",
+    "title": "Critic: verify Cycle 0 — table rename + hardening + full regression",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T0"
+    ],
+    "input_files": [
+      "/src/*.py",
+      "/tests/*.py",
+      "/scripts/check_loops.py",
+      "/docs/tech_spec/gemini_tech_spec.1.0.2.md"
+    ],
+    "output_files": [
+      "/tests/ (update if needed)"
+    ],
+    "acceptance_criteria": "(1) grep -ri daily_quotes src/ tests/ docs/ returns 0 matches. (2) python scripts/check_loops.py --src-dir src exits 0. (3) python scripts/check_loops.py --src-dir src --strict exits 0. (4) python -m pytest tests/ -q exits 0 (122+ tests). (5) No # justified: loops remain for Date stringify or record_split (those should be eliminated by CAST and batch INSERT). (6) Critic pastes full grep output + checker output + pytest output to EVENTS.log.",
+    "assigned_to": "D"
+  },
+  {
+    "id": "F7-T1",
+    "title": "Executor: structured JSON logging + configure log_file path in main.py",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T0e"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/src/main.py",
+      "/src/config.yaml",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/src/config.py",
+      "/src/main.py",
+      "/src/config.yaml"
+    ],
+    "acceptance_criteria": "(1) Add log_format field to LoggingConfig in src/config.py: Literal['text', 'json'] default 'text'. (2) main.py configures logging.FileHandler writing to cfg.logging.log_file (currently broken — basicConfig doesn't use configured path). (3) Also configure console handler (StreamHandler) for visible output. (4) When log_format='json', use pythonjsonlogger.jsonlogger.JsonFormatter — all existing logger.* calls work unchanged. (5) When log_format='text', use existing plain text formatter. (6) Log file parent directory created if absent (os.makedirs(exist_ok=True)). (7) Add log_format: 'text' to src/config.yaml logging section. (8) New dependency python-json-logger installed via pip. (9) python scripts/check_loops.py --src-dir src exits 0. (10) python scripts/check_loops.py --src-dir src --strict exits 0. (11) python -m pytest tests/ -q exits 0 (122+ tests). (12) New test tests/test_logging.py verifies: text format produces plain text, json format produces valid JSON lines, log file is written to configured path.",
+    "assigned_to": "B"
+  },
+  {
+    "id": "F7-T1b",
+    "title": "Challenger: review JSON logging implementation for edge cases",
+    "role": "challenger",
+    "model": "glm",
+    "status": "done",
+    "depends_on": [
+      "F7-T1"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/src/main.py",
+      "/src/config.yaml",
+      "/tests/test_logging.py"
+    ],
+    "output_files": [],
+    "acceptance_criteria": "Review executor's JSON logging for: (1) Does python-json-logger handle all log levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)? (2) Are exception tracebacks serialized correctly in JSON format? (3) Does the FileHandler create the parent directory if it doesn't exist? (4) Is the log_format config field validated by Pydantic (reject invalid values)? (5) Does switching format at runtime require restart, or is it dynamic? (6) Are there any loops in the logging code that should be vectorized? (7) Does the test cover both text and json formats? Document findings in EVENTS.log. No code changes unless critical bug found.",
+    "assigned_to": "C"
+  },
+  {
+    "id": "F7-T1c",
+    "title": "Critic: verify JSON logging + log_file path + full regression",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T1",
+      "F7-T1b"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/src/main.py",
+      "/src/config.yaml",
+      "/tests/test_logging.py"
+    ],
+    "output_files": [
+      "/tests/test_logging.py"
+    ],
+    "acceptance_criteria": "(1) python scripts/check_loops.py --src-dir src exits 0. (2) python scripts/check_loops.py --src-dir src --strict exits 0. (3) python -m pytest tests/ -q exits 0 (122+ tests including new test_logging.py). (4) Verify log_format field exists in config with validation. (5) Verify main.py writes to configured log_file path (not just console). (6) Verify JSON format produces valid JSON parseable lines. (7) Verify text format produces human-readable lines. (8) Critic pastes checker output + pytest output + sample log lines (both formats) to EVENTS.log.",
+    "assigned_to": "D"
+  },
+  {
+    "id": "F7-T2",
+    "title": "Executor: health_check Flight action + ingestion_runs audit table",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T1c"
+    ],
+    "input_files": [
+      "/src/flight_server.py",
+      "/src/db.py",
+      "/src/ingestion.py",
+      "/src/config.py",
+      "/src/config.yaml",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/src/flight_server.py",
+      "/src/db.py",
+      "/src/ingestion.py",
+      "/src/config.py",
+      "/src/config.yaml"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "ingestion_runs_table",
+        "command": "python -c \"import duckdb; conn = duckdb.connect('C:\\Intel\\parquet\\stock_ingestion.duckdb', read_only=True); conn.execute('SELECT column_name FROM information_schema.columns WHERE table_name=\\'ingestion_runs\\''); print('ingestion_runs table exists')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "health_check_action",
+        "command": "python -c \"import ast; tree = ast.parse(open('src/flight_server.py').read()); src = open('src/flight_server.py').read(); assert 'health_check' in src, 'health_check action not found'; print('health_check action found')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-6",
+        "check": "get_run_history_action",
+        "command": "python -c \"src = open('src/flight_server.py').read(); assert 'get_run_history' in src, 'get_run_history action not found'; print('get_run_history action found')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-7",
+        "check": "schema_version_3",
+        "command": "python -c \"import duckdb; conn = duckdb.connect('C:\\Intel\\parquet\\stock_ingestion.duckdb', read_only=True); r = conn.execute('SELECT MAX(version) FROM schema_version').fetchone(); assert r[0] >= 3, f'schema version {r[0]} < 3'; print(f'schema version {r[0]} >= 3')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-8",
+        "check": "test_health_check_exists",
+        "command": "python -c \"import os; assert os.path.exists('tests/test_health_check.py'), 'tests/test_health_check.py not found'; print('test_health_check.py exists')\"",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T2b",
+    "title": "Challenger: review health_check + audit table implementation",
+    "role": "challenger",
+    "model": "glm",
+    "status": "done",
+    "depends_on": [
+      "F7-T2"
+    ],
+    "input_files": [
+      "/src/flight_server.py",
+      "/src/db.py",
+      "/src/ingestion.py",
+      "/tests/test_health_check.py"
+    ],
+    "output_files": [],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "C",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T2c",
+    "title": "Critic: verify health_check + audit table + full regression",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T2",
+      "F7-T2b"
+    ],
+    "input_files": [
+      "/src/flight_server.py",
+      "/src/db.py",
+      "/src/ingestion.py",
+      "/tests/test_health_check.py"
+    ],
+    "output_files": [
+      "/tests/test_health_check.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "health_check_json",
+        "command": "python -m pytest tests/test_health_check.py::test_health_check_returns_db_connectivity_and_row_counts -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "schema_version_3",
+        "command": "python -m pytest tests/test_health_check.py::test_database_schema_version_is_three -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-6",
+        "check": "get_run_history_arrow",
+        "command": "python -m pytest tests/test_health_check.py::test_get_ingestion_runs_returns_arrow_table -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "D",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T3",
+    "title": "Executor: query timeout in do_get (120s default, no row limit)",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T2c"
+    ],
+    "input_files": [
+      "/src/flight_server.py",
+      "/src/config.py",
+      "/src/config.yaml",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/src/flight_server.py",
+      "/src/config.py",
+      "/src/config.yaml"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "query_timeout_config",
+        "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert hasattr(cfg.server, 'query_timeout_seconds'), 'query_timeout_seconds not in config'; print('query_timeout_seconds in config')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "timeout_default_120",
+        "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert cfg.server.query_timeout_seconds == 120, f'expected 120, got {cfg.server.query_timeout_seconds}'; print('default timeout is 120')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-6",
+        "check": "do_get_timeout_enforced",
+        "command": "python -c \"src = open('src/flight_server.py').read(); assert 'timeout' in src.lower(), 'timeout not found in flight_server.py'; print('timeout enforcement found')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-7",
+        "check": "no_row_limit",
+        "command": "python -c \"src = open('src/flight_server.py').read(); import re; limits = re.findall(r'LIMIT\\s+\\d+', src, re.IGNORECASE); assert len(limits) == 0, f'found LIMIT injection: {limits}'; print('no injected row limit')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-8",
+        "check": "test_query_timeout_exists",
+        "command": "python -c \"import os; assert os.path.exists('tests/test_query_timeout.py'), 'tests/test_query_timeout.py not found'; print('test_query_timeout.py exists')\"",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T3b",
+    "title": "Challenger: review query timeout implementation",
+    "role": "challenger",
+    "model": "glm",
+    "status": "done",
+    "depends_on": [
+      "F7-T3"
+    ],
+    "input_files": [
+      "/src/flight_server.py",
+      "/src/config.py",
+      "/src/config.yaml",
+      "/tests/test_query_timeout.py"
+    ],
+    "output_files": [],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "C",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T3c",
+    "title": "Critic: verify query timeout + full regression",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T3",
+      "F7-T3b"
+    ],
+    "input_files": [
+      "/src/flight_server.py",
+      "/src/config.py",
+      "/src/config.yaml",
+      "/tests/test_query_timeout.py"
+    ],
+    "output_files": [
+      "/tests/test_query_timeout.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "timeout_tests_pass",
+        "command": "python -m pytest tests/test_query_timeout.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "timeout_enforced_test",
+        "command": "python -m pytest tests/test_query_timeout.py -k timeout -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-6",
+        "check": "no_row_limit_test",
+        "command": "python -c \"import re; src = open('src/flight_server.py').read(); limits = re.findall(r'LIMIT\\s+\\d+', src, re.IGNORECASE); assert len(limits) == 0, f'found LIMIT injection: {limits}'; print('no row limit injection')\"",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "D",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T4",
+    "title": "Executor: R2 sync — upload DuckDB file directly + auto after daily_load + manual Flight action",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T3c"
+    ],
+    "input_files": [
+      "/src/flight_server.py",
+      "/src/config.py",
+      "/src/config.yaml",
+      "/src/ingestion.py",
+      "/src/db.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/src/r2_sync.py",
+      "/src/config.py",
+      "/src/config.yaml",
+      "/src/flight_server.py",
+      "/src/ingestion.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "r2_sync_module_exists",
+        "command": "python -c \"from src.r2_sync import R2SyncManager; print('R2SyncManager importable')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "r2_config_section",
+        "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert hasattr(cfg, 'r2'), 'r2 config section not found'; assert cfg.r2.enabled == False, 'r2.enabled should default to False'; print('r2 config section exists, enabled=False')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-6",
+        "check": "sync_to_r2_action",
+        "command": "python -c \"src = open('src/flight_server.py').read(); assert 'sync_to_r2' in src, 'sync_to_r2 action not found'; print('sync_to_r2 action found')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-7",
+        "check": "auto_sync_after_daily_load",
+        "command": "python -c \"src = open('src/ingestion.py').read(); assert 'r2' in src.lower() or 'sync' in src.lower(), 'no R2 sync reference in ingestion.py'; print('auto-sync reference found in ingestion.py')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-8",
+        "check": "no_hardcoded_credentials",
+        "command": "python -c \"src = open('src/r2_sync.py').read(); assert 'R2_ACCESS_KEY_ID' in src or 'os.environ' in src, 'no env var reference found'; assert 'cog_' not in src and 'AKIA' not in src, 'possible hardcoded key'; print('credentials from env vars, no hardcoded keys')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-9",
+        "check": "boto3_in_requirements",
+        "command": "python -c \"reqs = open('requirements.txt').read(); assert 'boto3' in reqs, 'boto3 not in requirements.txt'; print('boto3 in requirements.txt')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-10",
+        "check": "test_r2_sync_exists",
+        "command": "python -c \"import os; assert os.path.exists('tests/test_r2_sync.py'), 'tests/test_r2_sync.py not found'; print('test_r2_sync.py exists')\"",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T4b",
+    "title": "Challenger: review R2 sync implementation",
+    "role": "challenger",
+    "model": "glm",
+    "status": "done",
+    "depends_on": [
+      "F7-T4"
+    ],
+    "input_files": [
+      "/src/r2_sync.py",
+      "/src/config.py",
+      "/src/config.yaml",
+      "/src/flight_server.py",
+      "/src/ingestion.py",
+      "/tests/test_r2_sync.py"
+    ],
+    "output_files": [],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "C",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T4c",
+    "title": "Critic: verify R2 sync (mocked) + full regression",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T4",
+      "F7-T4b"
+    ],
+    "input_files": [
+      "/src/r2_sync.py",
+      "/src/config.py",
+      "/src/config.yaml",
+      "/src/flight_server.py",
+      "/src/ingestion.py",
+      "/tests/test_r2_sync.py"
+    ],
+    "output_files": [
+      "/tests/test_r2_sync.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "r2_sync_tests_pass",
+        "command": "python -m pytest tests/test_r2_sync.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "no_real_r2_calls",
+        "command": "python -c \"src = open('tests/test_r2_sync.py').read(); assert 'mock' in src.lower() or 'patch' in src.lower(), 'no mocking found in R2 tests — tests may make real R2 calls'; print('R2 tests use mocks/patches')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-6",
+        "check": "no_hardcoded_credentials_test",
+        "command": "python -c \"import os; src = open('tests/test_r2_sync.py').read(); assert 'AKIA' not in src and 'cog_' not in src, 'possible hardcoded credentials in test'; print('no hardcoded credentials in tests')\"",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "D",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T5",
+    "title": "Executor: standalone scheduler process (src/scheduler_main.py)",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T4c"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/src/config.yaml",
+      "/src/ingestion.py",
+      "/src/db.py",
+      "/src/main.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/src/scheduler.py",
+      "/src/scheduler_main.py",
+      "/src/config.py",
+      "/src/config.yaml"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "scheduler_module_exists",
+        "command": "python -c \"from src.scheduler import PipelineScheduler; print('PipelineScheduler importable')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "scheduler_main_exists",
+        "command": "python -c \"import os; assert os.path.exists('src/scheduler_main.py'), 'src/scheduler_main.py not found'; print('scheduler_main.py exists')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-6",
+        "check": "scheduler_config",
+        "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert hasattr(cfg, 'scheduler'), 'scheduler config section not found'; assert cfg.scheduler.enabled == False, 'scheduler.enabled should default to False'; print('scheduler config exists, enabled=False')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-7",
+        "check": "apscheduler_in_requirements",
+        "command": "python -c \"reqs = open('requirements.txt').read(); assert 'APScheduler' in reqs or 'apscheduler' in reqs, 'APScheduler not in requirements.txt'; print('APScheduler in requirements.txt')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-8",
+        "check": "test_scheduler_exists",
+        "command": "python -c \"import os; assert os.path.exists('tests/test_scheduler.py'), 'tests/test_scheduler.py not found'; print('test_scheduler.py exists')\"",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T5b",
+    "title": "Challenger: review scheduler implementation",
+    "role": "challenger",
+    "model": "glm",
+    "status": "done",
+    "depends_on": [
+      "F7-T5"
+    ],
+    "input_files": [
+      "/src/scheduler.py",
+      "/src/scheduler_main.py",
+      "/src/config.py",
+      "/src/config.yaml",
+      "/tests/test_scheduler.py"
+    ],
+    "output_files": [],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "C",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T5c",
+    "title": "Critic: verify scheduler (mocked) + full regression",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T5",
+      "F7-T5b"
+    ],
+    "input_files": [
+      "/src/scheduler.py",
+      "/src/scheduler_main.py",
+      "/src/config.py",
+      "/src/config.yaml",
+      "/tests/test_scheduler.py"
+    ],
+    "output_files": [
+      "/tests/test_scheduler.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "scheduler_tests_pass",
+        "command": "python -m pytest tests/test_scheduler.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "scheduler_uses_mocks",
+        "command": "python -c \"src = open('tests/test_scheduler.py').read(); assert 'mock' in src.lower() or 'patch' in src.lower(), 'no mocking found in scheduler tests'; print('scheduler tests use mocks')\"",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "D",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T6",
+    "title": "Executor: do_put in Flight server — accept external batch data into daily_close",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T5c"
+    ],
+    "input_files": [
+      "/src/flight_server.py",
+      "/src/db.py",
+      "/src/config.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/src/flight_server.py",
+      "/src/db.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "do_put_exists",
+        "command": "python -c \"src = open('src/flight_server.py').read(); assert 'do_put' in src, 'do_put not found in flight_server.py'; print('do_put found')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "schema_validation",
+        "command": "python -c \"src = open('src/flight_server.py').read(); assert 'schema' in src.lower(), 'no schema validation found in do_put'; print('schema validation found')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-6",
+        "check": "exclude_tickers_filter",
+        "command": "python -c \"src = open('src/flight_server.py').read(); assert 'exclude_tickers' in src, 'exclude_tickers filter not found in do_put'; print('exclude_tickers filter found')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-7",
+        "check": "test_do_put_exists",
+        "command": "python -c \"import os; assert os.path.exists('tests/test_do_put.py'), 'tests/test_do_put.py not found'; print('test_do_put.py exists')\"",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T6b",
+    "title": "Challenger: review do_put implementation",
+    "role": "challenger",
+    "model": "glm",
+    "status": "done",
+    "depends_on": [
+      "F7-T6"
+    ],
+    "input_files": [
+      "/src/flight_server.py",
+      "/src/db.py",
+      "/tests/test_do_put.py"
+    ],
+    "output_files": [],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "C",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T6c",
+    "title": "Critic: verify do_put + full regression",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T6",
+      "F7-T6b"
+    ],
+    "input_files": [
+      "/src/flight_server.py",
+      "/src/db.py",
+      "/tests/test_do_put.py"
+    ],
+    "output_files": [
+      "/tests/test_do_put.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "do_put_tests_pass",
+        "command": "python -m pytest tests/test_do_put.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "schema_rejection_test",
+        "command": "python -m pytest tests/test_do_put.py -k schema -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "D",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T7",
+    "title": "Executor: integration tests for all Phase 2 features",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T6c"
+    ],
+    "input_files": [
+      "/src/flight_server.py",
+      "/src/ingestion.py",
+      "/src/db.py",
+      "/src/scheduler.py",
+      "/src/r2_sync.py",
+      "/src/config.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/tests/test_phase2_integration.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "integration_tests_exist",
+        "command": "python -c \"import os; assert os.path.exists('tests/test_phase2_integration.py'), 'tests/test_phase2_integration.py not found'; print('test_phase2_integration.py exists')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "integration_tests_pass",
+        "command": "python -m pytest tests/test_phase2_integration.py -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": false
+  },
+  {
+    "id": "F7-T7b",
+    "title": "Critic: full regression + Phase 2 acceptance",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T7"
+    ],
+    "input_files": [
+      "/tests/test_phase2_integration.py",
+      "/src/flight_server.py",
+      "/src/ingestion.py",
+      "/src/db.py",
+      "/src/scheduler.py",
+      "/src/r2_sync.py",
+      "/src/config.py"
+    ],
+    "output_files": [
+      "/tests/"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "no_daily_quotes_refs",
+        "command": "python -c \"import subprocess; r = subprocess.run(['git', 'grep', '-ri', 'daily_quotes', 'src/'], capture_output=True, text=True); lines = r.stdout.splitlines(); migration = [l for l in lines if 'ALTER TABLE' not in l and 'rename' not in l.lower() and 'in tables' not in l and '# ' not in l]; assert len(migration) == 0, 'daily_quotes refs remain: ' + str(migration); print('no daily_quotes refs in src/ (except migration code)')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "phase2_integration_pass",
+        "command": "python -m pytest tests/test_phase2_integration.py -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "D",
+    "challenger_required": false
+  },
+  {
+    "id": "F7-T8",
+    "title": "Executor: add daily_lookback_days parameter (default 4, CI/scheduler uses 1)",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T7b"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/src/config.yaml",
+      "/src/ingestion.py",
+      "/src/scheduler.py",
+      "/src/flight_server.py",
+      "/scripts/ci_daily_load.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/src/config.py",
+      "/src/config.yaml",
+      "/src/ingestion.py",
+      "/src/scheduler.py",
+      "/scripts/ci_daily_load.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "config_has_lookback_days",
+        "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert hasattr(cfg.ingestion, 'daily_lookback_days'), 'daily_lookback_days not in IngestionConfig'; assert cfg.ingestion.daily_lookback_days == 4, f'expected default 4, got {cfg.ingestion.daily_lookback_days}'; print('daily_lookback_days default=4 OK')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "run_daily_load_accepts_param",
+        "command": "python -c \"import inspect; from src.ingestion import IngestionEngine; sig = inspect.signature(IngestionEngine.run_daily_load); assert 'lookback_days' in sig.parameters, 'run_daily_load must accept lookback_days parameter'; assert sig.parameters['lookback_days'].default == 4, f'expected default 4, got {sig.parameters[\"lookback_days\"].default}'; print('run_daily_load(lookback_days=4) default OK')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-6",
+        "check": "no_hardcoded_4",
+        "command": "python -c \"src = open('src/ingestion.py').read(); assert 'timedelta(days=4)' not in src, 'hardcoded timedelta(days=4) still in ingestion.py'; print('no hardcoded days=4 in ingestion.py')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-7",
+        "check": "scheduler_uses_1",
+        "command": "python -c \"src = open('src/scheduler.py').read(); assert 'lookback_days=1' in src or 'lookback_days = 1' in src, 'scheduler does not pass lookback_days=1'; print('scheduler uses lookback_days=1 OK')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-8",
+        "check": "ci_uses_1",
+        "command": "python -c \"src = open('scripts/ci_daily_load.py').read(); assert 'lookback_days=1' in src or 'lookback_days = 1' in src, 'ci_daily_load.py does not pass lookback_days=1'; print('ci_daily_load uses lookback_days=1 OK')\"",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T8b",
+    "title": "Challenger: review daily_lookback_days parameter",
+    "role": "challenger",
+    "model": "glm",
+    "status": "done",
+    "depends_on": [
+      "F7-T8"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/src/config.yaml",
+      "/src/ingestion.py",
+      "/src/scheduler.py",
+      "/scripts/ci_daily_load.py"
+    ],
+    "output_files": [],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "C",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T8c",
+    "title": "Critic: verify daily_lookback_days + full regression",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T8",
+      "F7-T8b"
+    ],
+    "input_files": [
+      "/src/config.py",
+      "/src/config.yaml",
+      "/src/ingestion.py",
+      "/src/scheduler.py",
+      "/scripts/ci_daily_load.py"
+    ],
+    "output_files": [
+      "/tests/"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "default_is_4",
+        "command": "python -c \"from src.config import PipelineConfig; cfg = PipelineConfig.from_yaml('src/config.yaml'); assert cfg.ingestion.daily_lookback_days == 4; print('default=4 OK')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "scheduler_uses_1",
+        "command": "python -c \"src = open('src/scheduler.py').read(); assert 'lookback_days=1' in src or 'lookback_days = 1' in src; print('scheduler=1 OK')\"",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "D",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T9",
+    "title": "Executor: fix split detection false positives from stale/empty splits_processed table",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T8c"
+    ],
+    "input_files": [
+      "/src/ingestion.py",
+      "/src/db.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/src/ingestion.py",
+      "/src/db.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "db_has_get_ticker_earliest_date",
+        "command": "python -c \"from src.db import DatabaseManager; assert hasattr(DatabaseManager, 'get_ticker_earliest_date'); print('get_ticker_earliest_date exists')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "ingestion_filters_old_splits",
+        "command": "python -c \"import inspect; from src.ingestion import IngestionEngine; src = inspect.getsource(IngestionEngine._check_and_apply_splits); assert 'get_ticker_earliest_date' in src or 'earliest_date' in src, 'split check does not use earliest date'; assert 'split_date <' in src or 'split_date >=' in src or 'split_dt <' in src, 'splits are not filtered by date'; print('split filtering present')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-6",
+        "check": "no_hardcoded_delete",
+        "command": "python -c \"src = open('src/ingestion.py').read(); assert '1987' not in src, 'hardcoded 1987 reference found'; print('no hardcoded date found')\"",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": true
+  },
+  {
+    "id": "F7-T9b",
+    "title": "Challenger: review split detection fix",
+    "role": "challenger",
+    "model": "glm",
+    "status": "done",
+    "depends_on": [
+      "F7-T9"
+    ],
+    "input_files": [
+      "/src/ingestion.py",
+      "/src/db.py"
+    ],
+    "output_files": [],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "C",
+    "challenger_required": true,
+    "evidence": "Challenger review (orchestrator with explicit user override). Reviewed src/ingestion.py and src/db.py. Confirmed: tickers with no stored data are skipped, splits before the ticker\\'s earliest date are filtered out, unprocessed splits on/after earliest date trigger re-download. Loop checker clean. 235/235 tests pass."
+  },
+  {
+    "id": "F7-T9c",
+    "title": "Critic: verify split detection fix + regression",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T9",
+      "F7-T9b"
+    ],
+    "input_files": [
+      "/src/ingestion.py",
+      "/src/db.py"
+    ],
+    "output_files": [
+      "/tests/"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "test_split_filtering",
+        "command": "python -m pytest tests/test_ingestion.py -k split -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "D",
+    "challenger_required": true,
+    "evidence": "Critic verification (orchestrator with explicit user override). AC-1..AC-4 verified: loop checker clean (plain and strict), 235/235 pytest tests pass, split-filter tests pass."
+  },
+  {
+    "id": "F7-T10",
+    "title": "Executor: batch split re-downloads instead of per-ticker calls",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T9c"
+    ],
+    "input_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/src/db.py",
+      "/src/db_challenger.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "batch_redownload",
+        "command": "python -c \"import inspect; from src.ingestion import IngestionEngine; src = inspect.getsource(IngestionEngine._check_and_apply_splits); assert '_batch_download([' not in src or src.count('_batch_download([') == 0, 'still using per-ticker _batch_download([t])'; print('no per-ticker _batch_download calls')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "challenger_batch_redownload",
+        "command": "python -c \"import inspect; from src.ingestion_challenger import IngestionEngine; src = inspect.getsource(IngestionEngine._check_and_apply_splits); assert '_batch_download([' not in src or src.count('_batch_download([') == 0, 'challenger still using per-ticker _batch_download([t])'; print('challenger no per-ticker calls')\"",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": true,
+    "evidence": "Executor (orchestrator with explicit user override). Refactored _check_and_apply_splits in src/ingestion.py and src/ingestion_challenger.py to collect affected tickers and re-download them in a single _batch_download call. Added _record_historical_splits() to record splits after initial load and backfill, preventing unnecessary re-downloads. 235/235 tests pass, loop checker clean."
+  },
+  {
+    "id": "F7-T10b",
+    "title": "Challenger: review batch split re-download implementation",
+    "role": "challenger",
+    "model": "glm",
+    "status": "done",
+    "depends_on": [
+      "F7-T10"
+    ],
+    "input_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py"
+    ],
+    "output_files": [],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "C",
+    "challenger_required": true,
+    "evidence": "Challenger review (orchestrator with explicit user override). Reviewed batch split re-download in both implementations. Confirmed: per-ticker yf.Ticker.splits calls remain (no batch API), unprocessed splits are collected per ticker, all affected tickers are re-downloaded in one _batch_download call using the minimum earliest date (executor) or aligned start (challenger), deletes remain per-ticker, list comprehensions flatten split records. 235/235 tests pass."
+  },
+  {
+    "id": "F7-T10c",
+    "title": "Critic: verify batch split re-download + regression",
+    "role": "critic",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T10",
+      "F7-T10b"
+    ],
+    "input_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py"
+    ],
+    "output_files": [
+      "/tests/"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "batch_redownload_test",
+        "command": "python -m pytest tests/test_ingestion.py -k batch -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "D",
+    "challenger_required": true,
+    "evidence": "Critic verification (orchestrator with explicit user override). AC-1..AC-4 verified: loop checker clean (plain and strict), 235/235 pytest tests pass, batch re-download test passes (4 split tests)."
+  },
+  {
+    "id": "F7-T11",
+    "title": "Executor: Windows scheduled task script for daily load",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T10c"
+    ],
+    "input_files": [
+      "/src/config.yaml",
+      "/src/scheduler_main.py",
+      "/src/scheduler.py",
+      "/src/ingestion.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/scripts/"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-4",
+        "check": "script_exists",
+        "command": "python -c \"import os; assert any(f.endswith(('.ps1','.bat','.cmd')) and 'task' in f.lower() for f in os.listdir('scripts')), 'no scheduled-task script found in scripts/'; print('script found')\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-5",
+        "check": "script_uses_schtasks",
+        "command": "python -c \"import os; c=''; [c:=c+open(os.path.join('scripts',f),encoding='utf-8',errors='ignore').read() for f in os.listdir('scripts') if f.endswith(('.ps1','.bat','.cmd')) and 'task' in f.lower()]; assert 'schtasks' in c.lower(), 'script does not use schtasks.exe'; print('schtasks usage confirmed')\"",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": true,
+    "evidence": "Executor (orchestrator with explicit user override). Created scripts/register_daily_task.ps1 (schtasks /create /sc DAILY /f, idempotent, -Unregister supported, reads schedule_time from src/config.yaml) and scripts/daily_load_once.py (runs PipelineScheduler.run_once with default config, logs to cfg.logging.log_file). Verified: task registered as StockIngestion-DailyLoad daily 16:14, runner executed end-to-end on 2026-09-12 (Saturday) -> NYSE closed skip, exit 0. Loop checker clean plain+strict, 235/235 pytest pass."
+  },
+  {
+    "id": "F7-T12",
+    "title": "Executor: split repair must not destroy history on failed re-download",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T10c"
+    ],
+    "input_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/tests/test_ingestion.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/tests/test_ingestion.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": true,
+    "description": "BUG: _check_and_apply_splits deletes a ticker's entire history BEFORE re-downloading. When the batch re-download returns empty/failed for a ticker (transient yfinance failure), that history is permanently lost — happened on 2026-09-10 to BKNG, BWA, FNF, FTAI, LOGI, RLI (left with only 2 rows). FIX (option 2): in both src/ingestion.py and src/ingestion_challenger.py, change ordering to (1) batch download first, (2) for each affected ticker only delete+upsert if the re-downloaded frame actually contains rows for that ticker; if a ticker is missing/empty in the re-download, keep its existing data and warn (do NOT record its splits as processed — leave them unprocessed so a later run can retry). Splits already recorded in bulk before the download should be reverted/skipped for failed tickers, or better: only record splits for tickers that were successfully re-downloaded. Add regression test: ticker with unprocessed split whose re-download returns empty keeps its existing rows and its split stays unprocessed."
+  },
+  {
+    "id": "F7-T13",
+    "title": "Executor: fix scheduled-task timezone + silent failure exit code",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T11"
+    ],
+    "input_files": [
+      "/scripts/register_daily_task.ps1",
+      "/scripts/daily_load_once.py",
+      "/src/config.yaml",
+      "/src/scheduler.py",
+      "/AGENTS.md"
+    ],
+    "output_files": [
+      "/scripts/register_daily_task.ps1",
+      "/scripts/daily_load_once.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "loop_checker_strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-3",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": true,
+    "description": "Challenger findings on F7-T11: (1) HIGH timezone bug — schtasks /st uses machine-local time but register_daily_task.ps1 copies scheduler.schedule_time verbatim while config timezone is America/New_York; on a GMT machine the task fires 16:14 UK = 11:14 ET mid-session producing partial intraday bars. Fix: convert scheduler.schedule_time from cfg scheduler.timezone to the machine's local timezone at registration (PowerShell TimeZoneInfo.ConvertTime with System.TimeZoneInfo::FindSystemTimeZoneById + Get-TimeZone), warn on DST-ambiguous edge cases, and keep -Time override. (2) HIGH silent failure — when DuckDB is locked daily_load_once.py exits 0 so Task Scheduler cannot detect failure. Fix: run_once result should propagate — make the runner exit non-zero when the load did not run/failed (e.g. catch exceptions, log traceback to cfg.logging.log_file, sys.exit(1); also have PipelineScheduler.run_once or the runner surface lock-retry exhaustion as a failure exit code). (3) MEDIUM unhandled exceptions go to stderr which Task Scheduler discards — wrap main() so all tracebacks land in the configured log file before exit(1). (4) honor cfg.logging.log_format like scheduler_main._configure_logging. After editing, re-run register_daily_task.ps1 to refresh the live task (verify with schtasks /query)."
+  },
+  {
+    "id": "F7-T14",
+    "title": "Executor: update workflow docs for local-subagent (no Devin Cloud) usage",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [],
+    "input_files": [
+      "/docs/workflow_idea/",
+      "/AGENTS.md",
+      "/README.md",
+      "/scripts/poll_tasks.py",
+      "/devin_blackboard/STATE.md"
+    ],
+    "output_files": [
+      "/docs/workflow_idea/",
+      "/README.md",
+      "/AGENTS.md"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "AC-1",
+        "check": "loop_checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "AC-2",
+        "check": "pytest_suite",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      }
+    ],
+    "assigned_to": "B",
+    "challenger_required": false,
+    "description": "Update the multi-agent workflow documentation to describe the LOCAL-subagent approach (Devin CLI run_subagent with subagent_general / subagent_explore profiles) as the fully-free default, since Devin Cloud devin_session_create requires org quota that may be unavailable. Revise docs/workflow_idea/procedure_multi_agents01.md, devin_platform_setup.md, polling_workflow_protocol.md, and agent_*_prompt.md files so agent prompts describe claiming tasks via scripts/poll_tasks.py, editing only output_files, writing evidence to EVENTS.log — all executable by local subagents. Keep cloud-session spawning documented as an optional alternative. Update README.md and AGENTS.md workflow sections to match (AGENTS.md keeps role boundaries and the 'orchestrator may code' override rule)."
+  },
+  {
+    "id": "F7-T15",
+    "title": "Local daily load catch-up: bypass market-closed gate for scheduled local runs so missed trading days are downloaded",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T13"
+    ],
+    "input_files": [
+      "/src/scheduler.py",
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/src/config.py",
+      "/scripts/daily_load_once.py",
+      "/scripts/ci_daily_load.py",
+      "/tests/test_scheduler.py",
+      "/tests/test_ingestion.py"
+    ],
+    "output_files": [
+      "/src/scheduler.py",
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/scripts/daily_load_once.py",
+      "/tests/test_scheduler.py",
+      "/tests/test_ingestion.py"
+    ],
+    "acceptance_criteria": "Local one-shot runner (scripts/daily_load_once.py) performs the daily download even when today is NOT a trading day, so a PC that was off on a trading day catches up on the next day it is on (e.g. PC off Friday -> Saturday run downloads Friday data). GitHub CI path (scripts/ci_daily_load.py -> run_daily_load default) UNCHANGED: still returns SKIPPED on market-closed days. The bypass is opt-in (e.g. a force/ignore_market_closed flag) so APScheduler daemon (scheduler_main.py) keeps its existing trading-day gate. Local runner uses lookback = config.ingestion.daily_lookback_days (4), not the hardcoded 1. Both ingestion implementations (src/ingestion.py AND src/ingestion_challenger.py) support the bypass. Regression test proves: market-closed day + force flag -> download path taken (not SKIPPED). python scripts/check_loops.py --src-dir src exit 0; python -m pytest tests/ -q exit 0.",
+    "assigned_to": "B"
+  },
+  {
+    "id": "F7-T16",
+    "title": "Flight server as Windows service + route daily load through service do_action",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T15"
+    ],
+    "input_files": [
+      "/src/main.py",
+      "/src/flight_server.py",
+      "/src/flight_server_challenger.py",
+      "/src/scheduler.py",
+      "/scripts/daily_load_once.py",
+      "/scripts/register_daily_task.ps1",
+      "/tests/test_flight_server.py",
+      "/tests/test_scheduler.py",
+      "/README.md"
+    ],
+    "output_files": [
+      "/src/flight_server.py",
+      "/src/flight_server_challenger.py",
+      "/scripts/daily_load_once.py",
+      "/scripts/run_flight_server.py",
+      "/scripts/register_flight_service.ps1",
+      "/tests/test_flight_server.py",
+      "/tests/test_scheduler.py",
+      "/README.md",
+      "/docs/README.md"
+    ],
+    "acceptance_criteria": "(1) do_action(\"daily_load\", {\"force\": true}) reaches run_daily_load(force=True) in BOTH src/flight_server.py and src/flight_server_challenger.py; payload absent -> force=False default preserved. (2) NEW scripts/run_flight_server.py: cwd-safe wrapper (sys.path.insert + os.chdir to repo root, mirroring daily_load_once.py pattern) that calls src.main.main(). (3) NEW scripts/register_flight_service.ps1 registers scheduled task StockIngestion-FlightServer: AtStartup trigger, absolute python.exe path, restart-on-failure (RestartCount>=3, RestartInterval>=1min), ExecutionTimeLimit zero, idempotent re-registration, -Unregister switch removes task. (4) scripts/daily_load_once.py tries Flight first: builds grpc://{cfg.server.flight_host}:{cfg.server.flight_port}, calls do_action daily_load with {\"force\": true}, short connect timeout, parses JSON result; SUCCESS/PARTIAL -> exit 0; Flight server error/timeout -> exit 1; on CONNECTION failure (server unreachable) logs and falls back to existing direct path _execute_daily_load(db_manager, force=True). Exit codes otherwise preserved (lock->1, crash->1, enabled=false->0). (5) Tests: flight_server daily_load action forwards force from payload (mocked engine); daily_load_once service path tested with mocked FlightClient (success -> no direct DB open; connect failure -> fallback taken). (6) README.md documents running the Flight server as a Windows scheduled task and states scheduler_main.py must NOT run while the service runs (single writer); docs/README.md synced as a verbatim copy. (7) python scripts/check_loops.py --src-dir src exit 0; python -m pytest tests/ -q exit 0.",
+    "assigned_to": "B"
+  },
+  {
+    "id": "F7-T17",
+    "title": "BUG: do_action returns bare flight.Result (TypeError over wire) + get_health_info index swap",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T16"
+    ],
+    "input_files": [
+      "/src/flight_server.py",
+      "/src/flight_server_challenger.py",
+      "/src/db.py",
+      "/src/db_challenger.py",
+      "/tests/test_flight_server.py",
+      "/tests/test_health_check.py"
+    ],
+    "output_files": [
+      "/src/flight_server.py",
+      "/src/flight_server_challenger.py",
+      "/src/db.py",
+      "/tests/test_flight_server.py",
+      "/tests/test_health_check.py"
+    ],
+    "acceptance_criteria": "(1) Every do_action branch in src/flight_server.py returns an ITERABLE of flight.Result (e.g. return [flight.Result(...)] or yield) — TypeError Result not iterable gone. Same fix in src/flight_server_challenger.py. (2) src/db.py get_health_info index swap fixed: schema_version key gets the INTEGER schema version, last_run key gets the run timestamp (currently last_run=row[4]=version int-as-str and schema_version=row[5]=datetime -> json.dumps crash). Verify challenger db.py for the same bug and fix if present. (3) NEW over-the-wire test: real pyarrow.flight.FlightClient against a real server instance on an ephemeral port — at minimum daily_load (mocked engine) and health_check succeed end-to-end with parseable JSON results. (4) All existing tests still pass: python -m pytest tests/ -q exit 0; python scripts/check_loops.py --src-dir src exit 0.",
+    "assigned_to": "B"
+  },
+  {
+    "id": "F7-T18",
+    "title": "Hardening: restart-starvation (C1) + challenger lookback_days parity (C2)",
+    "role": "executor",
+    "model": "swe",
+    "status": "done",
+    "depends_on": [
+      "F7-T17"
+    ],
+    "input_files": [
+      "/scripts/run_flight_server.py",
+      "/scripts/register_flight_service.ps1",
+      "/src/flight_server_challenger.py"
+    ],
+    "output_files": [
+      "/scripts/run_flight_server.py",
+      "/scripts/register_flight_service.ps1",
+      "/src/flight_server_challenger.py"
+    ],
+    "acceptance_criteria": "(1) Restart-starvation fix (challenger C1): the service must not die permanently when the DB is locked by a long-running fallback load. Either run_flight_server.py retries the DB open with its own backoff loop (bounded, e.g. up to ~10min) before exiting, or register_flight_service.ps1 uses more restarts/longer interval — pick the more robust option and justify. (2) flight_server_challenger.py _handle_daily_load forwards cfg.ingestion.daily_lookback_days like the executor impl (parity). (3) python -m pytest tests/ -q exit 0; check_loops exit 0.",
+    "assigned_to": "B"
+  },
+  {
+    "id": "F7-T19",
+    "title": "Follow-ups from F7-T18 review: tighten lock-error markers, config_challenger daily_lookback_days, retry-logic tests",
+    "role": "executor",
+    "model": "swe",
+    "status": "in_progress",
+    "depends_on": [
+      "F7-T18"
+    ],
+    "input_files": [
+      "/scripts/run_flight_server.py",
+      "/src/config_challenger.py",
+      "/tests/test_scheduler.py"
+    ],
+    "output_files": [
+      "/scripts/run_flight_server.py",
+      "/src/config_challenger.py",
+      "/tests/test_scheduler.py"
+    ],
+    "acceptance_criteria": "(1) run_flight_server.py _is_db_lock_error markers tightened so a path containing the substring \"lock\" (e.g. blocked_dir) does NOT false-positive — use more specific markers (e.g. \"set lock\"/\"lock on\"/\"being used by another process\") verified against real duckdb 1.4.3 error text. (2) src/config_challenger.py IngestionConfig gains daily_lookback_days: int = 4 (parity with src/config.py) — pairing challenger flight server + challenger config no longer AttributeErrors on daily_load. (3) Unit tests added for _is_db_lock_error marker logic (true/false cases incl. path-with-lock-substring) and challenger daily_load lookback_days forwarding. (4) pytest -q exit 0; check_loops exit 0.",
+    "assigned_to": "B"
+  }
 ]
