@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-13T17:17:37+00:00
+Last Updated: 2026-09-13T17:22:00+00:00
 Current Branch: main
 
 ## Active Blocker
@@ -46,6 +46,7 @@ All roles (B, C, D) were performed by the Orchestrator due to `out_of_quota` chi
 
 ## Verification
 
+- Independent re-run by Critic D 2026-09-13 (F7-T23): check_loops + `--strict` → clean (14 files); `python -m pytest tests/ -q` → 318 passed in 13.09s; `poll_tasks --verify F7-T23` → prose AC exit 0 (manual review). All 5 ACs PASS — ran `find_threshold_inversions` myself (defaults → [], accel-inverted → 1, decel-inverted → 1, both → 2, None pairs skipped, equal bounds → []); `import report_app` streamlit-free; OWN live AppTest → default 0 warnings/2 dataframes, a_strong_accel=1.0<accel=1.8 → 1 st.warning + tabs still render (non-blocking confirmed live), decel inversion → 1 warning; OWN real-streamlit-1.58 cache probe → key exactly (sql, location, db_path), 5 calls → 4 fetches, `.clear()` → refetch, singleton intact, TTL=300; Refresh buttons (:712, :806) call `.clear()`; `fetch_dataframe(sql, config)` signature intact; 30 test_report_app tests pass standalone. VERDICT: PASS. C non-blockers: recommend ONE small follow-up bundling N1 (cross-pair overlap check — UI-reachable, same footgun class) + N4 (inaccurate comment); N2/N3/N5 defer. See EVENTS.log.
 - `python -m pytest tests/ -q` → 318 passed in 23.30s — executor B 2026-09-13 (F7-T23)
 - `python scripts/check_loops.py --src-dir src` + `--strict` → clean (14 files) — executor B 2026-09-13 (F7-T23)
 - `python scripts/poll_tasks.py --verify F7-T23` → prose AC exit 0; all 5 criteria verified manually — executor B 2026-09-13
