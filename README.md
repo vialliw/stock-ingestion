@@ -497,7 +497,7 @@ r2:
 
 - **Daily — Top 25 by Dollar Volume** — top-N tickers ranked by latest-day dollar volume, enriched with RVOL, relative dollar volume, pct change, a `volume_regime` classification (Strong Acceleration / Acceleration / Normal / Deceleration / Strong Deceleration), and share of total average dollar volume.
 - **Daily — Acceleration Candidates** — keeps only `rvol >= threshold` names among the top-K most-liquid tickers by latest dollar volume, ordered by `rvol` descending.
-- **Weekly — Combined Regimes** — the combined weekly report (`report_weekly_trends.md`): all four non-Normal weekly volume regimes among the top-K most-liquid names, ordered by regime priority (Strong Acceleration, Acceleration, Deceleration, Strong Deceleration) then `rvol` descending.
+- **Weekly — Combined Regimes** — the combined weekly report (`report_weekly_trends.md`): all four non-Normal weekly volume regimes among the top-K most-liquid names, ordered by regime priority (Strong Acceleration, Acceleration, Strong Deceleration, Deceleration — matching the spec's recommended reading order) then `rvol` descending.
 - **Weekly — Acceleration** — weekly acceleration candidates only (`report_weekly_trend_accelerating.md`), ordered by `rvol` descending.
 - **Weekly — Deceleration** — weekly deceleration candidates only (`report_weekly_trend_decelerating.md`), ordered by `rvol` ascending (quietest names first).
 
