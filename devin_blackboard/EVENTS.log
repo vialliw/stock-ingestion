@@ -1655,3 +1655,5 @@ NON-BLOCKING OBSERVATIONS: (a) 'US Market active. Executing daily load...' log l
 
 
 [2026-09-13T11:30:00+00:00] [ORCHESTRATOR] F7-T16 registered: Flight server as Windows service (Task Scheduler AtStartup + restart-on-failure via register_flight_service.ps1 + run_flight_server.py wrapper). Daily load routed through service: daily_load_once.py calls do_action(daily_load,{force:true}) over Flight first, falls back to direct DB open when service down — service stays the single DuckDB writer. force passthrough added to daily_load action in both flight_server impls. Spawning executor B via local run_subagent.
+
+[2026-09-13T12:58:35.756948+00:00] [EXECUTOR] claimed F7-T16
