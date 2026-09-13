@@ -1827,3 +1827,5 @@ No src/, scripts/, or tests/ files modified by Challenger. Review only — black
   Hygiene: removed a stray `nul` file my own `2>nul` bash redirect created in the repo root (untracked artifact, not part of any commit).
 
 [2026-09-13T18:00:00+00:00] [ORCHESTRATOR] F7-T22 registered: interactive Streamlit report app (scripts/report_app.py) — two tabs from docs/report_idea specs (filenames swapped vs content; tabs labeled by intent). Interactive params: lookback, top-N, RVOL thresholds, liquidity top-K, regime filter. Flight do_get first + read-only fallback; xlsx download buttons; streamlit added to requirements. Spawning executor B.
+
+[2026-09-13T16:38:10.059648+00:00] [EXECUTOR] claimed F7-T22
