@@ -14,7 +14,11 @@
     trigger), runs as SYSTEM whether or not a user is logged on, has no
     execution time limit, restarts automatically on failure (3 retries,
     1 minute apart), and ignores new launch requests while an instance
-    is already running (MultipleInstances = IgnoreNew).
+    is already running (MultipleInstances = IgnoreNew).  Layered on top
+    of that, run_flight_server.py itself retries the DuckDB open for up
+    to ~10 minutes when another process holds the write lock (e.g. a
+    daily_load_once.py direct fallback load), so a long lock hold cannot
+    starve all three task restarts (F7-T18 / challenger finding C1).
 
     Idempotent: re-running removes any existing registration and
     re-registers the task.  Registration requires elevation — a task
