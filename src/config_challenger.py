@@ -101,6 +101,30 @@ def _coerce_str(value: Any, default: str) -> str:
     return value
 
 
+def _validate_daily_lookback_days(value: Any) -> int:
+    """Coerce to int and enforce ``>= 1``.
+
+    Mirrors the executor's ``daily_lookback_days: int = Field(default=4,
+    ge=1)`` in ``src/config.py``: the window is a positive count of
+    trailing calendar days.  ``None`` (YAML ``null``) means "no value"
+    and falls back to the default — consistent with this module's
+    ``_coerce_str`` convention.  Booleans and non-numeric values are
+    rejected; digit strings are coerced like ``_validate_port``.
+    """
+    if value is None:
+        return 4
+    if isinstance(value, bool) or not isinstance(value, int):
+        if isinstance(value, str) and value.strip().lstrip("+-").isdigit():
+            value = int(value)
+        else:
+            raise ValueError(
+                f"daily_lookback_days must be an integer, got {value!r}"
+            )
+    if value < 1:
+        raise ValueError(f"daily_lookback_days must be >= 1, got {value}")
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Nested config dataclasses
 # ---------------------------------------------------------------------------
@@ -123,6 +147,12 @@ class DatabaseConfig:
 class IngestionConfig:
     tickers: List[str] = field(default_factory=list)
     exclude_tickers: List[str] = field(default_factory=list)
+    # Trailing calendar-day refresh window for run_daily_load — parity
+    # with src/config.py IngestionConfig (F7-T19/N1).  Required by
+    # flight_server_challenger._handle_daily_load, which reads
+    # cfg.ingestion.daily_lookback_days; without it that pairing raised
+    # AttributeError.
+    daily_lookback_days: int = 4
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "IngestionConfig":
@@ -130,6 +160,9 @@ class IngestionConfig:
         return cls(
             tickers=_normalize_tickers(data.get("tickers", [])),
             exclude_tickers=_normalize_tickers(data.get("exclude_tickers", [])),
+            daily_lookback_days=_validate_daily_lookback_days(
+                data.get("daily_lookback_days")
+            ),
         )
 
 

@@ -2295,7 +2295,7 @@
     "title": "Follow-ups from F7-T18 review: tighten lock-error markers, config_challenger daily_lookback_days, retry-logic tests",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T18"
     ],

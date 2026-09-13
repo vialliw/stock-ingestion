@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 import time
 
@@ -63,16 +64,34 @@ _DB_OPEN_RETRY_WINDOW_S = 600.0
 _DB_OPEN_RETRY_DELAY_S = 15.0
 
 
-# Message markers identifying *contention* IOErrors (verified live on
-# duckdb 1.4.3: Windows raises "Cannot open file ... being used by
-# another process. File is already open in <exe>", POSIX raises "Could
-# not set lock on file ...").  Other IOErrors (missing/corrupt file)
-# contain none of these and are not retried.
+# Message markers identifying *contention* IOErrors, verified live on
+# duckdb 1.4.3 (two-process write lock):
+#
+#   Windows: IO Error: Cannot open file "<path>": The process cannot
+#       access the file because it is being used by another process.
+#       File is already open in <exe> (PID <pid>)
+#   POSIX:   IO Error: Could not set lock on file "<path>": Conflicting
+#       lock is held in <exe> (PID <pid>)
+#
+# The bare substring "lock" is deliberately NOT a marker (challenger
+# finding N2, F7-T19): the message embeds the DB path inside double
+# quotes, so a directory named e.g. "blocked_dir" substring-matched
+# "lock" and turned a non-contention IOException into a 10-minute retry
+# storm.  Markers are confined to phrases that appear only in the
+# *reason* portion of contention errors, and quoted spans (the path) are
+# stripped before matching as belt-and-braces — even an adversarial path
+# like "C:\set lock\db.duckdb" cannot match.
 _DB_LOCK_MSG_MARKERS = (
-    "lock",                           # POSIX: 'Could not set lock on file'
+    "set lock",                       # POSIX: 'Could not set lock on file'
+    "lock on",                        # POSIX phrasing variant
     "being used by another process",  # Windows file-sharing violation
     "already open in",                # DuckDB 'File is already open in ...'
 )
+
+# Double-quoted spans inside the error message (DuckDB wraps the file
+# path in double quotes) are removed before marker matching so the path
+# text can never produce a false positive.
+_QUOTED_SPAN_RE = re.compile(r'"[^"]*"')
 
 
 def _is_db_lock_error(exc: BaseException) -> bool:
@@ -87,7 +106,7 @@ def _is_db_lock_error(exc: BaseException) -> bool:
     """
     if not isinstance(exc, duckdb.IOException):
         return False
-    msg = str(exc).lower()
+    msg = _QUOTED_SPAN_RE.sub("", str(exc).lower())
     return any(marker in msg for marker in _DB_LOCK_MSG_MARKERS)
 
 

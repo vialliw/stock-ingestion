@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import signal
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import ANY, MagicMock, patch
@@ -18,6 +20,13 @@ SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import daily_load_once
+
+# run_flight_server's module header chdirs to the repo root (it is meant
+# to be launched by Task Scheduler from any cwd); restore the test
+# session's cwd after importing so collection stays hermetic.
+_cwd_before_rfs_import = os.getcwd()
+import run_flight_server
+os.chdir(_cwd_before_rfs_import)
 
 from src.config import PipelineConfig, SchedulerConfig
 from src.scheduler import PipelineScheduler
@@ -408,3 +417,172 @@ class TestDailyLoadOnceFlightRouting:
 
         assert code == 0
         mock_flight.FlightClient.assert_not_called()
+
+
+# =====================================================================
+# F7-T19: run_flight_server._is_db_lock_error markers + challenger parity
+# =====================================================================
+
+
+class TestIsDbLockError:
+    """Unit tests for ``scripts/run_flight_server._is_db_lock_error``.
+
+    Challenger finding N2 (F7-T18 review): the previous bare ``'lock'``
+    marker substring-matched the quoted DB path inside the IOException
+    message, so a non-contention error under a directory named e.g.
+    ``blocked_dir`` was misclassified as write-lock contention and
+    retried for the full 600 s window.  Markers are now phrases that
+    only appear in the *reason* text, and double-quoted spans (the path)
+    are stripped before matching.
+    """
+
+    # Real error text captured live on this machine: duckdb 1.4.3, two
+    # processes competing for the same file, Windows.
+    REAL_WINDOWS_LOCK_MSG = (
+        'IO Error: Cannot open file "c:\\users\\user\\appdata\\local\\temp\\'
+        'tmpxyz\\test.duckdb": The process cannot access the file because '
+        'it is being used by another process.\r\n\nFile is already open in \n'
+        "C:\\Intel\\python\\3.12\\python.exe (PID 21204)"
+    )
+
+    # POSIX contention shape from duckdb's file-lock path (same release):
+    # 'Could not set lock on file "<path>": Conflicting lock is held ...'
+    POSIX_LOCK_MSG = (
+        'IO Error: Could not set lock on file "/data/market.duckdb": '
+        "Conflicting lock is held in /usr/bin/python3.12 (PID 4321)"
+    )
+
+    def test_real_windows_lock_message_is_lock(self):
+        exc = duckdb.IOException(self.REAL_WINDOWS_LOCK_MSG)
+        assert run_flight_server._is_db_lock_error(exc) is True
+
+    def test_posix_lock_message_is_lock(self):
+        exc = duckdb.IOException(self.POSIX_LOCK_MSG)
+        assert run_flight_server._is_db_lock_error(exc) is True
+
+    def test_value_error_is_never_lock(self):
+        # isinstance gate: a non-IOException carrying lock wording -> False
+        exc = ValueError(
+            "Could not set lock on file: being used by another process"
+        )
+        assert run_flight_server._is_db_lock_error(exc) is False
+
+    def test_non_lock_ioexception_is_not_lock(self):
+        exc = duckdb.IOException(
+            'IO Error: Cannot open file "c:\\data\\m.duckdb": '
+            "The system cannot find the path specified."
+        )
+        assert run_flight_server._is_db_lock_error(exc) is False
+
+    def test_missing_dir_with_lock_in_path_is_not_lock(self, tmp_path):
+        """N2 regression: a real duckdb IOException whose *path* contains
+        'lock' ('blocked_dir_missing') must NOT classify as contention."""
+        missing = tmp_path / "blocked_dir_missing" / "x.duckdb"
+        with pytest.raises(duckdb.IOException) as excinfo:
+            duckdb.connect(str(missing))
+        # Sanity: the message really does contain 'lock' via the path.
+        assert "lock" in str(excinfo.value).lower()
+        assert run_flight_server._is_db_lock_error(excinfo.value) is False
+
+    def test_real_two_process_lock_under_lock_named_dir(self, tmp_path):
+        """Live check: a real cross-process write lock on a DB under a
+        directory named 'blocked_dir' is still classified as contention —
+        the marker must come from the reason text, never the path."""
+        db_dir = tmp_path / "blocked_dir"
+        db_dir.mkdir()
+        db_path = str(db_dir / "m.duckdb")
+        holder = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import duckdb, sys, time; "
+                "c = duckdb.connect(sys.argv[1]); "
+                "c.execute('CREATE TABLE t(i int)'); "
+                "print('ready', flush=True); time.sleep(30)",
+                db_path,
+            ],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert holder.stdout.readline().strip() == "ready"
+            with pytest.raises(duckdb.IOException) as excinfo:
+                duckdb.connect(db_path)
+            # The quoted path really does contain 'lock' ('blocked_dir').
+            assert "lock" in str(excinfo.value).lower()
+            assert run_flight_server._is_db_lock_error(excinfo.value) is True
+        finally:
+            holder.terminate()
+            holder.wait(timeout=10)
+
+
+class TestChallengerDailyLookbackParity:
+    """F7-T19/N1: ``config_challenger.IngestionConfig.daily_lookback_days``
+    parity with ``src/config.py`` (default 4, int >= 1), and the
+    challenger flight server forwards the *configured* value to the
+    engine — the pairing that previously raised AttributeError."""
+
+    def test_default_is_four(self):
+        from src.config_challenger import PipelineConfig as ChallengerConfig
+
+        assert ChallengerConfig().ingestion.daily_lookback_days == 4
+
+    def test_yaml_value_is_read(self, tmp_path):
+        from src.config_challenger import PipelineConfig as ChallengerConfig
+
+        cfg_file = tmp_path / "cfg.yaml"
+        cfg_file.write_text("ingestion:\n  daily_lookback_days: 9\n")
+        cfg = ChallengerConfig.from_yaml(str(cfg_file))
+        assert cfg.ingestion.daily_lookback_days == 9
+
+    @pytest.mark.parametrize("bad", ["0", "-3"])
+    def test_yaml_rejects_lookback_below_one(self, tmp_path, bad):
+        from src.config_challenger import PipelineConfig as ChallengerConfig
+
+        cfg_file = tmp_path / "cfg.yaml"
+        cfg_file.write_text(f"ingestion:\n  daily_lookback_days: {bad}\n")
+        with pytest.raises(ValueError):
+            ChallengerConfig.from_yaml(str(cfg_file))
+
+    def test_challenger_daily_load_forwards_configured_lookback(self):
+        """Challenger flight server + challenger config pairing: the
+        engine must receive ``cfg.ingestion.daily_lookback_days`` — a
+        non-default sentinel proves it is not a hardcoded literal, and a
+        real challenger config proves the AttributeError (N1) is gone."""
+        import src.flight_server_challenger as challenger_module
+        from src.config_challenger import PipelineConfig as ChallengerConfig
+
+        cfg = ChallengerConfig()
+        cfg.ingestion.daily_lookback_days = 9  # non-default sentinel
+        ingest_engine = MagicMock()
+        ingest_engine.run_daily_load.return_value = {
+            "rows_upserted": 1,
+            "tickers_succeeded": ["AAPL"],
+            "tickers_failed": [],
+            "errors": {},
+            "duration_ms": 5,
+        }
+
+        class _TestServer(challenger_module.MarketDataFlightServer):
+            """Skips the port-binding base ``__init__`` (same pattern as
+            ``tests/test_flight_server.py::make_server``)."""
+
+            def __init__(self):
+                self.db = MagicMock()
+                self.engine = ingest_engine
+                self.cfg = cfg
+
+        server = _TestServer()
+        action = MagicMock()
+        action.type = "daily_load"
+        action.body = None
+        data = json.loads(
+            server.do_action(MagicMock(), action)
+            .body.to_pybytes()
+            .decode("utf-8")
+        )
+
+        assert data["status"] == "SUCCESS"
+        ingest_engine.run_daily_load.assert_called_once_with(
+            lookback_days=9, force=False
+        )
