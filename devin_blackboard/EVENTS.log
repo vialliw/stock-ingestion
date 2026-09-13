@@ -1938,3 +1938,5 @@ VERDICT: PASS — surgical, correct, well-documented, tests genuinely assert new
   C NON-BLOCKER N1 CLOSED: README.md:500 + docs/README.md:500 (post-ea82221) both read 'ordered by regime priority (Strong Acceleration, Acceleration, Strong Deceleration, Deceleration — matching the spec's recommended reading order)'; fc /b -> byte-identical.
   NO STALE OLD-ORDER ENCODINGS: only remaining old-order text is the intentional deviation documentation (report_app.py:20-22, :646-647); decel-tab IN-list (:861) order is irrelevant (rvol ASC); README:498 regime-name enumeration is not a priority statement.
   NEW FINDINGS: none. No src/ scripts/ tests/ files modified by Critic. Blackboard only.
+
+[2026-09-13T19:54:48.631430+00:00] [EXECUTOR] claimed F7-T26
