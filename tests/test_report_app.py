@@ -319,11 +319,15 @@ class TestBuildWeeklyCombinedSql:
             "Strong Deceleration",
         ):
             assert f"'{regime}'" in sql
-        # Regime-priority ordering, then rvol descending.
+        # Regime-priority ordering, then rvol descending.  The
+        # priority CASE follows the md's "Recommended reading order"
+        # guide (Strong Deceleration third), deliberately deviating
+        # from the md's own SQL which had Deceleration=3 /
+        # Strong Deceleration=4 (PM-approved, F7-T25).
         assert "WHEN 'Strong Acceleration' THEN 1" in sql
         assert "WHEN 'Acceleration' THEN 2" in sql
-        assert "WHEN 'Deceleration' THEN 3" in sql
-        assert "WHEN 'Strong Deceleration' THEN 4" in sql
+        assert "WHEN 'Strong Deceleration' THEN 3" in sql
+        assert "WHEN 'Deceleration' THEN 4" in sql
         assert "rvol DESC" in sql
 
     def test_params_injected(self):
@@ -358,14 +362,15 @@ class TestBuildWeeklyCombinedSql:
 
         df = _run_sql(db_path, report_app.build_weekly_combined_sql())
 
-        # Regime priority: Strong Accel (1), Accel (2), Decel (3),
-        # Strong Decel (4) — FLAT ('Normal') is filtered out.
-        assert list(df["Ticker"]) == ["SPIKE", "BUMP", "MID", "DRY"]
+        # Regime priority per the md's reading-order guide: Strong
+        # Accel (1), Accel (2), Strong Decel (3), Decel (4) — DRY now
+        # precedes MID; FLAT ('Normal') is filtered out.
+        assert list(df["Ticker"]) == ["SPIKE", "BUMP", "DRY", "MID"]
         assert list(df["volume_regime"]) == [
             "Strong Acceleration",
             "Acceleration",
-            "Deceleration",
             "Strong Deceleration",
+            "Deceleration",
         ]
         for col in (
             "week_start",

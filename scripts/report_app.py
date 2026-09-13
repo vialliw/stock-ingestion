@@ -15,8 +15,11 @@
 * **"Weekly — Combined Regimes"**: the combined weekly report from
   ``docs/report_idea/report_weekly_trends.md`` — all four non-Normal
   volume regimes among the top-K most-liquid names, ordered by regime
-  priority (Strong Acceleration, Acceleration, Deceleration, Strong
-  Deceleration) then ``rvol`` descending.
+  priority (Strong Acceleration, Acceleration, Strong Deceleration,
+  Deceleration) then ``rvol`` descending.  The source md is internally
+  inconsistent — its SQL ranks Deceleration above Strong Deceleration
+  while its own interpretation guide's recommended reading order puts
+  Strong Deceleration third; the guide wins (PM-approved deviation).
 * **"Weekly — Acceleration"**: the weekly acceleration candidates from
   ``docs/report_idea/report_weekly_trend_accelerating.md`` — only the
   two acceleration regimes, ordered by ``rvol`` descending.
@@ -630,8 +633,8 @@ def build_weekly_combined_sql(
     Adapted from ``docs/report_idea/report_weekly_trends.md``:
     ``lookback`` trailing weeks feed the averages; the CASE labels all
     four regimes; the final SELECT filters out 'Normal' and orders by
-    regime priority (Strong Acceleration, Acceleration, Deceleration,
-    Strong Deceleration) then ``rvol`` descending.
+    regime priority (Strong Acceleration, Acceleration, Strong
+    Deceleration, Deceleration) then ``rvol`` descending.
     """
     lookback = int(_require_number("lookback", lookback))
     top_k = int(_require_number("top_k", top_k))
@@ -640,6 +643,12 @@ def build_weekly_combined_sql(
     decel = float(_require_number("decel", decel))
     strong_decel = float(_require_number("strong_decel", strong_decel))
 
+    # NOTE — deliberate deviation from the source md: its own SQL ranks
+    # the ORDER BY priorities Deceleration=3 / Strong Deceleration=4,
+    # but the same md's interpretation guide gives the recommended
+    # reading order as Strong Acceleration -> Acceleration ->
+    # Strong Deceleration -> Deceleration.  PM approved matching the
+    # guide, so Strong Deceleration ranks third below.
     return (
         _weekly_cte_prefix(lookback)
         + f""",
@@ -692,16 +701,19 @@ FROM ranked
 WHERE volume_regime IN (
     'Strong Acceleration',
     'Acceleration',
-    'Deceleration',
-    'Strong Deceleration'
+    'Strong Deceleration',
+    'Deceleration'
   )
   AND dollar_rank <= {top_k}
 ORDER BY
+  -- Priority follows the md's "Recommended reading order" guide
+  -- (Strong Deceleration before Deceleration), deliberately
+  -- deviating from the md's own SQL which had them swapped.
   CASE volume_regime
     WHEN 'Strong Acceleration' THEN 1
     WHEN 'Acceleration' THEN 2
-    WHEN 'Deceleration' THEN 3
-    WHEN 'Strong Deceleration' THEN 4
+    WHEN 'Strong Deceleration' THEN 3
+    WHEN 'Deceleration' THEN 4
   END,
   rvol DESC
 """
@@ -1299,7 +1311,7 @@ def _render_accel_tab(st, config: PipelineConfig) -> None:
 def _render_weekly_combined_tab(st, config: PipelineConfig) -> None:
     """Weekly — Combined Regimes: all four non-Normal weekly volume
     regimes among the top-K most-liquid names, regime-priority
-    ordering (Strong Acceleration first, Strong Deceleration last)."""
+    ordering (Strong Acceleration first, Deceleration last)."""
     with st.expander("Parameters", expanded=True):
         col1, col2, col3 = st.columns(3)
         with col1:

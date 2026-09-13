@@ -2436,7 +2436,7 @@
     "title": "Fix weekly combined ordering: rank Strong Deceleration #3 per the interpretation guide (PM-approved deviation from spec SQL)",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T24"
     ],
