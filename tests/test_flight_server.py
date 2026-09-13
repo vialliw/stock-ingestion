@@ -22,6 +22,9 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import socket
+import threading
+import time
 from unittest.mock import MagicMock, patch
 
 import pyarrow.flight as flight
@@ -329,3 +332,128 @@ class TestDoAction:
         data = parse_result(server.do_action(MagicMock(), action))
         assert data["status"] == "PARTIAL"
         assert data["tickers_failed"] == ["BAD"]
+
+
+# =====================================================================
+# Over-the-wire do_action — F7-T17 regression (finding F-A)
+# =====================================================================
+#
+# All tests above call ``server.do_action`` directly in-process.  That
+# blind spot allowed a bare ``flight.Result`` return (not iterable) to
+# survive for months — pyarrow's server-side ``_do_action`` calls
+# ``iter()`` on the handler's return value, so every action failed over
+# real gRPC with ``TypeError: 'Result' object is not iterable``.
+# The tests below run a REAL ``MarketDataFlightServer`` bound to an
+# ephemeral port and a REAL ``FlightClient`` so the wire contract is
+# exercised end-to-end.
+
+
+def _ephemeral_location():
+    """Return ``grpc://127.0.0.1:<free-port>`` for a throwaway server."""
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return f"grpc://127.0.0.1:{port}"
+
+
+@pytest.fixture
+def wire_server(module):
+    """A real ``MarketDataFlightServer`` in a daemon thread + real client.
+
+    The engine and db are mocked (no real DB or yfinance calls); only the
+    gRPC transport is real.  Parametrized over both implementations via
+    the ``module`` fixture.
+    """
+    db_mgr = MagicMock()
+    ingest_engine = MagicMock()
+    cfg = MagicMock()
+    cfg.ingestion.daily_lookback_days = 4
+    cfg.reports.report_dir = "/tmp/test_reports"
+
+    location = _ephemeral_location()
+    server = module.MarketDataFlightServer(location, db_mgr, ingest_engine, cfg)
+    thread = threading.Thread(target=server.serve, daemon=True)
+    thread.start()
+
+    client = None
+    try:
+        client = flight.FlightClient(location)
+        client.wait_for_available(timeout=10)
+        yield server, client, db_mgr, ingest_engine, cfg
+    finally:
+        try:
+            server.shutdown()
+        except Exception:
+            pass
+        try:
+            thread.join(timeout=2)
+        except Exception:
+            pass
+
+
+class TestDoActionOverWire:
+    """Real-gRPC ``do_action`` tests — catch the bare-Result TypeError."""
+
+    def test_do_action_result_is_iterable_result(self, module):
+        # Direct-call contract: the return value must be iterable (wire)
+        # AND expose .body (in-process callers/tests).
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_daily_load.return_value = {
+            "rows_upserted": 1,
+            "tickers_succeeded": ["AAPL"],
+            "tickers_failed": [],
+            "errors": {},
+            "duration_ms": 5,
+        }
+        result = server.do_action(MagicMock(), make_action("daily_load"))
+        assert isinstance(result, flight.Result)
+        items = list(result)  # must be iterable for pyarrow _do_action
+        assert len(items) == 1
+        assert items[0] is result
+        assert json.loads(result.body.to_pybytes())["status"] == "SUCCESS"
+
+    def test_daily_load_over_wire(self, wire_server):
+        # Real FlightClient -> do_action("daily_load", {"force": true})
+        # must return one parseable JSON Result, not a TypeError.
+        server, client, db_mgr, ingest_engine, cfg = wire_server
+        ingest_engine.run_daily_load.return_value = {
+            "rows_upserted": 12,
+            "tickers_succeeded": ["AAPL", "MSFT"],
+            "tickers_failed": [],
+            "errors": {},
+            "duration_ms": 42,
+        }
+        action = flight.Action(
+            "daily_load", json.dumps({"force": True}).encode("utf-8")
+        )
+        results = list(client.do_action(action))
+        assert len(results) == 1
+        data = json.loads(results[0].body.to_pybytes().decode("utf-8"))
+        assert data["status"] == "SUCCESS"
+        assert data["rows_upserted"] == 12
+        assert data["tickers_succeeded"] == ["AAPL", "MSFT"]
+        ingest_engine.run_daily_load.assert_called_once()
+        assert ingest_engine.run_daily_load.call_args.kwargs["force"] is True
+
+    def test_daily_load_skipped_over_wire(self, wire_server):
+        # SKIPPED passthrough must also survive the wire.
+        server, client, db_mgr, ingest_engine, cfg = wire_server
+        ingest_engine.run_daily_load.return_value = {
+            "status": "SKIPPED",
+            "reason": "Market closed",
+            "duration_ms": 0,
+        }
+        results = list(
+            client.do_action(flight.Action("daily_load", b"{}"))
+        )
+        assert len(results) == 1
+        data = json.loads(results[0].body.to_pybytes().decode("utf-8"))
+        assert data["status"] == "SKIPPED"
+        assert data["reason"] == "Market closed"
+
+    def test_unknown_action_over_wire_raises(self, wire_server):
+        # Unknown action -> FlightServerError must propagate to client.
+        _, client, _, _, _ = wire_server
+        with pytest.raises(flight.FlightError):
+            list(client.do_action(flight.Action("no_such_action", b"{}")))

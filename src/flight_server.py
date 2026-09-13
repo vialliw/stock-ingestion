@@ -54,6 +54,22 @@ def _truncate_sql(sql: str, max_len: int = 200) -> str:
     return sql[:max_len] + "...[truncated]"
 
 
+class _ActionResult(flight.Result):
+    """A ``flight.Result`` that is also iterable (yields itself).
+
+    The pyarrow server-side ``_do_action`` callback calls ``iter()`` on
+    the value returned by ``do_action``; a bare ``flight.Result`` is not
+    iterable and raises ``TypeError: 'Result' object is not iterable``
+    over real gRPC (F7-T17 / finding F-A).  Returning this subclass
+    satisfies the wire contract while keeping ``.body`` accessible to
+    direct (in-process) callers — several test helpers invoke
+    ``server.do_action(...)`` without a gRPC transport.
+    """
+
+    def __iter__(self):
+        return iter([self])
+
+
 # Expected Arrow schema for do_put uploads to the daily_close table.
 _DAILY_CLOSE_SCHEMA = pa.schema(
     [
@@ -190,7 +206,7 @@ class MarketDataFlightServer(flight.FlightServerBase):
             years = payload.get("years", 6)
             result = self.engine.run_initial_load(years=years)
             status = "SUCCESS" if not result["tickers_failed"] else "PARTIAL"
-            return flight.Result(
+            return _ActionResult(
                 json.dumps({"status": status, **result}).encode("utf-8")
             )
 
@@ -200,9 +216,9 @@ class MarketDataFlightServer(flight.FlightServerBase):
                 force=payload.get("force", False),
             )
             if result.get("status") == "SKIPPED":
-                return flight.Result(json.dumps(result).encode("utf-8"))
+                return _ActionResult(json.dumps(result).encode("utf-8"))
             status = "SUCCESS" if not result["tickers_failed"] else "PARTIAL"
-            return flight.Result(
+            return _ActionResult(
                 json.dumps({"status": status, **result}).encode("utf-8")
             )
 
@@ -213,7 +229,7 @@ class MarketDataFlightServer(flight.FlightServerBase):
                 end_date=payload["end_date"],
             )
             status = "SUCCESS" if not result["tickers_failed"] else "PARTIAL"
-            return flight.Result(
+            return _ActionResult(
                 json.dumps({"status": status, **result}).encode("utf-8")
             )
 
@@ -232,7 +248,7 @@ class MarketDataFlightServer(flight.FlightServerBase):
             duration_ms = int(
                 (datetime.now() - start_time).total_seconds() * 1000
             )
-            return flight.Result(
+            return _ActionResult(
                 json.dumps(
                     {
                         "status": "SUCCESS",
@@ -248,7 +264,7 @@ class MarketDataFlightServer(flight.FlightServerBase):
                 (datetime.now() - self._start_time).total_seconds()
             )
             status = "SUCCESS" if health.get("db_connected") else "DEGRADED"
-            return flight.Result(
+            return _ActionResult(
                 json.dumps(
                     {
                         "status": status,
@@ -282,7 +298,7 @@ class MarketDataFlightServer(flight.FlightServerBase):
                 run_history = json.loads(run_history_json)
             else:
                 run_history = []
-            return flight.Result(
+            return _ActionResult(
                 json.dumps(
                     {"status": "SUCCESS", "run_history": run_history}
                 ).encode("utf-8")
@@ -290,7 +306,7 @@ class MarketDataFlightServer(flight.FlightServerBase):
 
         elif action_type == "sync_to_r2":
             result = R2SyncManager(self.cfg).sync(self.cfg.db_path)
-            return flight.Result(json.dumps(result).encode("utf-8"))
+            return _ActionResult(json.dumps(result).encode("utf-8"))
 
         else:
             raise flight.FlightServerError(f"Unknown action: {action_type}")

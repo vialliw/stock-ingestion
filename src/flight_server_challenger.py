@@ -121,6 +121,22 @@ def _truncate_sql(sql: str, max_len: int = 200) -> str:
     return sql[:max_len] + "..."
 
 
+class _ActionResult(flight.Result):
+    """A ``flight.Result`` that is also iterable (yields itself).
+
+    The pyarrow server-side ``_do_action`` callback calls ``iter()`` on
+    the value returned by ``do_action``; a bare ``flight.Result`` is not
+    iterable and raises ``TypeError: 'Result' object is not iterable``
+    over real gRPC (F7-T17 / finding F-A).  Returning this subclass
+    satisfies the wire contract while keeping ``.body`` accessible to
+    direct (in-process) callers that invoke ``server.do_action(...)``
+    without a gRPC transport.
+    """
+
+    def __iter__(self):
+        return iter([self])
+
+
 # =====================================================================
 # Flight server
 # =====================================================================
@@ -208,7 +224,7 @@ class MarketDataFlightServer(flight.FlightServerBase):
             logger.error("Action '%s' raised: %s", action_type, e)
             raise flight.FlightServerError(f"Action '{action_type}' failed: {e}")
 
-        return flight.Result(json.dumps(result).encode("utf-8"))
+        return _ActionResult(json.dumps(result).encode("utf-8"))
 
     # ------------------------------------------------------------------
     # Result-construction helpers (structural difference #4)

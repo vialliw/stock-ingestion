@@ -464,8 +464,8 @@ class DatabaseManager:
             "splits_processed_count": row[1] or 0,
             "ingestion_runs_count": row[2] or 0,
             "ticker_count": row[3] or 0,
-            "last_run": str(row[4]) if row[4] is not None else None,
-            "schema_version": row[5] if row[5] is not None else SCHEMA_VERSION,
+            "last_run": str(row[5]) if row[5] is not None else None,
+            "schema_version": row[4] if row[4] is not None else SCHEMA_VERSION,
         }
 
     # ------------------------------------------------------------------

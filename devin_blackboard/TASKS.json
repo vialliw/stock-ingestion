@@ -2246,7 +2246,7 @@
     "title": "BUG: do_action returns bare flight.Result (TypeError over wire) + get_health_info index swap",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T16"
     ],
