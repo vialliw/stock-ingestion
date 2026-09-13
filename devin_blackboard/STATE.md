@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-12T17:40:00+00:00
+Last Updated: 2026-09-13T09:51:40+00:00
 Current Branch: main
 
 ## Active Blocker
@@ -31,11 +31,12 @@ All roles (B, C, D) were performed by the Orchestrator due to `out_of_quota` chi
 - F7-T11 — implemented (executor/orchestrator-override); Challenger review: ISSUES FOUND — (I1) schtasks /st uses local machine time (GMT) but scheduler.timezone is America/New_York → task fires mid-session ~11:14 ET, not after close; (I2) DuckDB-lock failure exits 0 — silent no-op verified live; (I3) uncaught load exceptions lose traceback to stderr; (I4) registered task stale at 15:11 vs config 16:14. See EVENTS.log.
 - F7-T12 — done (executor B): split re-download ordering fixed in src/ingestion.py + src/ingestion_challenger.py — download first, then delete+upsert+record only for tickers present in re-download; missing tickers keep data, splits stay unprocessed. Regression test added. 237 tests pass, loop checker clean. CRITIC-D independently verified 2026-09-12: all ACs PASS, ordering confirmed in code (download before delete; batch_record_splits filtered to re-downloaded tickers), regression test meaningful (2 passed standalone).
 - F7-T13 — done (executor B): register_daily_task.ps1 converts schedule_time from scheduler.timezone to machine-local via TimeZoneInfo.ConvertTime (IANA->Windows fallback for PS5.1); live task re-registered at 21:14 local = 16:14 ET (schtasks /query verified). daily_load_once.py exits 1 on DuckDB-lock exhaustion / uncaught exceptions (traceback to cfg.logging.log_file), honors log_format json/text. Lock-failure + market-closed paths verified live (exit 1 / exit 0). CRITIC-D independently verified 2026-09-12: all ACs PASS, live lock test -> exit 1 + traceback in C:\Intel\parquet\stock_ingestion.log, market-closed -> exit 0, schtasks shows 21:14 local (=16:14 ET) Daily Ready.
+- F7-T15 — done (executor B): opt-in `force` flag bypasses the NYSE market-closed gate end-to-end so the local Windows scheduled task catches up missed trading days (PC off Friday -> Saturday run downloads Friday data). src/ingestion.py + src/ingestion_challenger.py run_daily_load gained `force: bool = False` (challenger also gained `lookback_days: int = 4`, closing the F7-T8b parity gap); PipelineScheduler._execute_daily_load gained `force=False` — daemon default unchanged (gate + literal lookback_days=1), force path uses cfg.ingestion.daily_lookback_days (4); scripts/daily_load_once.py passes force=True (docstrings updated). CI (ci_daily_load.py) and APScheduler daemon still SKIPPED on market-closed days. New regression tests: test_run_daily_load_market_closed_force_downloads (parametrized over both impls), test_execute_daily_load_force_bypasses_market_gate, test_execute_daily_load_default_keeps_gate_and_lookback_1. 241/241 tests pass, check_loops + --strict clean (14 files).
 
 ## Verification
 
 - `python scripts/check_loops.py --src-dir src --strict` → clean
-- `python -m pytest tests/ -q` → 235 passed
+- `python -m pytest tests/ -q` → 241 passed
 
 Agent B/C/D spawns no longer depend on org quota: the DEFAULT workflow is local `run_subagent` spawning (`subagent_general` write-capable / `subagent_explore` read-only) per F7-T14 doc update. Devin Cloud `devin_session_create` remains an optional alternative when quota is available.
 
@@ -85,7 +86,7 @@ Agent B/C/D spawns no longer depend on org quota: the DEFAULT workflow is local 
   - test_health_check.py  (critic tests for health_check + get_run_history actions + ingestion_runs audit table — F7-T2)
   - test_r2_sync.py  (critic tests for R2 DuckDB sync — F7-T4c)
   - test_phase2_integration.py  (Phase 2 end-to-end integration tests — F7-T7)
-  - test_scheduler.py  (critic tests for PipelineScheduler/APScheduler/DuckDB lock retry — F7-T5)
+  - test_scheduler.py  (critic tests for PipelineScheduler/APScheduler/DuckDB lock retry — F7-T5; + F7-T15 force-bypass gate tests)
   - test_lookback_days.py  (critic tests for daily_lookback_days config default/validation, run_daily_load window + rejection, scheduler/CI=1, flight_server forwarding — F7-T8c)
 
 ## Decisions Made (do NOT change without PM approval)
