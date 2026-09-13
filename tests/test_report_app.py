@@ -2,8 +2,10 @@
 
 Only the non-UI surface is exercised: the SQL builders, the
 threshold-inversion helper, the Flight-first / DuckDB-fallback fetch
-logic, the ``st.cache_data`` key derivation (via a fake ``st``), and
-the in-memory xlsx serializer.  No Streamlit server is started;
+logic, the ``st.cache_data`` key derivation (via a fake ``st``), the
+in-memory xlsx serializer, the verbatim interpretation-guide
+constants, and the ordered bar-chart spec helpers.  No Streamlit
+server is started;
 ``streamlit`` is never imported by these tests (report_app imports it
 lazily inside the UI functions only).
 """
@@ -527,6 +529,164 @@ class TestWeeklyInterpretationGuides:
         assert report_app.WEEKLY_DECEL_GUIDE.strip() == (
             self._guide_from_md("report_weekly_trend_decelerating.md")
         )
+
+
+class TestBasicAndDailyGuides:
+    """``BASIC_GUIDE`` / ``DAILY_*_GUIDE`` — non-empty module constants
+    reproducing the generic / interpretation-guide sections of their
+    source md files verbatim."""
+
+    REPO_ROOT = Path(__file__).parent.parent
+
+    @classmethod
+    def _read_md(cls, name: str) -> str:
+        return (
+            cls.REPO_ROOT / "docs" / "report_idea" / name
+        ).read_text(encoding="utf-8")
+
+    def test_constants_non_empty(self):
+        for guide in (
+            report_app.BASIC_GUIDE,
+            report_app.DAILY_TOP25_GUIDE,
+            report_app.DAILY_ACCEL_GUIDE,
+        ):
+            assert isinstance(guide, str)
+            assert len(guide) > 100
+
+    def test_daily_guides_match_source_md_verbatim(self):
+        # Same extraction pattern as the weekly guide test: the guide
+        # is everything from the first "### " heading to end of file.
+        # The daily md filenames are swapped vs contents — tab A's
+        # query lives in the "Acceleration Candidates" file.
+        accel_md = self._read_md(
+            "report_Acceleration Candidates "
+            "(RVOL significantly above norm).md"
+        )
+        assert report_app.DAILY_TOP25_GUIDE.strip() == (
+            accel_md[accel_md.index("### ") :].strip()
+        )
+        top25_md = self._read_md(
+            "report_Top 25 by Approximate Dollar Volume.md"
+        )
+        assert report_app.DAILY_ACCEL_GUIDE.strip() == (
+            top25_md[top25_md.index("### ") :].strip()
+        )
+
+    def test_basic_guide_matches_generic_sections_verbatim(self):
+        """BASIC_GUIDE = title block + "Purpose & Trading Edge" +
+        "Recommended Usage for Edge" + "Methodology Notes" (+ closing
+        paragraph) — the two contiguous generic runs joined by one
+        blank line."""
+        text = self._read_md("report_basic.md")
+        # Head: title block + Purpose & Trading Edge, up to the
+        # session-specific "### Top 25" data section.
+        head = text[: text.index("### Top 25")].rstrip("\n")
+        # Tail: Recommended Usage for Edge + Methodology Notes +
+        # closing paragraph (to end of file).
+        tail = text[text.index("### Recommended Usage") :].strip()
+        assert report_app.BASIC_GUIDE.strip() == head + "\n\n" + tail
+
+    def test_basic_guide_excludes_session_specific_sections(self):
+        """The Sep-11 data table, named candidates and "Key Insights"
+        describe one specific session — all must be excluded."""
+        guide = report_app.BASIC_GUIDE
+        assert "### Top 25 by Approximate Dollar Volume" not in guide
+        assert "### Acceleration Candidates" not in guide
+        assert "### Deceleration Candidates" not in guide
+        assert "Key Insights" not in guide
+        assert "| Rank |" not in guide
+        # Named candidates only appear in the excluded sections.
+        assert "ORCL" not in guide
+        # But the generic section headings are present.
+        for heading in (
+            "### Purpose & Trading Edge",
+            "### Recommended Usage for Edge",
+            "### Methodology Notes",
+        ):
+            assert heading in guide
+
+
+class TestOrderedBarChart:
+    """The bar-chart helpers keep the bars in the query's ``ORDER BY``
+    (df row) order — the nominal Ticker axis must carry ``sort=None``
+    so Vega-Lite does not re-sort categories alphabetically."""
+
+    @staticmethod
+    def _df() -> pd.DataFrame:
+        # Deliberately non-alphabetical order: an alphabetical x-axis
+        # sort would reorder these rows, so it is detectable.
+        return pd.DataFrame(
+            {
+                "Ticker": ["ZZZ", "AAA", "MMM"],
+                "rvol": [3.0, 1.0, 2.0],
+                "latest_dollar_volume": [30.0, 10.0, 20.0],
+            }
+        )
+
+    def test_ordered_bar_spec_sort_none_preserves_row_order(self):
+        spec = report_app._ordered_bar_spec(self._df(), "rvol")
+        assert spec["mark"] == "bar"
+        assert spec["encoding"]["x"]["field"] == "Ticker"
+        assert spec["encoding"]["x"]["type"] == "nominal"
+        assert spec["encoding"]["x"]["sort"] is None
+        assert spec["encoding"]["y"]["field"] == "rvol"
+        assert spec["encoding"]["y"]["type"] == "quantitative"
+        # Embedded data values stay in df row order.
+        assert spec["data"]["values"] == [
+            {"Ticker": "ZZZ", "rvol": 3.0},
+            {"Ticker": "AAA", "rvol": 1.0},
+            {"Ticker": "MMM", "rvol": 2.0},
+        ]
+
+    def test_altair_chart_serializes_sort_none_and_row_order(self):
+        altair = pytest.importorskip("altair")
+        df = self._df()
+        chart = report_app._build_ordered_bar_chart(df, "rvol")
+        assert isinstance(chart, altair.Chart)
+        spec = chart.to_dict()
+        assert spec["encoding"]["x"]["field"] == "Ticker"
+        assert spec["encoding"]["x"]["type"] == "nominal"
+        # sort=None must serialize to "sort": null — not be dropped.
+        assert spec["encoding"]["x"]["sort"] is None
+        assert spec["encoding"]["y"]["field"] == "rvol"
+        # The embedded dataset keeps df row order.
+        rows = spec["datasets"][spec["data"]["name"]]
+        assert [row["Ticker"] for row in rows] == ["ZZZ", "AAA", "MMM"]
+
+    def test_render_uses_altair_chart(self):
+        pytest.importorskip("altair")
+        fake_st = MagicMock()
+        report_app._render_ordered_bar_chart(
+            fake_st, self._df(), "rvol"
+        )
+        fake_st.altair_chart.assert_called_once()
+        chart = fake_st.altair_chart.call_args.args[0]
+        spec = chart.to_dict()
+        assert spec["encoding"]["x"]["sort"] is None
+        fake_st.vega_lite_chart.assert_not_called()
+
+    def test_render_falls_back_to_vega_lite_when_altair_missing(self):
+        """If ``altair`` cannot be imported, the helper renders the
+        equivalent hand-built spec via ``st.vega_lite_chart``."""
+        fake_st = MagicMock()
+        with patch.object(
+            report_app,
+            "_build_ordered_bar_chart",
+            side_effect=ImportError("No module named 'altair'"),
+        ):
+            report_app._render_ordered_bar_chart(
+                fake_st, self._df(), "latest_dollar_volume"
+            )
+        fake_st.vega_lite_chart.assert_called_once()
+        spec = fake_st.vega_lite_chart.call_args.args[0]
+        assert spec["encoding"]["x"]["sort"] is None
+        assert spec["encoding"]["y"]["field"] == "latest_dollar_volume"
+        assert [row["Ticker"] for row in spec["data"]["values"]] == [
+            "ZZZ",
+            "AAA",
+            "MMM",
+        ]
+        fake_st.altair_chart.assert_not_called()
 
 
 class TestFetchDataframe:

@@ -2457,7 +2457,7 @@
     "title": "Report app polish: guides on daily tabs + top-level basic guide, chart order matches query, weekly-first tab order",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T25"
     ],

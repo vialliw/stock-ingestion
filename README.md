@@ -493,15 +493,17 @@ r2:
 
 ### Interactive Report App (Streamlit)
 
-`scripts/report_app.py` is a Streamlit app that renders the RVOL edge reports from `docs/report_idea/` as five interactive tabs — two daily and three weekly:
+`scripts/report_app.py` is a Streamlit app that renders the RVOL edge reports from `docs/report_idea/` as five interactive tabs — the three weekly reports first, then the two daily ones:
 
-- **Daily — Top 25 by Dollar Volume** — top-N tickers ranked by latest-day dollar volume, enriched with RVOL, relative dollar volume, pct change, a `volume_regime` classification (Strong Acceleration / Acceleration / Normal / Deceleration / Strong Deceleration), and share of total average dollar volume.
-- **Daily — Acceleration Candidates** — keeps only `rvol >= threshold` names among the top-K most-liquid tickers by latest dollar volume, ordered by `rvol` descending.
 - **Weekly — Combined Regimes** — the combined weekly report (`report_weekly_trends.md`): all four non-Normal weekly volume regimes among the top-K most-liquid names, ordered by regime priority (Strong Acceleration, Acceleration, Strong Deceleration, Deceleration — matching the spec's recommended reading order) then `rvol` descending.
 - **Weekly — Acceleration** — weekly acceleration candidates only (`report_weekly_trend_accelerating.md`), ordered by `rvol` descending.
 - **Weekly — Deceleration** — weekly deceleration candidates only (`report_weekly_trend_decelerating.md`), ordered by `rvol` ascending (quietest names first).
+- **Daily — Top 25 by Dollar Volume** — top-N tickers ranked by latest-day dollar volume, enriched with RVOL, relative dollar volume, pct change, a `volume_regime` classification (Strong Acceleration / Acceleration / Normal / Deceleration / Strong Deceleration), and share of total average dollar volume.
+- **Daily — Acceleration Candidates** — keeps only `rvol >= threshold` names among the top-K most-liquid tickers by latest dollar volume, ordered by `rvol` descending.
 
-The weekly tabs aggregate `daily_close` into weekly bars (`DATE_TRUNC('week', Date)`, first-Open/last-Close via `ARRAY_AGG`, summed volume and dollar volume, `LAG`-based weekly pct change) and average over the last N **weeks**. Note the weekly deceleration defaults differ from the daily ones: `strong_decel=0.50` / `decel=0.70` (daily uses 0.6 / 0.8). Each weekly tab also shows its source spec's interpretation guide verbatim in an expander.
+The weekly tabs aggregate `daily_close` into weekly bars (`DATE_TRUNC('week', Date)`, first-Open/last-Close via `ARRAY_AGG`, summed volume and dollar volume, `LAG`-based weekly pct change) and average over the last N **weeks**. Note the weekly deceleration defaults differ from the daily ones: `strong_decel=0.50` / `decel=0.70` (daily uses 0.6 / 0.8).
+
+**Guides:** a top-level "About / How to read these reports" expander under the app title renders the generic sections of `report_basic.md` verbatim (purpose, recommended usage, methodology — the session-specific data tables are excluded), and each of the five tabs renders its own source spec's interpretation guide verbatim in an "Interpretation guide" expander.
 
 Launch it with:
 
@@ -509,7 +511,7 @@ Launch it with:
 streamlit run scripts/report_app.py
 ```
 
-Each tab exposes interactive parameters that feed into the generated SQL (numeric values only): lookback periods/weeks (default 30), top-N limit (daily top-25 tab, default 25), the four RVOL regime thresholds (daily defaults 2.5 / 1.8 / 0.8 / 0.6; weekly decel defaults 0.50 / 0.70), the liquidity top-K for the candidates/weekly tabs (default 50), and a `volume_regime` multiselect filter on the daily top-25 tab. Results render as a dataframe plus a bar chart of the key metric (`latest_dollar_volume` / `rvol`), with a download button that produces an in-memory `.xlsx` (auto-sized columns via openpyxl) and a "Refresh data" button that clears the cached query result.
+Each tab exposes interactive parameters that feed into the generated SQL (numeric values only): lookback periods/weeks (default 30), top-N limit (daily top-25 tab, default 25), the four RVOL regime thresholds (daily defaults 2.5 / 1.8 / 0.8 / 0.6; weekly decel defaults 0.50 / 0.70), the liquidity top-K for the candidates/weekly tabs (default 50), and a `volume_regime` multiselect filter on the daily top-25 tab. Results render as a dataframe plus a bar chart of the key metric (`latest_dollar_volume` / `rvol`) — the chart is drawn via `st.altair_chart` with `sort=None` on the Ticker axis so the bars follow the query's `ORDER BY` (the table's default order), falling back to `st.vega_lite_chart` if Altair is unavailable — with a download button that produces an in-memory `.xlsx` (auto-sized columns via openpyxl) and a "Refresh data" button that clears the cached query result.
 
 **Data access:** the app queries the running Flight server first (`do_get` on `grpc://{server.flight_host}:{server.flight_port}`, 5-second availability probe, 120-second call bound) — **the Flight server must be running for the primary path**, and it is required whenever another process holds the DuckDB write lock. If the server is unreachable or the query fails, the app falls back to a direct *read-only* DuckDB connection (`duckdb.connect(db_path, read_only=True)`); if both fail, the tab shows an error.
 

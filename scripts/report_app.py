@@ -1,17 +1,6 @@
-"""Interactive Streamlit report app with five tabs:
+"""Interactive Streamlit report app with five tabs — the three weekly
+reports first, then the two daily ones:
 
-* **"Daily — Top 25 by Dollar Volume"**: the top-N tickers ranked by
-  latest (most recent trading day) dollar volume, enriched with the
-  RVOL / regime edge metrics (latest dollar volume, relative volume,
-  pct change, volume regime classification, share of total average
-  dollar volume).  The query is the one inside
-  ``docs/report_idea/report_Acceleration Candidates (RVOL significantly
-  above norm).md`` — note the two daily md filenames are *swapped* vs
-  their contents; tabs are labelled by intent, not filename.
-* **"Daily — Acceleration Candidates"**: filters ``rvol >= threshold``
-  among the top-K most-liquid names by latest dollar volume, ordered
-  by ``rvol`` descending.  The query is the one inside
-  ``docs/report_idea/report_Top 25 by Approximate Dollar Volume.md``.
 * **"Weekly — Combined Regimes"**: the combined weekly report from
   ``docs/report_idea/report_weekly_trends.md`` — all four non-Normal
   volume regimes among the top-K most-liquid names, ordered by regime
@@ -27,6 +16,18 @@
   ``docs/report_idea/report_weekly_trend_decelerating.md`` — only the
   two deceleration regimes, ordered by ``rvol`` ascending (quietest
   names first).
+* **"Daily — Top 25 by Dollar Volume"**: the top-N tickers ranked by
+  latest (most recent trading day) dollar volume, enriched with the
+  RVOL / regime edge metrics (latest dollar volume, relative volume,
+  pct change, volume regime classification, share of total average
+  dollar volume).  The query is the one inside
+  ``docs/report_idea/report_Acceleration Candidates (RVOL significantly
+  above norm).md`` — note the two daily md filenames are *swapped* vs
+  their contents; tabs are labelled by intent, not filename.
+* **"Daily — Acceleration Candidates"**: filters ``rvol >= threshold``
+  among the top-K most-liquid names by latest dollar volume, ordered
+  by ``rvol`` descending.  The query is the one inside
+  ``docs/report_idea/report_Top 25 by Approximate Dollar Volume.md``.
 
 The weekly tabs aggregate ``daily_close`` into weekly bars
 (``DATE_TRUNC('week', Date)``, first-Open/last-Close via
@@ -34,8 +35,23 @@ The weekly tabs aggregate ``daily_close`` into weekly bars
 ``LAG``-based weekly pct change) and average over the last N *weeks*
 per ticker.  Note the weekly deceleration defaults differ from the
 daily ones: ``strong_decel=0.50`` / ``decel=0.70`` (the daily tabs use
-0.6 / 0.8).  Each weekly tab also renders its source md's
-interpretation guide verbatim in an expander.
+0.6 / 0.8).
+
+Guides: a top-level "About / How to read these reports" expander under
+the app title renders the generic sections of
+``docs/report_idea/report_basic.md`` verbatim (``BASIC_GUIDE`` — the
+session-specific data tables / named candidates / "Key Insights" are
+excluded), and every tab renders its source md's interpretation guide
+verbatim in an "Interpretation guide" expander (``WEEKLY_*_GUIDE`` for
+the weekly tabs, ``DAILY_*_GUIDE`` for the daily ones).
+
+Every tab's bar chart is drawn through
+:func:`_render_ordered_bar_chart` — an Altair bar chart with
+``sort=None`` on the nominal ``Ticker`` axis (falling back to
+``st.vega_lite_chart`` with an equivalent spec if Altair is ever
+unavailable) — so the bars follow the dataframe's row order, i.e. the
+query's ``ORDER BY`` (the table's default order), instead of
+``st.bar_chart``'s alphabetical category sort.
 
 All interactive widget values are numeric (or drawn from the fixed
 ``VOLUME_REGIMES`` whitelist), so they are safely formatted into the
@@ -70,9 +86,11 @@ runtime: the SQL builder functions (:func:`build_top25_sql`,
 :func:`build_weekly_accel_sql`, :func:`build_weekly_decel_sql`), the
 threshold helper
 (:func:`find_threshold_inversions`), the data fetch
-(:func:`fetch_dataframe`) and the xlsx serializer
-(:func:`dataframe_to_xlsx_bytes`) are plain functions;
-``streamlit`` is only imported inside the UI code paths — the
+(:func:`fetch_dataframe`), the xlsx serializer
+(:func:`dataframe_to_xlsx_bytes`) and the bar-chart spec builders
+(:func:`_ordered_bar_spec`, :func:`_build_ordered_bar_chart`) are plain
+functions; ``streamlit`` (and ``altair``) is only imported inside the
+UI code paths — the
 ``st.cache_data`` wrapper is likewise built lazily via
 ``_build_cached_fetch(st)`` / ``_get_cached_fetch(st)`` so tests can
 exercise the cache-key derivation with a fake ``st``.
@@ -527,6 +545,108 @@ WEEKLY_DECEL_GUIDE = """\
 #### Suggested threshold tweaks
 - Stricter → change `0.70` to `0.60` and `0.50` to `0.40`
 - More signals → raise to `0.80` / `0.60`"""
+
+
+# ------------------------------------------------------------------
+# Top-level + daily interpretation guides — verbatim text from the
+# source docs/report_idea/*.md files.  BASIC_GUIDE renders in a
+# top-level "About / How to read these reports" expander under the
+# app title; the DAILY_*_GUIDE constants render inside their tabs via
+# st.expander("Interpretation guide") + st.markdown, exactly like the
+# weekly guides above.
+# ------------------------------------------------------------------
+
+# docs/report_idea/report_basic.md — the GENERIC sections only:
+# title block + "Purpose & Trading Edge" + "Recommended Usage for
+# Edge" + "Methodology Notes" (+ the closing paragraph).  The
+# session-specific content — the Sep-11 top-25 data table, the named
+# acceleration/deceleration candidates and "Key Insights & Potential
+# Trading Edges" — is deliberately excluded.
+BASIC_GUIDE = """\
+**Volume Acceleration/Deceleration Edge Report**  
+**Focus: Top 25 Active Stocks by Dollar Volume**  
+**Session: September 11, 2026 (most recent full trading day as of Sep 13)**  
+
+### Purpose & Trading Edge
+This report screens the highest **dollar-volume** names (true institutional liquidity leaders) for **volume accelerating or decelerating much faster than normal**.  
+
+**Core idea**:  
+- Absolute volume alone is noisy.  
+- **Relative Volume (RVOL = today’s volume / average volume)** reveals when flow is genuinely abnormal.  
+- Extreme RVOL in high-dollar-volume stocks often precedes or confirms institutional repositioning, breakouts, earnings reactions, or exhaustion.  
+- Combine with price action for edges: high-RVOL + strong price = momentum continuation/breakout; high-RVOL + weak price = distribution or reversal risk; unusually low RVOL in a big-name mover can signal lack of conviction.
+
+**Primary filters used**:
+- Ranked by dollar volume (Price × Volume).
+- RVOL thresholds: Acceleration > 1.8–2.0× (stronger > 2.5×); Deceleration < 0.7×.
+- Preference for liquid names (avoid pure micro-cap noise unless dollar volume is meaningful).
+- Price change context for directional bias.
+
+Data sources: MarketBeat, MarketGrep, Yahoo Finance, Seeking Alpha/AP most-actives, and related session reports (volumes and averages consistent across sources within normal reporting variance).
+
+### Recommended Usage for Edge
+- **Daily process**: Pull top 25–50 dollar volume → calculate RVOL → flag >2× (or >1.8× with strong price) and <0.7×.
+- **Confirmation**: Require price structure (break of range, volume climax, etc.) + preferably options flow or news catalyst.
+- **Risk management**: Size by dollar volume/liquidity. High-RVOL names can gap; use wider stops or options.
+- **Timeframe**: Best for swing (1–5 days) or next-session open reaction. Intraday, monitor for volume tapering (deceleration after acceleration = potential exhaustion).
+
+### Methodology Notes
+- Dollar volume prioritizes institutional relevance over pure share volume.
+- RVOL uses recent average volume (typically 20–65 day or 3-month depending on source).
+- Report is descriptive — not recommendations. Always cross-check live data, news, and your own risk parameters.
+- Markets closed Sep 13; this reflects the Sep 11 session. Refresh with live feeds for the next open.
+
+This framework systematically surfaces the stocks where volume behavior is *most abnormal* relative to the highest-liquidity names — exactly the condition that historically produces the cleanest short-term trading edges."""
+
+# docs/report_idea/report_Acceleration Candidates (RVOL significantly
+# above norm).md — "How to use / interpret the output" + "Recommended
+# thresholds" + "Optional enhancements" (the source md for the
+# "Daily — Top 25 by Dollar Volume" tab's query).
+DAILY_TOP25_GUIDE = """\
+### How to use / interpret the output
+
+| Column | Meaning |
+|--------|---------|
+| `latest_dollar_volume` | Today’s dollar volume (the ranking key for “Top 25 Active”) |
+| `rvol` | Relative Volume (today’s volume / 30-day average volume) — **core edge metric** |
+| `relative_dollar_vol` | Same idea but on dollar volume |
+| `volume_regime` | Auto-classified: Strong Acceleration / Acceleration / Normal / Deceleration / Strong Deceleration |
+| `pct_of_total_avg_dollar` | Same as your original report (share of average dollar volume) |
+
+### Recommended thresholds (you can adjust in the `CASE`)
+- **Strong Acceleration**: RVOL ≥ 2.5
+- **Acceleration**: RVOL ≥ 1.8
+- **Deceleration**: RVOL ≤ 0.8
+- **Strong Deceleration**: RVOL ≤ 0.6
+
+### Optional enhancements you can add easily
+
+1. **Filter only Acceleration / Strong Acceleration** (for the edge watchlist):
+```sql
+-- add at the end before ORDER BY
+WHERE c.volume_regime IN ('Acceleration', 'Strong Acceleration')
+```
+
+2. **Add more price context** (e.g. distance from 20-day high):
+```sql
+-- inside trade_money CTE or a new CTE
+MAX("Close") OVER (PARTITION BY Ticker ORDER BY Date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS high_20d
+```
+
+3. **Change lookback** from 30 to 20 periods: just change `period_rank <= 30` to `<= 20`."""
+
+# docs/report_idea/report_Top 25 by Approximate Dollar Volume.md —
+# "Key points of this query" + the closing tweak paragraph (the source
+# md for the "Daily — Acceleration Candidates" tab's query).
+DAILY_ACCEL_GUIDE = """\
+### Key points of this query
+
+- **Only Acceleration Candidates**: Filters strictly to `rvol >= 1.8` (and highlights `>= 2.5` as Strong Acceleration).
+- **Top 50 liquidity filter**: First ranks *all* stocks by latest dollar volume, then keeps only those in the top 50 before applying the RVOL filter. This cleanly excludes thin-volume stocks.
+- Keeps the same style and CTEs as your original base report.
+- Ordered by strongest RVOL first (best acceleration signal), then by dollar volume.
+
+You can tighten the threshold easily (e.g. change `1.8` to `2.0` or `2.5` if you only want the strongest signals)."""
 
 
 # ------------------------------------------------------------------
@@ -1107,6 +1227,68 @@ def dataframe_to_xlsx_bytes(
 # ------------------------------------------------------------------
 
 
+def _ordered_bar_spec(df: pd.DataFrame, y_col: str) -> dict:
+    """Return a self-contained Vega-Lite spec for a bar chart whose
+    bars keep ``df`` row order.
+
+    ``"sort": null`` on the nominal ``Ticker`` axis is the key part:
+    without it Vega-Lite sorts categories alphabetically, which would
+    scramble the query's ``ORDER BY`` (the table's default order).
+    The data values are embedded so the spec can be handed straight to
+    ``st.vega_lite_chart``.
+    """
+    return {
+        "mark": "bar",
+        "data": {
+            "values": df[["Ticker", y_col]].to_dict(orient="records")
+        },
+        "encoding": {
+            "x": {"field": "Ticker", "type": "nominal", "sort": None},
+            "y": {"field": y_col, "type": "quantitative"},
+        },
+    }
+
+
+def _build_ordered_bar_chart(df: pd.DataFrame, y_col: str):
+    """Return an ``altair.Chart`` bar chart preserving ``df`` row order.
+
+    ``sort=None`` on the nominal x axis serializes to ``"sort": null``,
+    so the bars follow the SQL ``ORDER BY`` (the dataframe's row
+    order) rather than Vega-Lite's alphabetical category default.
+    ``altair`` is imported lazily — it ships with streamlit, but this
+    module stays importable without it (tests may exercise
+    :func:`_ordered_bar_spec` instead).
+    """
+    import altair as alt
+
+    return (
+        alt.Chart(df)
+        .mark_bar()
+        .encode(
+            x=alt.X("Ticker:N", sort=None),
+            y=alt.Y(f"{y_col}:Q"),
+        )
+    )
+
+
+def _render_ordered_bar_chart(st, df: pd.DataFrame, y_col: str) -> None:
+    """Render ``df`` as a bar chart in the query's ``ORDER BY`` order.
+
+    ``st.bar_chart`` cannot express this — its nominal x axis always
+    sorts alphabetically — so the chart goes through
+    ``st.altair_chart`` (Altair ships with streamlit; no extra
+    dependency), falling back to ``st.vega_lite_chart`` with the
+    equivalent spec if Altair is ever missing.  ``st`` is passed in so
+    tests can exercise the helper without the Streamlit runtime.
+    """
+    try:
+        chart = _build_ordered_bar_chart(df, y_col)
+    except ImportError:
+        st.vega_lite_chart(_ordered_bar_spec(df, y_col), width="stretch")
+        return
+    st.altair_chart(chart, width="stretch")
+
+
 def _render_top25_tab(st, config: PipelineConfig) -> None:
     """Tab A — Top 25 by Dollar Volume (+ RVOL/regime edge metrics)."""
     with st.expander("Parameters", expanded=True):
@@ -1207,7 +1389,7 @@ def _render_top25_tab(st, config: PipelineConfig) -> None:
     st.caption(f"{len(df)} row(s)")
     st.dataframe(df, width="stretch")
     if not df.empty and "latest_dollar_volume" in df.columns:
-        st.bar_chart(df, x="Ticker", y="latest_dollar_volume")
+        _render_ordered_bar_chart(st, df, "latest_dollar_volume")
     st.download_button(
         label="Download as Excel",
         data=dataframe_to_xlsx_bytes(df, sheet_name=_TAB_A_SHEET),
@@ -1218,6 +1400,8 @@ def _render_top25_tab(st, config: PipelineConfig) -> None:
         ),
         key="a_download",
     )
+    with st.expander("Interpretation guide"):
+        st.markdown(DAILY_TOP25_GUIDE)
 
 
 def _render_accel_tab(st, config: PipelineConfig) -> None:
@@ -1295,7 +1479,7 @@ def _render_accel_tab(st, config: PipelineConfig) -> None:
     st.caption(f"{len(df)} row(s)")
     st.dataframe(df, width="stretch")
     if not df.empty and "rvol" in df.columns:
-        st.bar_chart(df, x="Ticker", y="rvol")
+        _render_ordered_bar_chart(st, df, "rvol")
     st.download_button(
         label="Download as Excel",
         data=dataframe_to_xlsx_bytes(df, sheet_name=_TAB_B_SHEET),
@@ -1306,6 +1490,8 @@ def _render_accel_tab(st, config: PipelineConfig) -> None:
         ),
         key="b_download",
     )
+    with st.expander("Interpretation guide"):
+        st.markdown(DAILY_ACCEL_GUIDE)
 
 
 def _render_weekly_combined_tab(st, config: PipelineConfig) -> None:
@@ -1403,7 +1589,7 @@ def _render_weekly_combined_tab(st, config: PipelineConfig) -> None:
     st.caption(f"{len(df)} row(s)")
     st.dataframe(df, width="stretch")
     if not df.empty and "rvol" in df.columns:
-        st.bar_chart(df, x="Ticker", y="rvol")
+        _render_ordered_bar_chart(st, df, "rvol")
     st.download_button(
         label="Download as Excel",
         data=dataframe_to_xlsx_bytes(df, sheet_name=_TAB_WC_SHEET),
@@ -1493,7 +1679,7 @@ def _render_weekly_accel_tab(st, config: PipelineConfig) -> None:
     st.caption(f"{len(df)} row(s)")
     st.dataframe(df, width="stretch")
     if not df.empty and "rvol" in df.columns:
-        st.bar_chart(df, x="Ticker", y="rvol")
+        _render_ordered_bar_chart(st, df, "rvol")
     st.download_button(
         label="Download as Excel",
         data=dataframe_to_xlsx_bytes(df, sheet_name=_TAB_WA_SHEET),
@@ -1585,7 +1771,7 @@ def _render_weekly_decel_tab(st, config: PipelineConfig) -> None:
     st.caption(f"{len(df)} row(s)")
     st.dataframe(df, width="stretch")
     if not df.empty and "rvol" in df.columns:
-        st.bar_chart(df, x="Ticker", y="rvol")
+        _render_ordered_bar_chart(st, df, "rvol")
     st.download_button(
         label="Download as Excel",
         data=dataframe_to_xlsx_bytes(df, sheet_name=_TAB_WD_SHEET),
@@ -1606,6 +1792,8 @@ def main() -> None:
 
     st.set_page_config(page_title="Stock Reports", layout="wide")
     st.title("Stock Reports")
+    with st.expander("About / How to read these reports"):
+        st.markdown(BASIC_GUIDE)
 
     try:
         config = PipelineConfig.from_yaml(_CONFIG_PATH)
@@ -1614,30 +1802,30 @@ def main() -> None:
         return
 
     (
-        tab_top25,
-        tab_accel,
         tab_weekly_combined,
         tab_weekly_accel,
         tab_weekly_decel,
+        tab_top25,
+        tab_accel,
     ) = st.tabs(
         [
-            "Daily — Top 25 by Dollar Volume",
-            "Daily — Acceleration Candidates",
             "Weekly — Combined Regimes",
             "Weekly — Acceleration",
             "Weekly — Deceleration",
+            "Daily — Top 25 by Dollar Volume",
+            "Daily — Acceleration Candidates",
         ]
     )
-    with tab_top25:
-        _render_top25_tab(st, config)
-    with tab_accel:
-        _render_accel_tab(st, config)
     with tab_weekly_combined:
         _render_weekly_combined_tab(st, config)
     with tab_weekly_accel:
         _render_weekly_accel_tab(st, config)
     with tab_weekly_decel:
         _render_weekly_decel_tab(st, config)
+    with tab_top25:
+        _render_top25_tab(st, config)
+    with tab_accel:
+        _render_accel_tab(st, config)
 
 
 # ``streamlit run`` executes this file as __main__, while unit tests
