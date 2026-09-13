@@ -2384,5 +2384,25 @@
     ],
     "acceptance_criteria": "(1) NEW scripts/report_app.py — Streamlit app with TWO tabs implementing the two report SQLs from docs/report_idea/ (note: the md filenames are swapped vs their contents — tab A \"Top 25 by Dollar Volume\" uses the SQL in report_Acceleration Candidates*.md which returns top-25 latest dollar volume + edge metrics; tab B \"Acceleration Candidates\" uses the SQL in report_Top 25*.md which filters rvol>=threshold within top-N most-liquid names). (2) Interactive parameters via Streamlit widgets that feed into the SQL (values are numeric — safe to format into SQL text): lookback periods (default 30), top-N row limit (default 25), RVOL regime thresholds (defaults 2.5/1.8/0.8/0.6), liquidity top-K (default 50), regime filter. (3) Data access mirrors report_top25_active.py: Flight do_get first (grpc from cfg.server, 5s probe, bounded call timeout), fallback direct read-only DuckDB; both-fail -> st.error. (4) Each tab shows a formatted dataframe (st.dataframe) plus a bar chart of the key metric, and a download button producing xlsx via openpyxl in-memory (BytesIO) with auto column widths. (5) SQL lives in importable module-level builder functions taking the parameters (testable without streamlit runtime); tests/test_report_app.py verifies both builders produce correct SQL structure (thresholds/limits injected, correct CTEs) and the fetch fallback logic with mocks. (6) requirements.txt gains streamlit. (7) README.md documents how to launch (streamlit run scripts/report_app.py) and that the Flight server must be running for the primary path; docs/README.md synced verbatim. (8) pytest -q exit 0; check_loops exit 0.",
     "assigned_to": "B"
+  },
+  {
+    "id": "F7-T23",
+    "title": "Report app hardening: inverted-threshold warning + query caching (C-N1/C-N2 follow-ups)",
+    "role": "executor",
+    "model": "swe",
+    "status": "in_progress",
+    "depends_on": [
+      "F7-T22"
+    ],
+    "input_files": [
+      "/scripts/report_app.py",
+      "/tests/test_report_app.py"
+    ],
+    "output_files": [
+      "/scripts/report_app.py",
+      "/tests/test_report_app.py"
+    ],
+    "acceptance_criteria": "(1) When the user sets inverted RVOL regime thresholds (strong_accel < accel, or strong_decel > decel) the app surfaces a visible st.warning explaining the misordering instead of silently mislabeling/filtering on the wrong bound — both tabs covered. (2) fetch_dataframe results cached via st.cache_data keyed on the SQL text (or equivalent) so widget reruns do not re-query the Flight server/DuckDB when the SQL is unchanged; cache TTL or explicit refresh mechanism so stale data is not served indefinitely. (3) The warning logic lives in a module-level importable helper (e.g. find_threshold_inversions(...)) testable without streamlit. (4) tests/test_report_app.py gains tests: inversion detection (both directions), non-inverted passes clean, cache key derivation is SQL-dependent. (5) pytest -q exit 0; check_loops + --strict exit 0.",
+    "assigned_to": "B"
   }
 ]
