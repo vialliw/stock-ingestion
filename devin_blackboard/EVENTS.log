@@ -1611,3 +1611,5 @@ Non-blocking observations: (a) _normalize_batch_df purges empty tickers in exclu
 
 
 [2026-09-13T10:45:00+00:00] [ORCHESTRATOR] F7-T15 registered: local daily_load_once.py must catch up missed trading days — PC off Friday, on Saturday should still download Friday data. Market-closed gate becomes opt-in bypass (force flag) in both ingestion impls; CI/GitHub path unchanged; local runner uses config lookback (4d). Spawning executor B via local run_subagent.
+
+[2026-09-13T09:47:45.249078+00:00] [EXECUTOR] claimed F7-T15
