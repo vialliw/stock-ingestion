@@ -12,6 +12,7 @@ A quantitative stock-data ingestion service that centralizes daily equity data f
 - [Configuration](#configuration)
 - [Usage](#usage)
   - [Running the Flight Server](#running-the-flight-server)
+  - [Running the Flight Server as a Windows Scheduled Task](#running-the-flight-server-as-a-windows-scheduled-task)
   - [Running the Scheduler (Standalone)](#running-the-scheduler-standalone)
   - [Scheduling the Daily Load on Windows](#scheduling-the-daily-load-on-windows)
   - [Querying via Arrow Flight (do_get)](#querying-via-arrow-flight-do_get)
@@ -119,9 +120,10 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 ### Local Scheduled Task (Windows)
 
 - `scripts/register_daily_task.ps1` registers a Windows Task Scheduler job via `schtasks.exe` (idempotent, `/f` replaces).
+- `scripts/register_flight_service.ps1` registers a second, service-like task (`StockIngestion-FlightServer`) that starts the Flight server at system boot (AtStartup trigger, restart-on-failure, no time limit).
 - Reads `scheduler.schedule_time` + `scheduler.timezone` from `config.yaml` and converts to **machine-local time** (handles DST; warns on invalid/ambiguous local times).
-- Invokes `scripts/daily_load_once.py` — a one-shot runner that runs one daily-load cycle with `force=True` (catch-up mode, 4-day lookback) then exits.
-- Exit codes are Task Scheduler-visible: `1` on DuckDB lock exhaustion or uncaught exception (full traceback to the configured log file), `0` otherwise.
+- Invokes `scripts/daily_load_once.py` — a one-shot runner that runs one daily-load cycle with `force=True` (catch-up mode, 4-day lookback) then exits. When the Flight service is running it routes the load through the service's `daily_load` action so the service stays the single DuckDB writer; otherwise it opens DuckDB directly.
+- Exit codes are Task Scheduler-visible: `1` on Flight server error/timeout, DuckDB lock exhaustion, or uncaught exception (full traceback to the configured log file), `0` otherwise.
 - See [Scheduling the Daily Load on Windows](#scheduling-the-daily-load-on-windows).
 
 ### Logging
@@ -179,10 +181,12 @@ stock-ingestion/
 ├── scripts/
 │   ├── check_loops.py          # AST-based loop justification checker
 │   ├── ci_daily_load.py        # GitHub Actions one-shot daily load (R2 download/upload)
-│   ├── daily_load_once.py      # Windows Task one-shot runner (catch-up mode, exit codes)
+│   ├── daily_load_once.py      # Windows Task one-shot runner (Flight-first routing, catch-up mode, exit codes)
 │   ├── poll_tasks.py           # Multi-agent task lifecycle manager
 │   ├── pre_commit_check_loops.py  # Pre-commit hook wrapper
 │   ├── register_daily_task.ps1 # schtasks registration (timezone conversion, idempotent)
+│   ├── register_flight_service.ps1  # AtStartup service task for the Flight server (restart-on-failure)
+│   ├── run_flight_server.py    # cwd-safe wrapper launching src.main.main() for the service task
 │   └── workflow_phase2.py      # Dynamic Workflow orchestration script
 ├── .github/workflows/
 │   ├── daily_load.yml          # CI daily load (cron, trading days)
@@ -297,6 +301,33 @@ python -m src.main
 
 This loads `src/config.yaml`, configures logging, opens the DuckDB database, and starts the Arrow Flight daemon on the configured host/port. SIGINT/SIGTERM triggers a safe WAL checkpoint and clean exit.
 
+### Running the Flight Server as a Windows Scheduled Task
+
+To keep the Flight server running like a service on a local Windows machine, register the `StockIngestion-FlightServer` task (run from an **elevated** prompt — the task runs as `SYSTEM`):
+
+```powershell
+# Register (idempotent — re-running replaces the existing task)
+powershell -ExecutionPolicy Bypass -File scripts\register_flight_service.ps1
+
+# Remove the task
+powershell -ExecutionPolicy Bypass -File scripts\register_flight_service.ps1 -Unregister
+```
+
+The registration uses the PowerShell `ScheduledTasks` cmdlets with:
+
+- **AtStartup trigger** — the server starts at boot, before any user logs on.
+- **Restart on failure** — 3 restart attempts, 1 minute apart.
+- **No execution time limit** — `ExecutionTimeLimit` is zero, so the daemon is never killed for running too long.
+- **`MultipleInstances = IgnoreNew`** — a duplicate launch request is dropped, so two server processes can never fight over the DuckDB write lock.
+- **Absolute `python.exe`** — the interpreter is resolved at registration time (`Get-Command python`), so the task does not depend on `PATH`.
+- **`scripts\run_flight_server.py`** — a cwd-safe wrapper that anchors the repo root on `sys.path`, makes it the working directory, then calls `src.main.main()`.
+
+The task runs as `SYSTEM` whether or not a user is logged on. Note that **user-scoped environment variables are not visible to `SYSTEM`** — if `r2.enabled` is true, set `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_ENDPOINT_URL` at machine scope.
+
+> **Single writer:** while this service task is registered, do **not** also run `python -m src.scheduler_main` (the standalone APScheduler daemon). The Flight server holds the DuckDB write lock for its whole lifetime, and `scheduler_main.py` would fight it for that lock. The daily scheduled task below already routes its load through the running service.
+
+When the service is up, `scripts/daily_load_once.py` sends `do_action("daily_load", {"force": true})` to `grpc://{server.flight_host}:{server.flight_port}` instead of opening DuckDB itself — the service performs the catch-up load and stays the single writer. If the service is unreachable (short connect probe fails), the runner logs the fallback and opens DuckDB directly as before.
+
 ### Running the Scheduler (Standalone)
 
 ```bash
@@ -322,8 +353,9 @@ powershell -ExecutionPolicy Bypass -File scripts\register_daily_task.ps1 -Unregi
 
 The registration script converts `scheduler.schedule_time` from `scheduler.timezone` (e.g. `16:14 America/New_York`) to machine-local time, accounting for DST. The task invokes `scripts/daily_load_once.py`, which:
 
+- **Routes through the Flight service first** — when `StockIngestion-FlightServer` (above) is running, the runner calls `do_action("daily_load", {"force": true})` on `grpc://{server.flight_host}:{server.flight_port}` so the service stays the single DuckDB writer. `SUCCESS`/`PARTIAL` → exit `0`; a server error or call timeout → exit `1`. Only when the service is unreachable does it open DuckDB directly.
 - Runs one daily-load cycle with **`force=True`** — it does **not** skip on non-trading days, so a machine that was off on a trading day catches up on the next day it is on (e.g. PC off Friday → Saturday run downloads Friday's data). The window is `ingestion.daily_lookback_days` (default 4 calendar days).
-- Retries the DuckDB open with backoff; exits `1` if the lock cannot be acquired or an unexpected exception occurs (full traceback in the configured log file) so Task Scheduler records the failure.
+- On the direct path, retries the DuckDB open with backoff; exits `1` if the lock cannot be acquired or an unexpected exception occurs (full traceback in the configured log file) so Task Scheduler records the failure.
 - Logs to `logging.log_file` in the configured text/JSON format.
 
 This differs from the GitHub Actions path (`scripts/ci_daily_load.py`), which still skips on market-closed days — CI runs on a weekday cron schedule, so catching up is unnecessary there.
@@ -521,7 +553,7 @@ python -m pytest tests/test_flight_server.py -q
 python -m pytest tests/ -v
 ```
 
-The test suite includes 241 tests covering:
+The test suite includes 253 tests covering:
 
 | Test File | Coverage |
 |-----------|----------|

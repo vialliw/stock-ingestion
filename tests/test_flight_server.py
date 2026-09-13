@@ -202,6 +202,44 @@ class TestDoAction:
         assert data["tickers_failed"] == []
         ingest_engine.run_daily_load.assert_called_once()
 
+    def test_daily_load_forwards_force_true(self, module):
+        # F7-T16: do_action("daily_load", {"force": true}) reaches
+        # run_daily_load(force=True) so the service can run catch-up
+        # loads on behalf of the Windows scheduled task.
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_daily_load.return_value = {
+            "rows_upserted": 50,
+            "tickers_succeeded": ["AAPL"],
+            "tickers_failed": [],
+            "errors": {},
+            "duration_ms": 300,
+        }
+        action = make_action("daily_load", {"force": True})
+        data = parse_result(server.do_action(MagicMock(), action))
+
+        assert data["status"] == "SUCCESS"
+        ingest_engine.run_daily_load.assert_called_once()
+        assert ingest_engine.run_daily_load.call_args.kwargs["force"] is True
+
+    def test_daily_load_default_preserves_force_false(self, module):
+        # F7-T16: a payload without "force" (or with no body at all)
+        # keeps the force=False default — market-closed days are still
+        # skipped for clients that do not opt in.
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_daily_load.return_value = {
+            "rows_upserted": 50,
+            "tickers_succeeded": ["AAPL"],
+            "tickers_failed": [],
+            "errors": {},
+            "duration_ms": 300,
+        }
+        action = make_action("daily_load")
+        data = parse_result(server.do_action(MagicMock(), action))
+
+        assert data["status"] == "SUCCESS"
+        ingest_engine.run_daily_load.assert_called_once()
+        assert ingest_engine.run_daily_load.call_args.kwargs["force"] is False
+
     def test_daily_load_skipped(self, module):
         # AC 10: daily_load with SKIPPED status passthrough
         server, db_mgr, ingest_engine, cfg = make_server(module)

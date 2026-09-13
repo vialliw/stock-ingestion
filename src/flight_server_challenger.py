@@ -252,7 +252,7 @@ class MarketDataFlightServer(flight.FlightServerBase):
         return self._build_load_result(result)
 
     def _handle_daily_load(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        result = self.engine.run_daily_load()
+        result = self.engine.run_daily_load(force=payload.get("force", False))
         return self._build_load_result(result)
 
     def _handle_on_request_load(self, payload: Dict[str, Any]) -> Dict[str, Any]:

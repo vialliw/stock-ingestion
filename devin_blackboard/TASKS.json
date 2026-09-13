@@ -2212,7 +2212,7 @@
     "title": "Flight server as Windows service + route daily load through service do_action",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T15"
     ],

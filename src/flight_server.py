@@ -196,7 +196,8 @@ class MarketDataFlightServer(flight.FlightServerBase):
 
         elif action_type == "daily_load":
             result = self.engine.run_daily_load(
-                lookback_days=self.cfg.ingestion.daily_lookback_days
+                lookback_days=self.cfg.ingestion.daily_lookback_days,
+                force=payload.get("force", False),
             )
             if result.get("status") == "SKIPPED":
                 return flight.Result(json.dumps(result).encode("utf-8"))

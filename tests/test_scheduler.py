@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+import json
 import signal
+import sys
+from pathlib import Path
 from unittest.mock import ANY, MagicMock, patch
 
 import duckdb
+import pyarrow.flight as flight
 import pytest
+
+# Add scripts dir to path so daily_load_once can be imported (same
+# pattern as tests/test_poll_tasks.py).
+SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+import daily_load_once
 
 from src.config import PipelineConfig, SchedulerConfig
 from src.scheduler import PipelineScheduler
@@ -226,3 +237,174 @@ def test_execute_daily_load_default_keeps_gate_and_lookback_1(
 
     mock_get_calendar.assert_called_once()
     mock_engine.run_daily_load.assert_called_once_with(lookback_days=1)
+
+
+# =====================================================================
+# F7-T16: scripts/daily_load_once.py — service-first Flight routing
+# =====================================================================
+
+
+def _mock_flight_module():
+    """A stand-in for the ``pyarrow.flight`` module inside
+    ``daily_load_once``: real value/exception classes (needed for
+    ``except flight.<X>Error`` clauses and Action construction) but a
+    mocked ``FlightClient``.
+    """
+    mock_flight = MagicMock()
+    mock_flight.Action = flight.Action
+    mock_flight.FlightCallOptions = flight.FlightCallOptions
+    mock_flight.FlightError = flight.FlightError
+    mock_flight.FlightServerError = flight.FlightServerError
+    mock_flight.FlightTimedOutError = flight.FlightTimedOutError
+    mock_flight.FlightUnavailableError = flight.FlightUnavailableError
+    return mock_flight
+
+
+def _flight_result(payload: dict):
+    """Build a mock flight.Result-like object carrying a JSON body."""
+    result = MagicMock()
+    result.body.to_pybytes.return_value = json.dumps(payload).encode("utf-8")
+    return result
+
+
+class TestDailyLoadOnceFlightRouting:
+    """daily_load_once._run_once routes the daily load through the
+    running Flight service when reachable, and falls back to the direct
+    DuckDB path only when the service is unreachable."""
+
+    @pytest.fixture
+    def config(self, tmp_path):
+        """Enabled scheduler config with an isolated database path."""
+        return PipelineConfig(
+            database={
+                "duckdb_dir": str(tmp_path),
+                "duckdb_filename": "test.duckdb",
+            },
+            scheduler=SchedulerConfig(enabled=True),
+        )
+
+    @pytest.mark.parametrize("status", ["SUCCESS", "PARTIAL"])
+    def test_flight_success_no_direct_db_open(self, config, status):
+        """Service up + SUCCESS/PARTIAL -> exit 0 without ever opening
+        DuckDB directly (the service stays the single writer)."""
+        mock_flight = _mock_flight_module()
+        mock_client = mock_flight.FlightClient.return_value
+        mock_client.do_action.return_value = iter(
+            [_flight_result({"status": status, "rows_upserted": 5})]
+        )
+
+        with patch.object(daily_load_once, "flight", mock_flight), patch.object(
+            daily_load_once, "PipelineScheduler"
+        ) as mock_sched_cls:
+            code = daily_load_once._run_once(config)
+
+        assert code == 0
+        mock_sched = mock_sched_cls.return_value
+        mock_sched._create_db_manager.assert_not_called()
+        mock_sched._execute_daily_load.assert_not_called()
+
+        # The action sent to the service is daily_load with force=true.
+        action_arg = mock_client.do_action.call_args.args[0]
+        assert action_arg.type == "daily_load"
+        assert json.loads(action_arg.body.to_pybytes()) == {"force": True}
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            flight.FlightServerError("server exploded"),
+            flight.FlightTimedOutError("deadline exceeded"),
+        ],
+        ids=["server_error", "timeout"],
+    )
+    def test_flight_server_error_or_timeout_returns_1(self, config, error):
+        """Service up but the action fails -> exit 1, no direct-DB
+        fallback (the service handled the request)."""
+        mock_flight = _mock_flight_module()
+        mock_client = mock_flight.FlightClient.return_value
+        mock_client.do_action.side_effect = error
+
+        with patch.object(daily_load_once, "flight", mock_flight), patch.object(
+            daily_load_once, "PipelineScheduler"
+        ) as mock_sched_cls:
+            code = daily_load_once._run_once(config)
+
+        assert code == 1
+        mock_sched_cls.return_value._create_db_manager.assert_not_called()
+
+    def test_flight_non_success_status_returns_1(self, config):
+        """A reachable service that answers with a non-success status
+        (e.g. SKIPPED from a stale server without force support) ->
+        exit 1, no direct-DB fallback."""
+        mock_flight = _mock_flight_module()
+        mock_client = mock_flight.FlightClient.return_value
+        mock_client.do_action.return_value = iter(
+            [_flight_result({"status": "SKIPPED", "reason": "Market closed"})]
+        )
+
+        with patch.object(daily_load_once, "flight", mock_flight), patch.object(
+            daily_load_once, "PipelineScheduler"
+        ) as mock_sched_cls:
+            code = daily_load_once._run_once(config)
+
+        assert code == 1
+        mock_sched_cls.return_value._create_db_manager.assert_not_called()
+
+    def test_flight_unreachable_falls_back_to_direct(self, config):
+        """Connection failure (server down) -> log + fall back to the
+        existing direct path _execute_daily_load(db_manager, force=True).
+        """
+        mock_flight = _mock_flight_module()
+        mock_client = mock_flight.FlightClient.return_value
+        mock_client.wait_for_available.side_effect = (
+            flight.FlightUnavailableError("connection refused")
+        )
+
+        with patch.object(daily_load_once, "flight", mock_flight), patch.object(
+            daily_load_once, "PipelineScheduler"
+        ) as mock_sched_cls:
+            code = daily_load_once._run_once(config)
+
+        assert code == 0
+        mock_sched = mock_sched_cls.return_value
+        mock_sched._create_db_manager.assert_called_once()
+        mock_sched._execute_daily_load.assert_called_once_with(
+            mock_sched._create_db_manager.return_value, force=True
+        )
+        mock_sched._create_db_manager.return_value.close.assert_called_once()
+
+    def test_flight_unavailable_mid_call_falls_back(self, config):
+        """If the server drops between the availability probe and the
+        action call, the direct path still takes over."""
+        mock_flight = _mock_flight_module()
+        mock_client = mock_flight.FlightClient.return_value
+        mock_client.do_action.side_effect = flight.FlightUnavailableError(
+            "server went away"
+        )
+
+        with patch.object(daily_load_once, "flight", mock_flight), patch.object(
+            daily_load_once, "PipelineScheduler"
+        ) as mock_sched_cls:
+            code = daily_load_once._run_once(config)
+
+        assert code == 0
+        mock_sched = mock_sched_cls.return_value
+        mock_sched._execute_daily_load.assert_called_once_with(
+            mock_sched._create_db_manager.return_value, force=True
+        )
+
+    def test_scheduler_disabled_returns_0_without_flight(self, tmp_path):
+        """enabled=false -> 0 and the Flight service is never consulted."""
+        config = PipelineConfig(
+            database={
+                "duckdb_dir": str(tmp_path),
+                "duckdb_filename": "test.duckdb",
+            },
+            scheduler=SchedulerConfig(enabled=False),
+        )
+        mock_flight = _mock_flight_module()
+
+        with patch.object(daily_load_once, "flight", mock_flight):
+            code = daily_load_once._run_once(config)
+
+        assert code == 0
+        mock_flight.FlightClient.assert_not_called()
