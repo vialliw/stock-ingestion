@@ -2363,7 +2363,7 @@
     "title": "Interactive Streamlit report app: Top-25 dollar volume + RVOL acceleration candidates",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T20"
     ],

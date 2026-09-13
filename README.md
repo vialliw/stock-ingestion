@@ -19,6 +19,7 @@ A quantitative stock-data ingestion service that centralizes daily equity data f
   - [Triggering Ingestion Actions (do_action)](#triggering-ingestion-actions-do_action)
   - [Uploading Data via Arrow Flight (do_put)](#uploading-data-via-arrow-flight-do_put)
   - [R2 Synchronization](#r2-synchronization)
+  - [Interactive Report App (Streamlit)](#interactive-report-app-streamlit)
 - [Database Schema](#database-schema)
 - [Testing](#testing)
 - [Loop Checker](#loop-checker)
@@ -176,6 +177,7 @@ stock-ingestion/
 │   ├── test_poll_tasks.py
 │   ├── test_query_timeout.py
 │   ├── test_r2_sync.py
+│   ├── test_report_app.py     # Streamlit report app (SQL builders, fetch fallback, xlsx)
 │   ├── test_scheduler.py
 │   └── test_store_csv.py
 ├── scripts/
@@ -186,6 +188,8 @@ stock-ingestion/
 │   ├── pre_commit_check_loops.py  # Pre-commit hook wrapper
 │   ├── register_daily_task.ps1 # schtasks registration (timezone conversion, idempotent)
 │   ├── register_flight_service.ps1  # AtStartup service task for the Flight server (restart-on-failure)
+│   ├── report_app.py           # Streamlit report app (top-25 dollar volume + acceleration candidates)
+│   ├── report_top25_active.py  # Top-25 active xlsx report (Flight-first, read-only DuckDB fallback)
 │   ├── run_flight_server.py    # cwd-safe wrapper launching src.main.main() for the service task
 │   └── workflow_phase2.py      # Dynamic Workflow orchestration script
 ├── .github/workflows/
@@ -236,6 +240,8 @@ pip install -r requirements.txt
 | `boto3` | Cloudflare R2 S3-compatible sync |
 | `python-json-logger` | JSON log format |
 | `APScheduler` | Daily load scheduling |
+| `openpyxl` | Excel (xlsx) report output |
+| `streamlit` | Interactive report app |
 
 ---
 
@@ -485,6 +491,23 @@ r2:
   prefix: "stock-ingestion/"
 ```
 
+### Interactive Report App (Streamlit)
+
+`scripts/report_app.py` is a Streamlit app that renders the two RVOL edge reports from `docs/report_idea/` as interactive tabs:
+
+- **Top 25 by Dollar Volume** — top-N tickers ranked by latest-day dollar volume, enriched with RVOL, relative dollar volume, pct change, a `volume_regime` classification (Strong Acceleration / Acceleration / Normal / Deceleration / Strong Deceleration), and share of total average dollar volume.
+- **Acceleration Candidates** — keeps only `rvol >= threshold` names among the top-K most-liquid tickers by latest dollar volume, ordered by `rvol` descending.
+
+Launch it with:
+
+```bash
+streamlit run scripts/report_app.py
+```
+
+Each tab exposes interactive parameters that feed into the generated SQL (numeric values only): lookback periods (default 30), top-N limit (default 25), the four RVOL regime thresholds (defaults 2.5 / 1.8 / 0.8 / 0.6), the liquidity top-K for the candidates tab (default 50), and a `volume_regime` multiselect filter. Results render as a dataframe plus a bar chart of the key metric (`latest_dollar_volume` / `rvol`), with a download button that produces an in-memory `.xlsx` (auto-sized columns via openpyxl).
+
+**Data access:** the app queries the running Flight server first (`do_get` on `grpc://{server.flight_host}:{server.flight_port}`, 5-second availability probe, 120-second call bound) — **the Flight server must be running for the primary path**, and it is required whenever another process holds the DuckDB write lock. If the server is unreachable or the query fails, the app falls back to a direct *read-only* DuckDB connection (`duckdb.connect(db_path, read_only=True)`); if both fail, the tab shows an error.
+
 ---
 
 ## Database Schema
@@ -553,7 +576,7 @@ python -m pytest tests/test_flight_server.py -q
 python -m pytest tests/ -v
 ```
 
-The test suite includes 253 tests covering:
+The test suite includes 306 tests covering:
 
 | Test File | Coverage |
 |-----------|----------|

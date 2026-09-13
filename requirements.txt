@@ -9,3 +9,4 @@ boto3>=1.20
 python-json-logger>=2.0
 APScheduler>=3.0
 openpyxl>=3.1
+streamlit>=1.58
