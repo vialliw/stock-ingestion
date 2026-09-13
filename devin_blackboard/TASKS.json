@@ -2317,7 +2317,7 @@
     "title": "Report_Top_25_Active.xlsx — top-25 avg dollar-volume report via Flight, chained after daily load",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T16"
     ],

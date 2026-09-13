@@ -11,6 +11,8 @@ from pathlib import Path
 from unittest.mock import ANY, MagicMock, patch
 
 import duckdb
+import openpyxl
+import pyarrow as pa
 import pyarrow.flight as flight
 import pytest
 
@@ -20,6 +22,7 @@ SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import daily_load_once
+import report_top25_active
 
 # run_flight_server's module header chdirs to the repo root (it is meant
 # to be launched by Task Scheduler from any cwd); restore the test
@@ -291,6 +294,19 @@ class TestDailyLoadOnceFlightRouting:
             },
             scheduler=SchedulerConfig(enabled=True),
         )
+
+    @pytest.fixture(autouse=True)
+    def _stub_chained_report(self):
+        """F7-T20: ``_run_once`` chains ``report_top25_active`` after a
+        successful load.  Stub it out so these routing tests stay
+        hermetic (no real Flight query / no stray xlsx under cwd);
+        chaining itself is covered by ``TestDailyLoadOnceReportChaining``.
+        """
+        with patch.object(
+            daily_load_once, "report_top25_active"
+        ) as mock_report:
+            mock_report.run_report.return_value = 0
+            yield mock_report
 
     @pytest.mark.parametrize("status", ["SUCCESS", "PARTIAL"])
     def test_flight_success_no_direct_db_open(self, config, status):
@@ -586,3 +602,326 @@ class TestChallengerDailyLookbackParity:
         ingest_engine.run_daily_load.assert_called_once_with(
             lookback_days=9, force=False
         )
+
+
+# =====================================================================
+# F7-T20: scripts/report_top25_active.py — top-25 active Excel report
+# =====================================================================
+
+
+def _report_config(tmp_path) -> PipelineConfig:
+    """Config whose DB and report destination live under ``tmp_path``.
+
+    The report is written to ``dirname(logging.log_file)`` — here
+    ``<tmp>/logs/`` — so nothing touches the real C:\\Intel\\parquet.
+    """
+    return PipelineConfig(
+        database={
+            "duckdb_dir": str(tmp_path),
+            "duckdb_filename": "test.duckdb",
+        },
+        logging={"log_file": str(tmp_path / "logs" / "run.log")},
+    )
+
+
+def _seed_daily_close(db_path: str, rows: list) -> None:
+    """Create a fresh DuckDB file with a ``daily_close`` table holding
+    ``rows`` of (date_str, ticker, open, high, low, close, volume)."""
+    conn = duckdb.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE daily_close (
+                Date DATE NOT NULL,
+                Ticker VARCHAR NOT NULL,
+                Open DOUBLE,
+                High DOUBLE,
+                Low DOUBLE,
+                "Close" DOUBLE,
+                Volume DOUBLE,
+                PRIMARY KEY (Date, Ticker)
+            )
+            """
+        )
+        conn.executemany(
+            "INSERT INTO daily_close VALUES (?, ?, ?, ?, ?, ?, ?)", rows
+        )
+    finally:
+        conn.close()
+
+
+def _mock_flight_for_report(table=None):
+    """Stand-in for the ``pyarrow.flight`` module inside
+    ``report_top25_active`` (same pattern as ``_mock_flight_module``)."""
+    mock_flight = MagicMock()
+    mock_flight.Ticket = flight.Ticket
+    mock_flight.FlightCallOptions = flight.FlightCallOptions
+    mock_flight.FlightError = flight.FlightError
+    mock_flight.FlightServerError = flight.FlightServerError
+    mock_flight.FlightTimedOutError = flight.FlightTimedOutError
+    mock_flight.FlightUnavailableError = flight.FlightUnavailableError
+    if table is not None:
+        reader = MagicMock()
+        reader.read_all.return_value = table
+        mock_flight.FlightClient.return_value.do_get.return_value = reader
+    return mock_flight
+
+
+class TestReportTop25Active:
+    """Unit tests for ``scripts/report_top25_active.py``."""
+
+    def test_sql_has_limit_25_and_friendly_headers(self):
+        """The PM-supplied query was adapted: TOP 25 via LIMIT 25,
+        ordered by avg_trade_money DESC, with friendly output headers."""
+        sql = report_top25_active.TOP25_SQL
+        assert "LIMIT 25" in sql
+        assert "ORDER BY a.avg_trade_money DESC" in sql
+        assert 'AS "Ticker"' in sql
+        assert 'AS "Avg Trade Money"' in sql
+        assert 'AS "% of Total"' in sql
+        # Window is the last 30 trading periods per ticker.
+        assert "period_rank <= 30" in sql
+        assert "FROM daily_close" in sql
+
+    def test_xlsx_written_via_flight(self, tmp_path):
+        """Happy path: Flight do_get -> xlsx with expected headers,
+        rows, and auto-adjusted column widths (read back via openpyxl)."""
+        config = _report_config(tmp_path)
+        table = pa.table(
+            {
+                "Ticker": ["MSFT", "AAPL"],
+                "Avg Trade Money": [1234.5, 678.9],
+                "% of Total": [64.5, 35.5],
+            }
+        )
+        mock_flight = _mock_flight_for_report(table)
+        mock_client = mock_flight.FlightClient.return_value
+
+        with patch.object(report_top25_active, "flight", mock_flight):
+            code = report_top25_active.run_report(config)
+
+        assert code == 0
+        mock_client.wait_for_available.assert_called_once()
+        mock_client.do_get.assert_called_once()
+        ticket = mock_client.do_get.call_args.args[0]
+        payload = json.loads(ticket.ticket.decode("utf-8"))
+        assert payload["sql"] == report_top25_active.TOP25_SQL
+
+        out_path = tmp_path / "logs" / "Report_Top_25_Active.xlsx"
+        assert out_path.exists()
+        wb = openpyxl.load_workbook(out_path)
+        ws = wb.active
+        headers = [cell.value for cell in ws[1]]
+        assert headers == ["Ticker", "Avg Trade Money", "% of Total"]
+        data_rows = list(ws.iter_rows(min_row=2, values_only=True))
+        assert len(data_rows) == 2
+        assert data_rows[0][0] == "MSFT"
+        assert data_rows[1][0] == "AAPL"
+        # Auto-adjusted widths: each column dimension is set.
+        for col_letter, header in zip(("A", "B", "C"), headers):
+            width = ws.column_dimensions[col_letter].width
+            assert width is not None
+            assert width >= len(header)
+        wb.close()
+
+    def test_flight_down_falls_back_to_direct_readonly_db(self, tmp_path):
+        """Server unreachable -> direct read-only DuckDB query.  30
+        tickers are seeded so the LIMIT 25 truncation is observable."""
+        config = _report_config(tmp_path)
+        db_path = config.db_path
+        # One row per ticker; OHLC all 1.0 so trade_money == Volume.
+        rows = [
+            ("2026-09-01", f"T{i:02d}", 1.0, 1.0, 1.0, 1.0, float(1000 - i))
+            for i in range(30)
+        ]
+        _seed_daily_close(db_path, rows)
+
+        mock_flight = _mock_flight_for_report()
+        mock_flight.FlightClient.return_value.wait_for_available.side_effect = (
+            flight.FlightUnavailableError("connection refused")
+        )
+        mock_duckdb = MagicMock()
+        mock_duckdb.connect = MagicMock(wraps=duckdb.connect)
+
+        with patch.object(
+            report_top25_active, "flight", mock_flight
+        ), patch.object(report_top25_active, "duckdb", mock_duckdb):
+            code = report_top25_active.run_report(config)
+
+        assert code == 0
+        # The fallback opened the DB read-only.
+        mock_duckdb.connect.assert_called_once_with(db_path, read_only=True)
+
+        out_path = tmp_path / "logs" / "Report_Top_25_Active.xlsx"
+        wb = openpyxl.load_workbook(out_path)
+        ws = wb.active
+        data_rows = list(ws.iter_rows(min_row=2, values_only=True))
+        # LIMIT 25 applied: T00 (vol 1000) .. T24 (vol 976), T25+ dropped.
+        assert len(data_rows) == 25
+        assert data_rows[0][0] == "T00"
+        assert data_rows[0][1] == pytest.approx(1000.0)
+        assert data_rows[-1][0] == "T24"
+        assert data_rows[-1][1] == pytest.approx(976.0)
+        wb.close()
+
+    def test_both_paths_fail_returns_1_no_file(self, tmp_path):
+        """Flight unreachable AND the read-only DB connect fails (write
+        lock held) -> error logged, exit code 1, no xlsx written."""
+        config = _report_config(tmp_path)
+
+        mock_flight = _mock_flight_for_report()
+        mock_flight.FlightClient.return_value.wait_for_available.side_effect = (
+            flight.FlightUnavailableError("connection refused")
+        )
+        mock_duckdb = MagicMock()
+        mock_duckdb.connect.side_effect = duckdb.IOException(
+            "Cannot open file: it is being used by another process"
+        )
+
+        with patch.object(
+            report_top25_active, "flight", mock_flight
+        ), patch.object(report_top25_active, "duckdb", mock_duckdb):
+            code = report_top25_active.run_report(config)
+
+        assert code == 1
+        assert not (tmp_path / "logs" / "Report_Top_25_Active.xlsx").exists()
+
+    def test_main_returns_1_when_both_paths_fail(self, tmp_path):
+        """End-to-end ``main()``: config loads, both query paths fail ->
+        process exit code 1."""
+        config = _report_config(tmp_path)
+        mock_flight = _mock_flight_for_report()
+        mock_flight.FlightClient.return_value.wait_for_available.side_effect = (
+            flight.FlightUnavailableError("connection refused")
+        )
+        mock_duckdb = MagicMock()
+        mock_duckdb.connect.side_effect = duckdb.IOException("locked")
+
+        with patch.object(
+            report_top25_active.PipelineConfig, "from_yaml", return_value=config
+        ), patch.object(
+            report_top25_active, "_configure_logging"
+        ), patch.object(
+            report_top25_active, "flight", mock_flight
+        ), patch.object(report_top25_active, "duckdb", mock_duckdb):
+            assert report_top25_active.main() == 1
+
+
+class TestDailyLoadOnceReportChaining:
+    """``daily_load_once._run_once`` chains the top-25 report after a
+    successful load — via either path — and a report failure never
+    changes the load's exit code."""
+
+    @pytest.fixture
+    def config(self, tmp_path):
+        return PipelineConfig(
+            database={
+                "duckdb_dir": str(tmp_path),
+                "duckdb_filename": "test.duckdb",
+            },
+            scheduler=SchedulerConfig(enabled=True),
+        )
+
+    @pytest.mark.parametrize("status", ["SUCCESS", "PARTIAL"])
+    def test_flight_success_chains_report(self, config, status):
+        mock_flight = _mock_flight_module()
+        mock_flight.FlightClient.return_value.do_action.return_value = iter(
+            [_flight_result({"status": status, "rows_upserted": 5})]
+        )
+
+        with patch.object(daily_load_once, "flight", mock_flight), patch.object(
+            daily_load_once, "PipelineScheduler"
+        ), patch.object(
+            daily_load_once, "report_top25_active"
+        ) as mock_report:
+            mock_report.run_report.return_value = 0
+            code = daily_load_once._run_once(config)
+
+        assert code == 0
+        mock_report.run_report.assert_called_once_with(config)
+
+    def test_flight_failure_does_not_chain_report(self, config):
+        """Load FAILED via the service -> no report run at all."""
+        mock_flight = _mock_flight_module()
+        mock_flight.FlightClient.return_value.do_action.side_effect = (
+            flight.FlightServerError("server exploded")
+        )
+
+        with patch.object(daily_load_once, "flight", mock_flight), patch.object(
+            daily_load_once, "PipelineScheduler"
+        ), patch.object(
+            daily_load_once, "report_top25_active"
+        ) as mock_report:
+            code = daily_load_once._run_once(config)
+
+        assert code == 1
+        mock_report.run_report.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "report_outcome",
+        [1, RuntimeError("xlsx write exploded")],
+        ids=["returns_1", "raises"],
+    )
+    def test_report_failure_keeps_load_exit_0(self, config, report_outcome):
+        """A report failure (non-zero return OR exception) is logged but
+        must not change the successful load's exit code."""
+        mock_flight = _mock_flight_module()
+        mock_flight.FlightClient.return_value.do_action.return_value = iter(
+            [_flight_result({"status": "SUCCESS", "rows_upserted": 5})]
+        )
+
+        with patch.object(daily_load_once, "flight", mock_flight), patch.object(
+            daily_load_once, "PipelineScheduler"
+        ), patch.object(
+            daily_load_once, "report_top25_active"
+        ) as mock_report:
+            if isinstance(report_outcome, Exception):
+                mock_report.run_report.side_effect = report_outcome
+            else:
+                mock_report.run_report.return_value = report_outcome
+            code = daily_load_once._run_once(config)
+
+        assert code == 0
+        mock_report.run_report.assert_called_once_with(config)
+
+    def test_direct_fallback_success_chains_report(self, config):
+        """Flight unreachable -> direct load path succeeds -> report
+        chained with the same config."""
+        mock_flight = _mock_flight_module()
+        mock_flight.FlightClient.return_value.wait_for_available.side_effect = (
+            flight.FlightUnavailableError("connection refused")
+        )
+
+        with patch.object(daily_load_once, "flight", mock_flight), patch.object(
+            daily_load_once, "PipelineScheduler"
+        ) as mock_sched_cls, patch.object(
+            daily_load_once, "report_top25_active"
+        ) as mock_report:
+            mock_report.run_report.return_value = 0
+            code = daily_load_once._run_once(config)
+
+        assert code == 0
+        mock_sched = mock_sched_cls.return_value
+        mock_sched._execute_daily_load.assert_called_once_with(
+            mock_sched._create_db_manager.return_value, force=True
+        )
+        mock_report.run_report.assert_called_once_with(config)
+
+    def test_scheduler_disabled_does_not_chain_report(self, tmp_path):
+        """enabled=false -> exit 0 but no load ran, so no report."""
+        config = PipelineConfig(
+            database={
+                "duckdb_dir": str(tmp_path),
+                "duckdb_filename": "test.duckdb",
+            },
+            scheduler=SchedulerConfig(enabled=False),
+        )
+        mock_flight = _mock_flight_module()
+
+        with patch.object(daily_load_once, "flight", mock_flight), patch.object(
+            daily_load_once, "report_top25_active"
+        ) as mock_report:
+            code = daily_load_once._run_once(config)
+
+        assert code == 0
+        mock_report.run_report.assert_not_called()

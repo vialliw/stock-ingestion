@@ -20,6 +20,12 @@ skipped because Saturday is not a trading day.  Unlike
 ``src/scheduler_main.py`` this does not block; the process exits when
 the cycle finishes.
 
+After a successful load (SUCCESS/PARTIAL via the Flight action, or a
+completed direct-fallback load) the script chains
+``scripts/report_top25_active.py`` in-process to regenerate
+``Report_Top_25_Active.xlsx``; a report failure is logged but never
+changes the load's exit code.
+
 Exit codes (so Task Scheduler can detect failure):
 
 - ``0`` — the cycle ran (or was deliberately skipped, e.g.
@@ -47,6 +53,9 @@ from typing import Optional
 # Ensure src/ is importable regardless of the task's working directory.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _REPO_ROOT)
+# Also make sibling scripts importable regardless of how this file was
+# invoked (sys.path[0] is scripts/ only for `python scripts/xxx.py`).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 _CONFIG_PATH = os.path.join(_REPO_ROOT, "src", "config.yaml")
 _FALLBACK_LOG = os.path.join(_REPO_ROOT, "logs", "daily_load_once_error.log")
@@ -56,6 +65,13 @@ from pythonjsonlogger import json as jsonlogger
 
 from src.config import PipelineConfig
 from src.scheduler import PipelineScheduler
+
+# Chained post-load report (F7-T20).  Imported defensively: a broken
+# report module must never break the load itself.
+try:
+    import report_top25_active
+except Exception:  # pragma: no cover - defensive
+    report_top25_active = None
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +203,33 @@ def _run_via_flight(config: PipelineConfig) -> Optional[int]:
     return 1
 
 
+def _run_report_safely(config: PipelineConfig) -> None:
+    """Best-effort ``Report_Top_25_Active.xlsx`` generation after a load.
+
+    Runs ``report_top25_active.run_report`` in-process (not a
+    subprocess) once the daily load has succeeded.  A report failure is
+    logged as an error but must NEVER change the load's exit code — the
+    load already succeeded by the time this runs.
+    """
+    try:
+        if report_top25_active is None:
+            raise RuntimeError(
+                "report_top25_active module failed to import"
+            )
+        code = report_top25_active.run_report(config)
+        if code != 0:
+            logger.error(
+                "Report_Top_25_Active generation failed (exit %s); "
+                "load result unchanged.",
+                code,
+            )
+    except Exception:
+        logger.exception(
+            "Report_Top_25_Active generation crashed; load result "
+            "unchanged."
+        )
+
+
 def _run_once(config: PipelineConfig) -> int:
     """Execute one daily-load cycle; return the process exit code.
 
@@ -216,6 +259,10 @@ def _run_once(config: PipelineConfig) -> int:
     # up so it remains the single DuckDB writer.
     flight_code = _run_via_flight(config)
     if flight_code is not None:
+        if flight_code == 0:
+            # Successful load via the service (SUCCESS/PARTIAL): chain
+            # the top-25 report.  Report failures never change the code.
+            _run_report_safely(config)
         return flight_code
 
     try:
@@ -233,6 +280,12 @@ def _run_once(config: PipelineConfig) -> int:
         scheduler._execute_daily_load(db_manager, force=True)
     finally:
         db_manager.close()
+
+    # Successful load via the direct fallback path: chain the top-25
+    # report (the write lock is released by db_manager.close() above, so
+    # the report's own read-only fallback can open the file).  Report
+    # failures never change the exit code.
+    _run_report_safely(config)
     return 0
 
 
