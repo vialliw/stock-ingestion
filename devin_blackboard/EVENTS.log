@@ -1792,3 +1792,5 @@ NON-BLOCKING FINDINGS (recommend follow-up task):
   C7: non-atomic xlsx overwrite — openpyxl truncates-then-writes the target path; a crash mid-save could replace a good report with a truncated one. Minor.
   C8: daily_load_once.py:58 inserts scripts/ at sys.path[0] — future modules in scripts/ could shadow site-packages/stdlib names; no collisions today.
 No src/, scripts/, or tests/ files modified by Challenger. Review only — blackboard updated.
+
+[2026-09-13T17:10:00+00:00] [ORCHESTRATOR] F7-T21 registered from challenger C F7-T20 non-blockers: (C1) report do_get unbounded — add FlightCallOptions timeout; (C3) stray scripts/query_test.ipynb committed in b188c99 — remove. F7-T20 approved by C, awaiting critic D.
