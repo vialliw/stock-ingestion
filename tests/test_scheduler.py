@@ -170,3 +170,59 @@ def test_install_signal_handlers(mock_signal, enabled_config):
     scheduler.install_signal_handlers()
     mock_signal.assert_any_call(signal.SIGINT, ANY)
     mock_signal.assert_any_call(signal.SIGTERM, ANY)
+
+
+@patch("src.scheduler.IngestionEngine")
+def test_execute_daily_load_force_bypasses_market_gate(
+    mock_engine_cls, enabled_config
+):
+    """F7-T15: force=True bypasses the NYSE market-closed gate entirely
+    and refreshes the configured ``ingestion.daily_lookback_days`` window
+    so a missed trading day is caught up (local one-shot runner path)."""
+    mock_engine = MagicMock()
+    mock_engine.run_daily_load.return_value = {
+        "status": "SUCCESS",
+        "rows_upserted": 7,
+    }
+    mock_engine_cls.return_value = mock_engine
+
+    scheduler = PipelineScheduler(enabled_config)
+    db_manager = MagicMock()
+    with patch.object(
+        PipelineScheduler, "_is_market_open_today", return_value=False
+    ) as mock_gate:
+        scheduler._execute_daily_load(db_manager, force=True)
+
+    # The market-open gate was never consulted.
+    mock_gate.assert_not_called()
+    mock_engine_cls.assert_called_once_with(db_manager, enabled_config)
+    mock_engine.run_daily_load.assert_called_once_with(
+        lookback_days=enabled_config.ingestion.daily_lookback_days,
+        force=True,
+    )
+
+
+@patch("src.scheduler.mcal.get_calendar")
+@patch("src.scheduler.IngestionEngine")
+def test_execute_daily_load_default_keeps_gate_and_lookback_1(
+    mock_engine_cls, mock_get_calendar, enabled_config
+):
+    """Daemon default (force=False) is unchanged: the market-open gate is
+    consulted and the engine is called with lookback_days=1 and no force
+    flag, so the APScheduler path still skips on market-closed days."""
+    mock_cal = MagicMock()
+    mock_cal.schedule.return_value.empty = False
+    mock_get_calendar.return_value = mock_cal
+
+    mock_engine = MagicMock()
+    mock_engine.run_daily_load.return_value = {
+        "status": "SUCCESS",
+        "rows_upserted": 1,
+    }
+    mock_engine_cls.return_value = mock_engine
+
+    scheduler = PipelineScheduler(enabled_config)
+    scheduler._execute_daily_load(MagicMock())
+
+    mock_get_calendar.assert_called_once()
+    mock_engine.run_daily_load.assert_called_once_with(lookback_days=1)

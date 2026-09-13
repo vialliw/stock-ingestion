@@ -102,8 +102,23 @@ class PipelineScheduler:
             raise RuntimeError("DuckDB connection unexpectedly unavailable")
         raise last_error
 
-    def _execute_daily_load(self, db_manager: DatabaseManager) -> None:
-        """Run the daily load if the NYSE is open today."""
+    def _execute_daily_load(
+        self, db_manager: DatabaseManager, force: bool = False
+    ) -> None:
+        """Run the daily load if the NYSE is open today.
+
+        ``force=False`` (default; the APScheduler daemon path via
+        ``_run_with_retry``) keeps the trading-day gate: the run is
+        skipped when the NYSE is closed and the engine refreshes only a
+        1-day lookback window.
+
+        ``force=True`` (the local one-shot runner,
+        ``scripts/daily_load_once.py``) bypasses the market-closed gate
+        so a machine that was powered off on a trading day catches up on
+        the missed session(s); the engine refreshes the configured
+        ``cfg.ingestion.daily_lookback_days`` window instead of the
+        daemon's hard-coded 1 day.
+        """
         tz_name = self.cfg.scheduler.timezone
         try:
             tz = ZoneInfo(tz_name)
@@ -113,14 +128,26 @@ class PipelineScheduler:
 
         today = datetime.now(tz).strftime("%Y-%m-%d")
 
-        if not self._is_market_open_today(today):
+        if not force and not self._is_market_open_today(today):
             logger.info(
                 "NYSE closed on %s; daily load skipped by scheduler.", today
             )
             return
 
         engine = IngestionEngine(db_manager, self.cfg)
-        result = engine.run_daily_load(lookback_days=1)
+        if force:
+            logger.info(
+                "force=True — bypassing NYSE market-closed check for %s; "
+                "running catch-up daily load (lookback=%d days).",
+                today,
+                self.cfg.ingestion.daily_lookback_days,
+            )
+            result = engine.run_daily_load(
+                lookback_days=self.cfg.ingestion.daily_lookback_days,
+                force=True,
+            )
+        else:
+            result = engine.run_daily_load(lookback_days=1)
         logger.info(
             "Daily load completed: status=%s, rows=%s",
             result.get("status", "UNKNOWN"),

@@ -734,3 +734,42 @@ def test_run_daily_load_market_closed_skipped(
         "duration_ms": 0,
     }
     mock_dl.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# 11. F7-T15 regression: market closed + force=True -> download attempted
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_run_daily_load_market_closed_force_downloads(
+    engine, db, cfg, module_name
+):
+    """Regression (F7-T15): market-closed day + force=True must take the
+    download path instead of returning SKIPPED.
+
+    Local catch-up scenario: the PC was off on a trading day; the next
+    scheduled local run happens on a market-closed day and must download
+    the missed session's data rather than skip.  The default (force not
+    passed) still returns SKIPPED — proven by
+    ``test_run_daily_load_market_closed_skipped`` above.
+    """
+    empty_sched = pd.DataFrame()
+    mock_calendar = MagicMock()
+    mock_calendar.schedule.return_value = empty_sched
+
+    dates = dates_range("2024-01-01", "2024-01-05")
+    mock_df = make_mock_download_df(["AAPL", "MSFT"], dates)
+    mock_ticker = MagicMock()
+    mock_ticker.splits = pd.Series([], dtype=float, name="splits")
+
+    with patch(f"{module_name}.mcal.get_calendar", return_value=mock_calendar), \
+         patch(f"{module_name}.yf.download", return_value=mock_df) as mock_dl, \
+         patch(f"{module_name}.yf.Ticker", return_value=mock_ticker):
+        result = engine.run_daily_load(force=True)
+
+    # The download path was taken despite the market being closed.
+    mock_dl.assert_called()
+    assert result.get("status") != "SKIPPED"

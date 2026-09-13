@@ -404,18 +404,26 @@ class IngestionEngine:
         logger.info("Initial load completed. Rows upserted: %s.", rows)
         return result
 
-    def run_daily_load(self, lookback_days: int = 4) -> Dict[str, Any]:
+    def run_daily_load(
+        self, lookback_days: int = 4, force: bool = False
+    ) -> Dict[str, Any]:
         """Daily incremental load.
 
         ``lookback_days`` is the trailing calendar-day refresh window
-        (must be >= 1).
+        (must be >= 1).  ``force`` is an opt-in bypass of the NYSE
+        market-closed gate: when True the load runs even on a
+        market-closed day so a local machine that was off on a trading
+        day catches up on the missed session(s).  The default False
+        preserves the existing skip-on-market-closed behavior relied on
+        by CI (``scripts/ci_daily_load.py``) and the APScheduler daemon.
 
         Checks the NYSE market calendar via
         ``pandas_market_calendars``; if the market is closed today the
-        run is skipped.  Otherwise: detect newly configured tickers and
-        backfill them from the aligned start date (or perform a full
-        initial load if the DB is empty), then run a trailing
-        ``lookback_days``-day refresh for all configured tickers.
+        run is skipped unless ``force`` is set.  Otherwise: detect newly
+        configured tickers and backfill them from the aligned start date
+        (or perform a full initial load if the DB is empty), then run a
+        trailing ``lookback_days``-day refresh for all configured
+        tickers.
 
         Returns a dict with ``rows_upserted``, ``tickers_succeeded``,
         ``tickers_failed``, ``errors`` and ``duration_ms``.
@@ -427,7 +435,7 @@ class IngestionEngine:
         today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         sched = nyse.schedule(start_date=today_str, end_date=today_str)
 
-        if sched.empty:
+        if sched.empty and not force:
             logger.info(
                 "US Market is closed today (Holiday/Weekend). "
                 "Daily load execution skipped."
@@ -435,6 +443,12 @@ class IngestionEngine:
             result = {"status": "SKIPPED", "reason": "Market closed", "duration_ms": 0}
             self.db.record_ingestion_run("daily_load", result, started_at=start_time)
             return result
+
+        if sched.empty:
+            logger.info(
+                "US Market is closed today but force=True — running "
+                "daily load anyway to catch up on missed trading day(s)."
+            )
 
         all_succeeded: List[str] = []
         all_failed: List[str] = []

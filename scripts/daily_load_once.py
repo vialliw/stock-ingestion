@@ -1,15 +1,21 @@
 """One-shot daily load runner for Windows Task Scheduler.
 
 Runs a single daily-load cycle using the default ``src/config.yaml`` —
-the same code path as the APScheduler daemon (NYSE market check, DuckDB
-lock retry, ``run_daily_load``, optional R2 sync).  Unlike
+the same code path as the APScheduler daemon (DuckDB lock retry,
+``run_daily_load``, optional R2 sync) but invoked with ``force=True``
+so the NYSE market-closed gate is bypassed and the configured
+``ingestion.daily_lookback_days`` window is refreshed instead of the
+daemon's 1-day window.  This makes the scheduled run catch up on missed
+trading days: if the PC was off on Friday and the task next runs on
+Saturday, Friday's data is downloaded instead of the run being skipped
+because Saturday is not a trading day.  Unlike
 ``src/scheduler_main.py`` this does not block; the process exits when
 the cycle finishes.
 
 Exit codes (so Task Scheduler can detect failure):
 
-- ``0`` — the cycle ran (or was deliberately skipped, e.g. market
-  closed or ``scheduler.enabled: false``).
+- ``0`` — the cycle ran (or was deliberately skipped, e.g.
+  ``scheduler.enabled: false``).
 - ``1`` — the daily load could NOT run: DuckDB stayed locked after all
   retries, config/logging setup failed, or the load crashed.  The full
   traceback is written to ``cfg.logging.log_file`` before exiting.
@@ -86,10 +92,14 @@ def _run_once(config: PipelineConfig) -> int:
     """Execute one daily-load cycle; return the process exit code.
 
     Replicates the thin sequence inside ``PipelineScheduler._run_with_retry``
-    but propagates the DuckDB-lock failure instead of swallowing it:
-    ``_create_db_manager`` raises once its retry/backoff attempts are
-    exhausted, and that exception is logged + turned into exit code 1 so
-    Task Scheduler records the run as failed.
+    but with two deliberate differences: (1) the DuckDB-lock failure is
+    propagated instead of swallowed — ``_create_db_manager`` raises once
+    its retry/backoff attempts are exhausted, and that exception is
+    logged + turned into exit code 1 so Task Scheduler records the run
+    as failed; (2) ``_execute_daily_load`` is called with ``force=True``
+    so a missed trading day is caught up — the market-closed gate is
+    bypassed and the configured ``ingestion.daily_lookback_days`` window
+    is refreshed.
     """
     scheduler = PipelineScheduler(config)
 
@@ -108,7 +118,10 @@ def _run_once(config: PipelineConfig) -> int:
         return 1
 
     try:
-        scheduler._execute_daily_load(db_manager)
+        # force=True: bypass the market-closed gate so a PC that was off
+        # on a trading day catches up on the next run; the engine uses
+        # cfg.ingestion.daily_lookback_days for the refresh window.
+        scheduler._execute_daily_load(db_manager, force=True)
     finally:
         db_manager.close()
     return 0

@@ -470,18 +470,37 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin):
             "duration_ms": duration_ms,
         }
 
-    def run_daily_load(self) -> Dict[str, Any]:
+    def run_daily_load(
+        self, lookback_days: int = 4, force: bool = False
+    ) -> Dict[str, Any]:
+        """Daily incremental load.
+
+        ``lookback_days`` is the trailing calendar-day refresh window
+        (must be >= 1).  ``force`` is an opt-in bypass of the NYSE
+        market-closed gate: when True the load runs even on a
+        market-closed day so a local machine that was off on a trading
+        day catches up on the missed session(s).  The default False
+        preserves the existing skip-on-market-closed behavior.
+        """
+        if not isinstance(lookback_days, int) or isinstance(lookback_days, bool) or lookback_days < 1:
+            raise ValueError(f"lookback_days must be an integer >= 1, got {lookback_days!r}")
         start_time = datetime.now()
         nyse = mcal.get_calendar("NYSE")
         today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         sched = nyse.schedule(start_date=today_str, end_date=today_str)
 
-        if sched.empty:
+        if sched.empty and not force:
             logger.info(
                 "US Market is closed today (Holiday/Weekend). "
                 "Daily load execution skipped."
             )
             return {"status": "SKIPPED", "reason": "Market closed", "duration_ms": 0}
+
+        if sched.empty:
+            logger.info(
+                "US Market is closed today but force=True — running "
+                "daily load anyway to catch up on missed trading day(s)."
+            )
 
         all_succeeded: List[str] = []
         all_failed: List[str] = []
@@ -525,14 +544,15 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin):
                 all_succeeded.extend(result.get("tickers_succeeded", []))
                 all_failed.extend(result.get("tickers_failed", []))
                 all_errors.update(result.get("errors", {}))
-                # Fall through to trailing 4-day refresh
+                # Fall through to trailing refresh
 
-        # --- Trailing 4-day refresh for all effective tickers ---
+        # --- Trailing refresh for all effective tickers ---
         logger.info(
-            "US Market active. Executing daily load (trailing 4 calendar days)..."
+            "US Market active. Executing daily load (trailing %d calendar days)...",
+            lookback_days,
         )
         end_dt = datetime.now()
-        start_dt = end_dt - timedelta(days=4)
+        start_dt = end_dt - timedelta(days=lookback_days)
         df, succ, fail, err = self.fetch_and_clean(
             effective_tickers,
             start_dt.strftime("%Y-%m-%d"),
