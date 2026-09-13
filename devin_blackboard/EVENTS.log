@@ -1609,3 +1609,5 @@ Non-blocking observations: (a) _normalize_batch_df purges empty tickers in exclu
 
 [ORCHESTRATOR] Created custom subagent profiles .devin/agents/{executor,challenger,critic}.md — thin pointers to canonical agent_*_prompt.md files, with model: pins (swe/glm/swe) restoring per-role model separation. Updated all 4 Devin Cloud playbooks to thin pointers to the same prompt files — single source of truth, no drift possible. Docs updated: procedure_multi_agents01.md 4.1/4.2/4.4/5.1, devin_platform_setup.md Step 4.
 
+
+[2026-09-13T10:45:00+00:00] [ORCHESTRATOR] F7-T15 registered: local daily_load_once.py must catch up missed trading days — PC off Friday, on Saturday should still download Friday data. Market-closed gate becomes opt-in bypass (force flag) in both ingestion impls; CI/GitHub path unchanged; local runner uses config lookback (4d). Spawning executor B via local run_subagent.
