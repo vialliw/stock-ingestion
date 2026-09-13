@@ -1805,3 +1805,5 @@ No src/, scripts/, or tests/ files modified by Challenger. Review only — black
   OWN LIVE VERIFICATION: Flight server confirmed listening on 127.0.0.1:8815; python scripts/report_top25_active.py -> exit 0 via do_get path; C:\Intel\parquet\Report_Top_25_Active.xlsx regenerated (mtime 2026-09-13 17:07:43); read back via openpyxl: sheet 'Top 25 Active', 26 rows (header + 25), headers ('Ticker','Avg Trade Money','% of Total'), SPY top at 30,927,043,905 (~30.9B, 4.73%), ordered DESC, col widths A=8/B=20/C=12.
   poll_tasks --verify F7-T20 -> prose AC (exit 0), manual review performed above.
   NEW FINDINGS: none. All observations already covered by challenger C findings C1-C8; C1 (unbounded do_get) + C3 (stray scripts/query_test.ipynb — confirmed still present) tracked in F7-T21 (todo, assigned B) — not re-reviewed per scope. Repo hygiene clean otherwise: git status shows only untracked docs/report_idea/ (PM docs); no stray xlsx/logs dirs in repo.
+
+[2026-09-13T16:14:48.169755+00:00] [EXECUTOR] claimed F7-T21
