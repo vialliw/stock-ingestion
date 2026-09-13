@@ -39,11 +39,13 @@ daily ones: ``strong_decel=0.50`` / ``decel=0.70`` (the daily tabs use
 
 Guides: a top-level "About / How to read these reports" expander under
 the app title renders the generic sections of
-``docs/report_idea/report_basic.md`` verbatim (``BASIC_GUIDE`` — the
-session-specific data tables / named candidates / "Key Insights" are
-excluded), and every tab renders its source md's interpretation guide
-verbatim in an "Interpretation guide" expander (``WEEKLY_*_GUIDE`` for
-the weekly tabs, ``DAILY_*_GUIDE`` for the daily ones).
+``docs/report_idea/report_basic.md`` (``BASIC_GUIDE`` — verbatim
+except for 3 permanently-stale session-dated lines dropped per PM
+approval in F7-T27; the session-specific data tables / named
+candidates / "Key Insights" are excluded), and every tab renders its
+source md's interpretation guide verbatim in an "Interpretation
+guide" expander (``WEEKLY_*_GUIDE`` for the weekly tabs,
+``DAILY_*_GUIDE`` for the daily ones).
 
 Every tab's bar chart is drawn through
 :func:`_render_ordered_bar_chart` — an Altair bar chart with
@@ -561,11 +563,15 @@ WEEKLY_DECEL_GUIDE = """\
 # Edge" + "Methodology Notes" (+ the closing paragraph).  The
 # session-specific content — the Sep-11 top-25 data table, the named
 # acceleration/deceleration candidates and "Key Insights & Potential
-# Trading Edges" — is deliberately excluded.
+# Trading Edges" — is deliberately excluded.  F7-T27 (PM-approved
+# verbatim exception): 3 permanently-stale lines inside the generic
+# sections are also deliberately dropped — the "Session: September
+# 11, 2026 ..." title-block line, the "Data sources: MarketBeat,
+# MarketGrep, ..." paragraph (names sources this app does not use),
+# and the "- Markets closed Sep 13 ..." methodology bullet.
 BASIC_GUIDE = """\
 **Volume Acceleration/Deceleration Edge Report**  
 **Focus: Top 25 Active Stocks by Dollar Volume**  
-**Session: September 11, 2026 (most recent full trading day as of Sep 13)**  
 
 ### Purpose & Trading Edge
 This report screens the highest **dollar-volume** names (true institutional liquidity leaders) for **volume accelerating or decelerating much faster than normal**.  
@@ -582,8 +588,6 @@ This report screens the highest **dollar-volume** names (true institutional liqu
 - Preference for liquid names (avoid pure micro-cap noise unless dollar volume is meaningful).
 - Price change context for directional bias.
 
-Data sources: MarketBeat, MarketGrep, Yahoo Finance, Seeking Alpha/AP most-actives, and related session reports (volumes and averages consistent across sources within normal reporting variance).
-
 ### Recommended Usage for Edge
 - **Daily process**: Pull top 25–50 dollar volume → calculate RVOL → flag >2× (or >1.8× with strong price) and <0.7×.
 - **Confirmation**: Require price structure (break of range, volume climax, etc.) + preferably options flow or news catalyst.
@@ -594,7 +598,6 @@ Data sources: MarketBeat, MarketGrep, Yahoo Finance, Seeking Alpha/AP most-activ
 - Dollar volume prioritizes institutional relevance over pure share volume.
 - RVOL uses recent average volume (typically 20–65 day or 3-month depending on source).
 - Report is descriptive — not recommendations. Always cross-check live data, news, and your own risk parameters.
-- Markets closed Sep 13; this reflects the Sep 11 session. Refresh with live feeds for the next open.
 
 This framework systematically surfaces the stocks where volume behavior is *most abnormal* relative to the highest-liquidity names — exactly the condition that historically produces the cleanest short-term trading edges."""
 

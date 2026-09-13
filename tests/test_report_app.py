@@ -538,6 +538,17 @@ class TestBasicAndDailyGuides:
 
     REPO_ROOT = Path(__file__).parent.parent
 
+    # Lines deliberately dropped from the otherwise-verbatim
+    # BASIC_GUIDE extract (F7-T27, PM-approved): they are permanently
+    # stale on live data — a session-dated title banner, a "Data
+    # sources" line naming feeds the app does not use, and a
+    # market-closed methodology note.
+    STALE_BASIC_GUIDE_LINES = (
+        "**Session: September 11, 2026 (most recent full trading day as of Sep 13)**",
+        "Data sources: MarketBeat, MarketGrep, Yahoo Finance, Seeking Alpha/AP most-actives, and related session reports (volumes and averages consistent across sources within normal reporting variance).",
+        "- Markets closed Sep 13; this reflects the Sep 11 session. Refresh with live feeds for the next open.",
+    )
+
     @classmethod
     def _read_md(cls, name: str) -> str:
         return (
@@ -576,7 +587,8 @@ class TestBasicAndDailyGuides:
         """BASIC_GUIDE = title block + "Purpose & Trading Edge" +
         "Recommended Usage for Edge" + "Methodology Notes" (+ closing
         paragraph) — the two contiguous generic runs joined by one
-        blank line."""
+        blank line — verbatim EXCEPT for the 3 stale session-dated
+        lines dropped per F7-T27 (PM-approved exception)."""
         text = self._read_md("report_basic.md")
         # Head: title block + Purpose & Trading Edge, up to the
         # session-specific "### Top 25" data section.
@@ -584,7 +596,33 @@ class TestBasicAndDailyGuides:
         # Tail: Recommended Usage for Edge + Methodology Notes +
         # closing paragraph (to end of file).
         tail = text[text.index("### Recommended Usage") :].strip()
-        assert report_app.BASIC_GUIDE.strip() == head + "\n\n" + tail
+        expected = head + "\n\n" + tail
+        # Sanity: all 3 stale lines are present in the extracted
+        # source (guards against md drift turning the drop below into
+        # a silent no-op).  rstrip() absorbs the markdown "  "
+        # hard-break trailing whitespace on the Session title line.
+        stale = set(self.STALE_BASIC_GUIDE_LINES)
+        assert sum(1 for l in expected.split("\n") if l.rstrip() in stale) == 3
+        # Drop the 3 stale whole lines, then collapse the double
+        # blank line left by the removed standalone "Data sources"
+        # paragraph back to a single blank line.
+        expected = "\n".join(
+            l for l in expected.split("\n") if l.rstrip() not in stale
+        )
+        while "\n\n\n" in expected:
+            expected = expected.replace("\n\n\n", "\n\n")
+        assert report_app.BASIC_GUIDE.strip() == expected.strip()
+
+    def test_basic_guide_drops_stale_session_lines(self):
+        """The 3 stale session-dated lines must not be rendered over
+        live data (F7-T27 PM-approved verbatim exception)."""
+        guide = report_app.BASIC_GUIDE
+        for stale in self.STALE_BASIC_GUIDE_LINES:
+            assert stale not in guide
+        # Guard against re-added paraphrases of the same stale facts.
+        assert "Session: September 11, 2026" not in guide
+        assert "Data sources:" not in guide
+        assert "Markets closed Sep 13" not in guide
 
     def test_basic_guide_excludes_session_specific_sections(self):
         """The Sep-11 data table, named candidates and "Key Insights"

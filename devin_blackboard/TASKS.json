@@ -2483,7 +2483,7 @@
     "title": "BASIC_GUIDE cleanup: drop the 3 stale session-dated lines (PM-approved verbatim exception)",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T26"
     ],
