@@ -724,6 +724,37 @@ class TestReportTop25Active:
             assert width >= len(header)
         wb.close()
 
+    def test_do_get_carries_timeout_call_options(self, tmp_path):
+        """The do_get call is bounded: a real FlightCallOptions built
+        with ``timeout=120`` is passed, so a wedged-but-connected
+        server cannot hang the report (or a chained daily_load_once).
+        120 s mirrors the server's own query_timeout_seconds default."""
+        config = _report_config(tmp_path)
+        table = pa.table(
+            {
+                "Ticker": ["MSFT"],
+                "Avg Trade Money": [1.0],
+                "% of Total": [100.0],
+            }
+        )
+        mock_flight = _mock_flight_for_report(table)
+        # Wrap the real class so the constructor kwargs are recorded
+        # while a genuine FlightCallOptions is still produced (the
+        # pyarrow object exposes no readable .timeout attribute).
+        mock_flight.FlightCallOptions = MagicMock(
+            wraps=flight.FlightCallOptions
+        )
+        mock_client = mock_flight.FlightClient.return_value
+
+        with patch.object(report_top25_active, "flight", mock_flight):
+            code = report_top25_active.run_report(config)
+
+        assert code == 0
+        mock_flight.FlightCallOptions.assert_called_once_with(timeout=120)
+        mock_client.do_get.assert_called_once()
+        options = mock_client.do_get.call_args.kwargs["options"]
+        assert isinstance(options, flight.FlightCallOptions)
+
     def test_flight_down_falls_back_to_direct_readonly_db(self, tmp_path):
         """Server unreachable -> direct read-only DuckDB query.  30
         tickers are seeded so the LIMIT 25 truncation is observable."""

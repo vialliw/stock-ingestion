@@ -2342,7 +2342,7 @@
     "title": "F7-T20 follow-ups: bound do_get timeout, remove stray notebook",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F7-T20"
     ],

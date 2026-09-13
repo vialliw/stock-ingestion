@@ -64,6 +64,14 @@ _JSON_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 # fallback takes over (mirrors daily_load_once._FLIGHT_CONNECT_TIMEOUT_S).
 _FLIGHT_CONNECT_TIMEOUT_S = 5
 
+# Bound on the do_get call itself so a wedged-but-connected server
+# cannot hang the report — or a chained daily_load_once — forever.
+# 120 s mirrors the server's own query_timeout_seconds default
+# (src/config.py ServerConfig): a query legitimately needing longer
+# would already be killed server-side at the same horizon, and the
+# top-25 query takes well under a second on the live database.
+_FLIGHT_GET_TIMEOUT_S = 120
+
 # Padding added to each auto-sized column so content is not flush
 # against the cell edge in Excel.
 _WIDTH_PADDING = 2
@@ -144,14 +152,17 @@ def _query_via_flight(location: str) -> pd.DataFrame:
 
     Sends a JSON ``{"sql": ...}`` ticket — the same contract the Flight
     server's ``do_get`` implements — after a short
-    ``wait_for_available`` probe.  Raises on any failure (unreachable
-    server, rejected ticket, mid-call drop); the caller decides whether
+    ``wait_for_available`` probe.  The call is bounded by
+    ``_FLIGHT_GET_TIMEOUT_S`` so a wedged server cannot hang the
+    report.  Raises on any failure (unreachable server, rejected
+    ticket, call timeout, mid-call drop); the caller decides whether
     to fall back.
     """
     client = flight.FlightClient(location)
     client.wait_for_available(timeout=_FLIGHT_CONNECT_TIMEOUT_S)
     ticket = flight.Ticket(json.dumps({"sql": TOP25_SQL}).encode("utf-8"))
-    reader = client.do_get(ticket)
+    options = flight.FlightCallOptions(timeout=_FLIGHT_GET_TIMEOUT_S)
+    reader = client.do_get(ticket, options=options)
     return reader.read_all().to_pandas()
 
 
