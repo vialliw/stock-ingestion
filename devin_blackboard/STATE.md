@@ -4,7 +4,7 @@ Current Branch: main
 
 ## Active Blocker
 
-Resolved: F8-T2 (headless crash — sys.stderr is None under the Task Scheduler service, yf.download's tqdm progress-bar finalizer flushed None AFTER a completed download, killing the load before upsert) fixed by executor B: progress=False on both yf.download call sites + _ensure_stdio_fallbacks() stdio guard in scripts/run_flight_server.py. DEPLOYMENT NOTE: the running Flight server (pre-F8-T2 code) still carries the crash bug — restart StockIngestion-FlightServer (scripts/register_flight_service.ps1 or restart the task) for the fix to take effect.
+Resolved: F8-T2 (headless crash — sys.stderr is None under the Task Scheduler service, yf.download's progress-bar finalizer flushed None AFTER a completed download, killing the load before upsert) fixed by executor B: progress=False on both yf.download call sites + _ensure_stdio_fallbacks() stdio guard in scripts/run_flight_server.py. DEPLOYMENT NOTE: the running Flight server (pre-F8-T2 code) still carries the crash bug — restart StockIngestion-FlightServer (scripts/register_flight_service.ps1 or restart the task) for the fix to take effect. CHALLENGER-C adversarial review 2026-09-14: APPROVED — crash root cause independently reproduced live (yfinance utils.ProgressBar.completed() -> AttributeError on None stderr); mutation check on true pre-change code fails all 7 new tests; 384/384 pytest re-run; check_loops+strict clean; guard verified to run before all third-party imports. Non-blockers: 'tqdm' is a misnomer (yfinance 1.7.0 uses its own utils.ProgressBar); daily_load_once.py is also headless but unguarded (no currently-reachable crash — defense-in-depth follow-up suggested).
 
 ## Goal
 Centralize stock-data ingestion and provide program interfaces.
