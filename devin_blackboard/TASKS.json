@@ -2658,7 +2658,7 @@
     "title": "daily_close data-health checks: data_health action + embedded light health in load results",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [],
     "input_files": [
       "/src/db.py",

@@ -61,6 +61,13 @@ def make_server(module, report_dir="/tmp/test_reports"):
     ingest_engine = MagicMock()
     cfg = MagicMock()
     cfg.reports.report_dir = report_dir
+    # F9-T5: give the health check a clean default so load-action tests
+    # exercise the normal embed path; tests override it as needed.
+    db_mgr.check_daily_close_health.return_value = {
+        "health_status": "OK",
+        "mode": "light",
+        "checks": {},
+    }
 
     class _TestServer(module.MarketDataFlightServer):
         """Subclass that skips the port-binding base ``__init__``."""
@@ -426,6 +433,187 @@ class TestDoAction:
         assert data["tickers_failed"] == ["BAD"]
         # No "years" key -> None -> engine applies the config default.
         ingest_engine.run_initial_load.assert_called_once_with(years=None)
+
+
+# =====================================================================
+# F9-T5: embedded light health + data_health action
+# =====================================================================
+
+_OK_HEALTH = {"health_status": "OK", "mode": "light", "checks": {}}
+
+
+def _load_result(**overrides):
+    result = {
+        "rows_upserted": 10,
+        "tickers_succeeded": ["AAPL"],
+        "tickers_failed": [],
+        "errors": {},
+        "duration_ms": 50,
+    }
+    result.update(overrides)
+    return result
+
+
+class TestEmbeddedHealth:
+    """Light (no-gap) health block merged into completed loads."""
+
+    def test_daily_load_result_contains_health(self, module):
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_daily_load.return_value = _load_result()
+        db_mgr.check_daily_close_health.return_value = {
+            "health_status": "WARN",
+            "mode": "light",
+            "checks": {"staleness": {"stale_count": 1}},
+        }
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("daily_load"))
+        )
+        # Report-only: findings never change the load's status.
+        assert data["status"] == "SUCCESS"
+        assert data["health"]["health_status"] == "WARN"
+        # Light mode: no gap detection.
+        call = db_mgr.check_daily_close_health.call_args
+        assert call.kwargs["include_gaps"] is False
+        # Configured tickers minus exclusions are passed for coverage.
+        cfg.ingestion.tickers = ["AAPL", "MSFT"]
+        cfg.ingestion.exclude_tickers = ["MSFT"]
+        server.do_action(MagicMock(), make_action("daily_load"))
+        call = db_mgr.check_daily_close_health.call_args
+        assert call.kwargs["tickers"] == ["AAPL"]
+
+    def test_daily_load_skipped_has_no_health(self, module):
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_daily_load.return_value = {
+            "status": "SKIPPED",
+            "reason": "Market closed",
+            "duration_ms": 0,
+        }
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("daily_load"))
+        )
+        assert data["status"] == "SKIPPED"
+        assert "health" not in data
+        db_mgr.check_daily_close_health.assert_not_called()
+
+    def test_initial_load_result_contains_health(self, module):
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_initial_load.return_value = _load_result()
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("initial_load"))
+        )
+        assert data["status"] == "SUCCESS"
+        assert data["health"]["health_status"] == "OK"
+        db_mgr.check_daily_close_health.assert_called_once()
+
+    def test_on_request_load_has_no_health(self, module):
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_on_request_load.return_value = _load_result()
+        payload = {
+            "tickers": ["AAPL"],
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-10",
+        }
+        data = parse_result(
+            server.do_action(
+                MagicMock(), make_action("on_request_load", payload)
+            )
+        )
+        assert data["status"] == "SUCCESS"
+        assert "health" not in data
+        db_mgr.check_daily_close_health.assert_not_called()
+
+    def test_health_exception_yields_check_failed(self, module):
+        """A raising check -> health CHECK_FAILED; load status intact."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_daily_load.return_value = _load_result()
+        db_mgr.check_daily_close_health.side_effect = RuntimeError(
+            "db exploded"
+        )
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("daily_load"))
+        )
+        assert data["status"] == "SUCCESS"
+        assert data["health"]["health_status"] == "CHECK_FAILED"
+        assert "db exploded" in data["health"]["error"]
+
+    def test_health_non_dict_return_yields_check_failed(self, module):
+        """A malformed (non-dict) check return -> CHECK_FAILED too."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_daily_load.return_value = _load_result()
+        db_mgr.check_daily_close_health.return_value = object()
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("daily_load"))
+        )
+        assert data["status"] == "SUCCESS"
+        assert data["health"]["health_status"] == "CHECK_FAILED"
+
+    def test_health_check_failed_still_success(self, module):
+        """A CHECK_FAILED report from the DB layer is passed through."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_initial_load.return_value = _load_result()
+        db_mgr.check_daily_close_health.return_value = {
+            "health_status": "CHECK_FAILED",
+            "error": "catalog error",
+        }
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("initial_load"))
+        )
+        assert data["status"] == "SUCCESS"
+        assert data["health"]["health_status"] == "CHECK_FAILED"
+
+
+class TestDataHealthAction:
+    """The data_health action returns the FULL report (incl. gaps)."""
+
+    def test_data_health_returns_full_report(self, module):
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        full_report = {
+            "health_status": "WARN",
+            "mode": "full",
+            "checks": {"gaps": {"total_missing_days": 2}},
+        }
+        db_mgr.check_daily_close_health.return_value = full_report
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("data_health"))
+        )
+        assert data["status"] == "SUCCESS"
+        assert data["health"] == full_report
+        call = db_mgr.check_daily_close_health.call_args
+        assert call.kwargs["include_gaps"] is True
+        # No gap_days in payload -> the DB default (30) is used.
+        assert "gap_days" not in call.kwargs
+
+    def test_data_health_forwards_gap_days(self, module):
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        db_mgr.check_daily_close_health.return_value = _OK_HEALTH
+        data = parse_result(
+            server.do_action(
+                MagicMock(), make_action("data_health", {"gap_days": 14})
+            )
+        )
+        assert data["status"] == "SUCCESS"
+        call = db_mgr.check_daily_close_health.call_args
+        assert call.kwargs["gap_days"] == 14
+
+    @pytest.mark.parametrize("bad", [0, -1, "30", 2.5, True])
+    def test_data_health_invalid_gap_days_raises(self, module, bad):
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(), make_action("data_health", {"gap_days": bad})
+            )
+        db_mgr.check_daily_close_health.assert_not_called()
+
+    def test_data_health_check_raises_check_failed(self, module):
+        """A raising check -> CHECK_FAILED report, action still succeeds."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        db_mgr.check_daily_close_health.side_effect = RuntimeError("boom")
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("data_health"))
+        )
+        assert data["status"] == "SUCCESS"
+        assert data["health"]["health_status"] == "CHECK_FAILED"
+        assert "boom" in data["health"]["error"]
 
 
 # =====================================================================

@@ -96,12 +96,13 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 
 - **`do_get`** — read-only SQL queries returning Arrow record batches. SELECT/WITH statements only. Configurable query timeout (default 120s, no row limit).
 - **`do_put`** — accepts external Arrow record batches matching the `daily_close` schema (7 columns), validates schema, filters excluded tickers, and upserts in a single vectorized operation.
-- **`do_action`** — seven administrative actions:
+- **`do_action`** — eight administrative actions:
   - `initial_load` — run the initial historical load. Depth = `ingestion.initial_load_years` (default 6); an explicit `years` key in the action payload overrides it. `years` must be an integer in `[1, 30]` (bool/non-int rejected); invalid values raise `ValueError` in the engine and surface as a `FlightServerError` — never a silent empty download.
   - `daily_load` — run today's incremental load.
   - `on_request_load` — load a custom date range for specified tickers.
   - `daily_report` — generate a top-20 dollar-volume report as JSON.
   - `health_check` — return server uptime, DB status, ticker count, row count, schema version.
+  - `data_health` — run the full `daily_close` data-health report (see [Data Health Checks](#data-health-checks)).
   - `get_run_history` — return the ingestion audit log as JSON.
   - `sync_to_r2` — manually trigger an R2 sync of the DuckDB file.
 
@@ -141,6 +142,22 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 - `ingestion_runs` table records every ingestion run with:
   - run type, start/completion timestamps, status, rows upserted, tickers succeeded/failed, errors, duration.
 - Queryable via the `get_run_history` Flight action.
+
+### Data Health Checks
+
+`DatabaseManager.check_daily_close_health` runs SQL-driven, **report-only** health checks against `daily_close` — findings are never repaired and never change a load's status:
+
+- **Staleness** — tickers whose `MAX(Date)` is older than the latest NYSE trading day (via `pandas_market_calendars`; the reference date/calendar is injectable for tests).
+- **Coverage** — configured tickers absent from `daily_close` (excluding `exclude_tickers`).
+- **Integrity** — rows with NULL/non-positive OHLC, `High < Low`, or `Volume < 0`.
+- **Duplicates** — `(Ticker, Date)` pairs with count > 1 (defensive; the primary key normally prevents them).
+- **Gaps** (full mode only) — per-ticker missing NYSE sessions inside a trailing `gap_days`-session window (default 30), via a SQL anti-join against the generated calendar.
+
+The report dict carries `health_status` in `{OK, WARN, CHECK_FAILED}` plus per-check counts and bounded per-ticker lists (first 50, with totals). `CHECK_FAILED` means the check itself could not run — it never masks or crashes a completed load.
+
+- **Full report on demand** — the `data_health` Flight action returns the full report including gap detection; the payload may carry `gap_days` (integer ≥ 1).
+- **Embedded in loads** — completed `daily_load` and `initial_load` results include a `health` key with the light report (staleness + coverage + integrity + duplicates, no gaps). `SKIPPED` results and `on_request_load` carry no health block. The server logs a `WARNING` whenever `health_status != OK`.
+- **`daily_load_once.py`** — logs a `WARNING` naming the health status when a Flight-routed load reports `health_status != OK`; the exit code is unchanged.
 
 ---
 
@@ -426,6 +443,11 @@ results = list(client.do_action(action))
 
 # Health check
 action = flight.Action("health_check", b'{}')
+results = list(client.do_action(action))
+
+# Full daily_close data-health report (incl. gap detection);
+# "gap_days" is optional — defaults to 30 trailing NYSE sessions
+action = flight.Action("data_health", b'{"gap_days": 30}')
 results = list(client.do_action(action))
 
 # Get ingestion run history

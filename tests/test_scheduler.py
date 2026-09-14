@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -1022,3 +1023,108 @@ class TestDailyLoadOnceReportChaining:
 
         assert code == 0
         mock_report.run_report.assert_not_called()
+
+
+# =====================================================================
+# F9-T5: daily_load_once surfaces the embedded health block as a WARNING
+# =====================================================================
+
+
+class TestDailyLoadOnceHealthWarning:
+    """``daily_load_once._run_via_flight`` logs a WARNING when the load
+    result carries a ``health`` block whose ``health_status`` is not
+    'OK' — report-only: the exit code never changes."""
+
+    @pytest.fixture
+    def config(self, tmp_path):
+        return PipelineConfig(
+            database={
+                "duckdb_dir": str(tmp_path),
+                "duckdb_filename": "test.duckdb",
+            },
+            scheduler=SchedulerConfig(enabled=True),
+        )
+
+    @pytest.fixture(autouse=True)
+    def _stub_chained_report(self):
+        """Keep these tests hermetic — report chaining is covered by
+        ``TestDailyLoadOnceReportChaining``."""
+        with patch.object(
+            daily_load_once, "report_top25_active"
+        ) as mock_report:
+            mock_report.run_report.return_value = 0
+            yield mock_report
+
+    def _run_with_health(self, config, payload):
+        mock_flight = _mock_flight_module()
+        mock_flight.FlightClient.return_value.do_action.return_value = iter(
+            [_flight_result(payload)]
+        )
+        with patch.object(daily_load_once, "flight", mock_flight), patch.object(
+            daily_load_once, "PipelineScheduler"
+        ):
+            return daily_load_once._run_once(config)
+
+    @pytest.mark.parametrize("health_status", ["WARN", "CHECK_FAILED"])
+    def test_non_ok_health_logs_warning(
+        self, config, caplog, health_status
+    ):
+        payload = {
+            "status": "SUCCESS",
+            "rows_upserted": 5,
+            "health": {"health_status": health_status, "checks": {}},
+        }
+        with caplog.at_level(logging.WARNING, logger="daily_load_once"):
+            code = self._run_with_health(config, payload)
+        # Exit code unchanged — health is report-only.
+        assert code == 0
+        warnings = [
+            r for r in caplog.records
+            if r.name == "daily_load_once" and r.levelno == logging.WARNING
+        ]
+        assert any(
+            health_status in r.getMessage() for r in warnings
+        ), [r.getMessage() for r in caplog.records]
+
+    def test_ok_health_logs_no_warning(self, config, caplog):
+        payload = {
+            "status": "SUCCESS",
+            "rows_upserted": 5,
+            "health": {"health_status": "OK", "checks": {}},
+        }
+        with caplog.at_level(logging.WARNING, logger="daily_load_once"):
+            code = self._run_with_health(config, payload)
+        assert code == 0
+        assert not [
+            r for r in caplog.records
+            if r.name == "daily_load_once" and r.levelno == logging.WARNING
+        ]
+
+    def test_missing_health_block_logs_no_warning(self, config, caplog):
+        """A payload without a health key (e.g. stale server build) is
+        simply ignored — no warning, exit 0."""
+        payload = {"status": "SUCCESS", "rows_upserted": 5}
+        with caplog.at_level(logging.WARNING, logger="daily_load_once"):
+            code = self._run_with_health(config, payload)
+        assert code == 0
+        assert not [
+            r for r in caplog.records
+            if r.name == "daily_load_once" and r.levelno == logging.WARNING
+        ]
+
+    def test_health_warning_on_partial_status(self, config, caplog):
+        """The warning also fires on PARTIAL loads."""
+        payload = {
+            "status": "PARTIAL",
+            "rows_upserted": 3,
+            "health": {"health_status": "WARN", "checks": {}},
+        }
+        with caplog.at_level(logging.WARNING, logger="daily_load_once"):
+            code = self._run_with_health(config, payload)
+        assert code == 0
+        assert any(
+            r.name == "daily_load_once"
+            and r.levelno == logging.WARNING
+            and "health_status" in r.getMessage()
+            for r in caplog.records
+        )

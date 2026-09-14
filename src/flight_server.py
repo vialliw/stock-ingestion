@@ -125,6 +125,47 @@ class MarketDataFlightServer(flight.FlightServerBase):
         self._start_time = datetime.now()
 
     # ------------------------------------------------------------------
+    # Embedded data-health check (F9-T5) — report-only
+    # ------------------------------------------------------------------
+
+    def _health_report(
+        self, include_gaps: bool = False, gap_days=None
+    ) -> dict:
+        """Run the ``daily_close`` health checks; NEVER raises.
+
+        Returns the report dict.  Any failure — including a non-dict
+        return from the check itself — yields
+        ``health_status == 'CHECK_FAILED'`` so a broken check can never
+        mask or crash a completed load.  Logs a WARNING whenever the
+        status is not 'OK'.
+        """
+        try:
+            ingestion_cfg = getattr(self.cfg, "ingestion", None)
+            tickers = list(getattr(ingestion_cfg, "tickers", None) or [])
+            excluded = set(
+                getattr(ingestion_cfg, "exclude_tickers", None) or []
+            )
+            configured = [t for t in tickers if t not in excluded]
+            kwargs = {"tickers": configured, "include_gaps": include_gaps}
+            if gap_days is not None:
+                kwargs["gap_days"] = gap_days
+            report = self.db.check_daily_close_health(**kwargs)
+            if not isinstance(report, dict):
+                raise TypeError(
+                    "check_daily_close_health returned "
+                    f"{type(report).__name__}, expected dict"
+                )
+        except Exception as exc:
+            report = {"health_status": "CHECK_FAILED", "error": str(exc)}
+        status = report.get("health_status")
+        if status != "OK":
+            logger.warning(
+                "daily_close health check reported health_status=%s",
+                status,
+            )
+        return report
+
+    # ------------------------------------------------------------------
     # Read path
     # ------------------------------------------------------------------
 
@@ -214,6 +255,9 @@ class MarketDataFlightServer(flight.FlightServerBase):
             except ValueError as e:
                 raise flight.FlightServerError(str(e)) from e
             status = "SUCCESS" if not result["tickers_failed"] else "PARTIAL"
+            # F9-T5: merge the light (no-gap) health report — report-only,
+            # never changes the load's status.
+            result["health"] = self._health_report()
             return _ActionResult(
                 json.dumps({"status": status, **result}).encode("utf-8")
             )
@@ -225,6 +269,9 @@ class MarketDataFlightServer(flight.FlightServerBase):
             )
             if result.get("status") == "SKIPPED":
                 return _ActionResult(json.dumps(result).encode("utf-8"))
+            # F9-T5: merge the light (no-gap) health report — report-only,
+            # never changes the load's status.
+            result["health"] = self._health_report()
             status = "SUCCESS" if not result["tickers_failed"] else "PARTIAL"
             return _ActionResult(
                 json.dumps({"status": status, **result}).encode("utf-8")
@@ -293,6 +340,28 @@ class MarketDataFlightServer(flight.FlightServerBase):
                         ),
                     }
                 ).encode("utf-8")
+            )
+
+        elif action_type == "data_health":
+            # F9-T5: FULL daily_close health report (incl. NYSE gap
+            # detection).  Payload may carry "gap_days" (int >= 1) to
+            # size the trailing-session gap window.
+            gap_days = payload.get("gap_days")
+            if gap_days is not None and (
+                not isinstance(gap_days, int)
+                or isinstance(gap_days, bool)
+                or gap_days < 1
+            ):
+                raise flight.FlightServerError(
+                    f"gap_days must be an integer >= 1, got {gap_days!r}"
+                )
+            health = self._health_report(
+                include_gaps=True, gap_days=gap_days
+            )
+            return _ActionResult(
+                json.dumps({"status": "SUCCESS", "health": health}).encode(
+                    "utf-8"
+                )
             )
 
         elif action_type == "get_run_history":

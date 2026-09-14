@@ -194,6 +194,19 @@ def _run_via_flight(config: PipelineConfig) -> Optional[int]:
             payload.get("rows_upserted"),
             payload.get("tickers_failed"),
         )
+        # F9-T5: the service merges a report-only daily_close health
+        # block into completed loads.  Surface a WARNING when it is not
+        # clean — it never changes the exit code.
+        health = payload.get("health")
+        if isinstance(health, dict):
+            health_status = health.get("health_status")
+            if health_status and health_status != "OK":
+                logger.warning(
+                    "daily_close health check reported health_status=%s "
+                    "after daily_load: %s",
+                    health_status,
+                    health,
+                )
         return 0
     logger.error(
         "Flight daily_load returned non-success status %r: %s",

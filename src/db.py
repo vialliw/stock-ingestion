@@ -13,11 +13,12 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import duckdb
 import pandas as pd
+import pandas_market_calendars as mcal
 import pyarrow as pa
 
 logger = logging.getLogger(__name__)
@@ -467,6 +468,337 @@ class DatabaseManager:
             "last_run": str(row[5]) if row[5] is not None else None,
             "schema_version": row[4] if row[4] is not None else SCHEMA_VERSION,
         }
+
+    # ------------------------------------------------------------------
+    # Data-health checks (F9-T5) — report-only, never repair
+    # ------------------------------------------------------------------
+
+    # Cap on every per-ticker/per-day list embedded in the health report
+    # so a badly damaged table cannot produce an unbounded payload.
+    _HEALTH_MAX_ITEMS = 50
+
+    @staticmethod
+    def _nyse_sessions(start_date: str, end_date: str) -> List[str]:
+        """Return NYSE session dates in ``[start_date, end_date]`` (ISO)."""
+        nyse = mcal.get_calendar("NYSE")
+        sched = nyse.schedule(start_date=start_date, end_date=end_date)
+        return [d.strftime("%Y-%m-%d") for d in sched.index]
+
+    def check_daily_close_health(
+        self,
+        tickers: Optional[List[str]] = None,
+        include_gaps: bool = False,
+        gap_days: int = 30,
+        as_of: Optional[str] = None,
+        trading_days: Optional[List[str]] = None,
+        max_items: int = _HEALTH_MAX_ITEMS,
+    ) -> Dict[str, Any]:
+        """Run report-only data-health checks against ``daily_close``.
+
+        All checks are SQL-driven (SQL > vectorized > loop).  The
+        returned dict carries ``health_status`` in
+        ``{'OK', 'WARN', 'CHECK_FAILED'}`` plus per-check counts and
+        bounded per-ticker lists (first ``max_items``, with totals).
+
+        Checks:
+
+        * **staleness** — tickers whose ``MAX(Date)`` is older than the
+          latest NYSE trading day.
+        * **coverage** — entries of ``tickers`` absent from
+          ``daily_close`` (skipped when ``tickers`` is None).
+        * **integrity** — rows with NULL/non-positive OHLC, ``High <
+          Low``, or ``Volume < 0``.
+        * **duplicates** — ``(Ticker, Date)`` pairs with count > 1
+          (defensive; the primary key normally prevents them).
+        * **gaps** (full mode only, ``include_gaps=True``) — per-ticker
+          missing NYSE sessions inside the trailing ``gap_days``-session
+          window, via a SQL anti-join against the generated calendar.
+          Covers tickers present in ``daily_close`` (intersected with
+          ``tickers`` when provided); wholly-absent tickers are reported
+          by the coverage check instead.
+
+        Parameters
+        ----------
+        as_of:
+            Reference date (``YYYY-MM-DD``) used to derive the latest
+            NYSE trading day and the gap window; defaults to today (UTC).
+        trading_days:
+            Injectable list of expected session dates — when given,
+            ``pandas_market_calendars`` is not consulted, the latest
+            trading day is ``max(trading_days)`` and the gap window is
+            its last ``gap_days`` entries.
+        gap_days:
+            Number of trailing NYSE sessions in the gap window (>= 1).
+        max_items:
+            Bound applied to every per-ticker list in the report.
+
+        This method never raises: any failure (bad calendar, SQL error)
+        returns ``health_status == 'CHECK_FAILED'`` with an ``error``
+        field — health is report-only and must never break a load.
+        """
+        mode = "full" if include_gaps else "light"
+        if as_of is None:
+            as_of = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        try:
+            if (
+                not isinstance(gap_days, int)
+                or isinstance(gap_days, bool)
+                or gap_days < 1
+            ):
+                raise ValueError(
+                    f"gap_days must be an integer >= 1, got {gap_days!r}"
+                )
+            if trading_days is not None:
+                sessions = sorted({str(d)[:10] for d in trading_days})
+            else:
+                # Look back far enough to cover gap_days sessions plus
+                # holiday/weekend stretches (sessions are ~5 of 7 days).
+                lookback = max(gap_days * 3, 45) if include_gaps else 30
+                start = (
+                    pd.Timestamp(as_of) - pd.Timedelta(days=lookback)
+                ).strftime("%Y-%m-%d")
+                sessions = self._nyse_sessions(start, as_of)
+            latest_trading_day = sessions[-1] if sessions else None
+            if latest_trading_day is None:
+                return {
+                    "health_status": "CHECK_FAILED",
+                    "mode": mode,
+                    "as_of": as_of,
+                    "error": (
+                        "could not determine the latest NYSE trading day "
+                        f"as of {as_of}"
+                    ),
+                }
+
+            conn = self._read_only_conn()
+            try:
+                # (a) STALENESS — per-ticker MAX(Date) older than the
+                # latest NYSE trading day.
+                stale_rows = conn.execute(
+                    """
+                    SELECT Ticker, CAST(MAX(Date) AS VARCHAR) AS last_date
+                    FROM daily_close
+                    GROUP BY Ticker
+                    HAVING MAX(Date) < CAST(? AS DATE)
+                    ORDER BY Ticker
+                    """,
+                    [latest_trading_day],
+                ).fetchall()
+
+                # (b) COVERAGE — configured tickers absent from
+                # daily_close (SQL anti-join via unnest).
+                if tickers is not None:
+                    missing_rows = conn.execute(
+                        """
+                        SELECT c.ticker
+                        FROM (SELECT unnest(?) AS ticker) AS c
+                        WHERE c.ticker NOT IN (
+                            SELECT Ticker FROM daily_close
+                        )
+                        ORDER BY c.ticker
+                        """,
+                        [list(tickers)],
+                    ).fetchall()
+                else:
+                    missing_rows = []
+
+                # (c) INTEGRITY — NULL/non-positive OHLC, High < Low,
+                # Volume < 0.  NULLs in High/Low make the comparison NULL
+                # (not counted there); they are already flagged by the
+                # OHLC term.
+                integrity_row = conn.execute(
+                    """
+                    SELECT
+                        COUNT(*) FILTER (
+                            Open IS NULL OR Open <= 0 OR
+                            High IS NULL OR High <= 0 OR
+                            Low IS NULL OR Low <= 0 OR
+                            Close IS NULL OR Close <= 0
+                        ) AS bad_ohlc,
+                        COUNT(*) FILTER (High < Low) AS high_lt_low,
+                        COUNT(*) FILTER (Volume < 0) AS negative_volume,
+                        COUNT(*) FILTER (
+                            Open IS NULL OR Open <= 0 OR
+                            High IS NULL OR High <= 0 OR
+                            Low IS NULL OR Low <= 0 OR
+                            Close IS NULL OR Close <= 0 OR
+                            High < Low OR Volume < 0
+                        ) AS violation_count
+                    FROM daily_close
+                    """
+                ).fetchone()
+                integrity_samples = conn.execute(
+                    """
+                    SELECT Ticker, CAST(Date AS VARCHAR) AS d, reason
+                    FROM (
+                        SELECT Ticker, Date,
+                               'null_or_nonpositive_ohlc' AS reason
+                        FROM daily_close
+                        WHERE Open IS NULL OR Open <= 0 OR
+                              High IS NULL OR High <= 0 OR
+                              Low IS NULL OR Low <= 0 OR
+                              Close IS NULL OR Close <= 0
+                        UNION ALL
+                        SELECT Ticker, Date, 'high_lt_low'
+                        FROM daily_close WHERE High < Low
+                        UNION ALL
+                        SELECT Ticker, Date, 'negative_volume'
+                        FROM daily_close WHERE Volume < 0
+                    ) v
+                    ORDER BY Ticker, d
+                    LIMIT ?
+                    """,
+                    [max_items],
+                ).fetchall()
+
+                # (d) DUPLICATE (Ticker, Date) keys — defensive; the
+                # PRIMARY KEY (Date, Ticker) normally prevents these.
+                dup_rows = conn.execute(
+                    """
+                    SELECT Ticker, CAST(Date AS VARCHAR) AS d,
+                           COUNT(*) AS n
+                    FROM daily_close
+                    GROUP BY Ticker, Date
+                    HAVING COUNT(*) > 1
+                    ORDER BY Ticker, d
+                    """
+                ).fetchall()
+
+                # (e) GAPS — full mode only: per-ticker missing NYSE
+                # sessions inside the trailing gap_days-session window
+                # (SQL anti-join vs the generated calendar).
+                gap_rows: List[Tuple] = []
+                window: List[str] = []
+                if include_gaps:
+                    window = sessions[-gap_days:]
+                    if tickers is not None:
+                        universe_sql = (
+                            "SELECT DISTINCT Ticker FROM daily_close "
+                            "WHERE Ticker IN (SELECT unnest(?) AS u)"
+                        )
+                        # Positional params appear in SQL-text order:
+                        # cal's unnest first, then universe's unnest.
+                        gap_params: List[Any] = [window, list(tickers)]
+                    else:
+                        universe_sql = (
+                            "SELECT DISTINCT Ticker FROM daily_close"
+                        )
+                        gap_params = [window]
+                    gap_rows = conn.execute(
+                        f"""
+                        WITH cal AS (
+                            SELECT CAST(u AS DATE) AS day
+                            FROM (SELECT unnest(?) AS u) s
+                        ),
+                        win AS (
+                            SELECT Ticker, Date FROM daily_close
+                            WHERE Date BETWEEN (SELECT MIN(day) FROM cal)
+                                           AND (SELECT MAX(day) FROM cal)
+                        ),
+                        universe AS ({universe_sql})
+                        SELECT t.Ticker,
+                               COUNT(*) AS missing_count,
+                               LIST(CAST(c.day AS VARCHAR) ORDER BY c.day)
+                                   AS missing_days
+                        FROM universe t
+                        CROSS JOIN cal c
+                        LEFT JOIN win w
+                               ON w.Ticker = t.Ticker AND w.Date = c.day
+                        WHERE w.Date IS NULL
+                        GROUP BY t.Ticker
+                        ORDER BY t.Ticker
+                        """,
+                        gap_params,
+                    ).fetchall()
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.error("daily_close health check failed: %s", exc)
+            return {
+                "health_status": "CHECK_FAILED",
+                "mode": mode,
+                "as_of": as_of,
+                "error": str(exc),
+            }
+
+        violation_count = int(integrity_row[3]) if integrity_row else 0
+        total_missing_days = sum(int(r[1]) for r in gap_rows)
+        findings = (
+            len(stale_rows)
+            + len(missing_rows)
+            + violation_count
+            + len(dup_rows)
+            + total_missing_days
+        )
+        report: Dict[str, Any] = {
+            "health_status": "WARN" if findings else "OK",
+            "mode": mode,
+            "as_of": as_of,
+            "latest_trading_day": latest_trading_day,
+            "checks": {
+                "staleness": {
+                    "stale_count": len(stale_rows),
+                    "stale_tickers": [
+                        {"ticker": r[0], "last_date": r[1]}
+                        for r in stale_rows[:max_items]
+                    ],
+                },
+                "coverage": {
+                    "configured_count": (
+                        len(tickers) if tickers is not None else 0
+                    ),
+                    "missing_count": len(missing_rows),
+                    "missing_tickers": [
+                        r[0] for r in missing_rows[:max_items]
+                    ],
+                },
+                "integrity": {
+                    "violation_count": violation_count,
+                    "reason_counts": {
+                        "null_or_nonpositive_ohlc": (
+                            int(integrity_row[0]) if integrity_row else 0
+                        ),
+                        "high_lt_low": (
+                            int(integrity_row[1]) if integrity_row else 0
+                        ),
+                        "negative_volume": (
+                            int(integrity_row[2]) if integrity_row else 0
+                        ),
+                    },
+                    "violations": [
+                        {"ticker": r[0], "date": r[1], "reason": r[2]}
+                        for r in integrity_samples
+                    ],
+                },
+                "duplicates": {
+                    "duplicate_count": len(dup_rows),
+                    "duplicates": [
+                        {"ticker": r[0], "date": r[1], "count": int(r[2])}
+                        for r in dup_rows[:max_items]
+                    ],
+                },
+            },
+        }
+        if include_gaps:
+            report["checks"]["gaps"] = {
+                "gap_days": gap_days,
+                "window_start": window[0] if window else None,
+                "window_end": window[-1] if window else None,
+                "expected_sessions": len(window),
+                "tickers_with_gaps": len(gap_rows),
+                "total_missing_days": total_missing_days,
+                "per_ticker": [
+                    {
+                        "ticker": r[0],
+                        "missing_count": int(r[1]),
+                        "missing_days": [
+                            str(d) for d in r[2][:max_items]
+                        ],
+                    }
+                    for r in gap_rows[:max_items]
+                ],
+            }
+        return report
 
     # ------------------------------------------------------------------
     # Shutdown

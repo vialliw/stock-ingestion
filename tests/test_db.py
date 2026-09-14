@@ -1,4 +1,4 @@
-"""Critic tests for DatabaseManager (F2-T3).
+"""Tests for DatabaseManager (F2-T3) and check_daily_close_health (F9-T5).
 
 Parametrized over BOTH implementations:
   - src.db.DatabaseManager            (executor, F2-T1)
@@ -21,6 +21,7 @@ Known platform notes accounted for here:
 
 from __future__ import annotations
 
+import json
 import threading
 
 import pandas as pd
@@ -311,3 +312,258 @@ def test_concurrent_writes_thread_safety(manager):
 
     tbl = manager.execute_query("SELECT COUNT(*) AS c FROM daily_close")
     assert tbl.column("c").to_pylist()[0] == len(tickers) * 2
+
+
+# ---------------------------------------------------------------------------
+# 12. check_daily_close_health (F9-T5) — report-only health checks
+# ---------------------------------------------------------------------------
+
+# A fixed Mon-Thu NYSE session window, injected via ``trading_days`` so
+# the tests never depend on the real calendar or the wall clock.
+HEALTH_DAYS = ["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08"]
+
+
+def _raw_write(manager, sql):
+    """Run a write statement through the manager's write connection.
+
+    The two implementations expose different write handles:
+    executor -> ``manager.conn``; challenger -> ``manager._write``.
+    Only literal SQL is used here so no parameter binding is needed.
+    """
+    if hasattr(manager, "conn"):
+        manager.conn.execute(sql)
+    else:
+        with manager._write.connection() as conn:
+            conn.execute(sql)
+
+
+def _seed_current(manager, tickers, days=HEALTH_DAYS):
+    """Seed each ticker with a clean row on every day in ``days``."""
+    for t in tickers:
+        manager.upsert_dataframe(
+            make_df(t, days, [100.0] * len(days), [1000.0] * len(days))
+        )
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_ok_when_data_current(manager):
+    """Clean DB + all configured tickers present and current -> OK."""
+    _seed_current(manager, ["AAPL", "MSFT"])
+    report = manager.check_daily_close_health(
+        tickers=["AAPL", "MSFT"], trading_days=HEALTH_DAYS
+    )
+    assert report["health_status"] == "OK"
+    assert report["mode"] == "light"
+    assert report["latest_trading_day"] == "2026-01-08"
+    checks = report["checks"]
+    assert checks["staleness"]["stale_count"] == 0
+    assert checks["coverage"]["missing_count"] == 0
+    assert checks["integrity"]["violation_count"] == 0
+    assert checks["duplicates"]["duplicate_count"] == 0
+    # Light mode never runs gap detection.
+    assert "gaps" not in checks
+    # The whole report must be JSON-serialisable (servers json.dumps it).
+    json.dumps(report)
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_stale_ticker_detected(manager):
+    """A ticker whose MAX(Date) < latest trading day is stale -> WARN."""
+    _seed_current(manager, ["AAPL"])
+    _seed_current(manager, ["MSFT"], days=HEALTH_DAYS[:2])
+    report = manager.check_daily_close_health(
+        tickers=["AAPL", "MSFT"], trading_days=HEALTH_DAYS
+    )
+    assert report["health_status"] == "WARN"
+    staleness = report["checks"]["staleness"]
+    assert staleness["stale_count"] == 1
+    assert staleness["stale_tickers"] == [
+        {"ticker": "MSFT", "last_date": "2026-01-06"}
+    ]
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_coverage_missing_ticker(manager):
+    """A configured ticker absent from daily_close -> WARN + coverage."""
+    _seed_current(manager, ["AAPL", "MSFT"])
+    report = manager.check_daily_close_health(
+        tickers=["AAPL", "MSFT", "NVDA"], trading_days=HEALTH_DAYS
+    )
+    assert report["health_status"] == "WARN"
+    coverage = report["checks"]["coverage"]
+    assert coverage["configured_count"] == 3
+    assert coverage["missing_count"] == 1
+    assert coverage["missing_tickers"] == ["NVDA"]
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_integrity_violations(manager):
+    """NULL/non-positive OHLC, High<Low and negative Volume -> WARN."""
+    _seed_current(manager, ["AAPL"])
+    # Each statement seeds a distinct violation on its own date.
+    _raw_write(
+        manager,
+        "INSERT INTO daily_close VALUES "
+        "('2026-01-09','AAPL',NULL,105,95,102,1000),"   # NULL Open
+        "('2026-01-10','AAPL',0,105,95,102,1000),"      # non-positive Open
+        "('2026-01-11','AAPL',100,90,95,102,1000),"     # High < Low
+        "('2026-01-12','AAPL',100,105,95,102,-5)",      # Volume < 0
+    )
+    report = manager.check_daily_close_health(
+        tickers=["AAPL"], trading_days=HEALTH_DAYS + ["2026-01-12"]
+    )
+    assert report["health_status"] == "WARN"
+    integrity = report["checks"]["integrity"]
+    assert integrity["violation_count"] == 4
+    reasons = integrity["reason_counts"]
+    assert reasons["null_or_nonpositive_ohlc"] == 2
+    assert reasons["high_lt_low"] == 1
+    assert reasons["negative_volume"] == 1
+    found = {(v["ticker"], v["date"], v["reason"])
+             for v in integrity["violations"]}
+    assert ("AAPL", "2026-01-09", "null_or_nonpositive_ohlc") in found
+    assert ("AAPL", "2026-01-10", "null_or_nonpositive_ohlc") in found
+    assert ("AAPL", "2026-01-11", "high_lt_low") in found
+    assert ("AAPL", "2026-01-12", "negative_volume") in found
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_duplicate_keys_detected(manager):
+    """Duplicate (Ticker, Date) pairs are flagged -> WARN.
+
+    The PRIMARY KEY (Date, Ticker) prevents duplicates in production, so
+    the table is recreated without it to exercise the defensive check.
+    """
+    _seed_current(manager, ["AAPL"], days=HEALTH_DAYS[:1])
+    _raw_write(manager, "ALTER TABLE daily_close RENAME TO daily_close_pk")
+    _raw_write(
+        manager,
+        "CREATE TABLE daily_close (Date DATE, Ticker VARCHAR, "
+        "Open DOUBLE, High DOUBLE, Low DOUBLE, Close DOUBLE, "
+        "Volume DOUBLE)",
+    )
+    _raw_write(manager, "INSERT INTO daily_close SELECT * FROM daily_close_pk")
+    _raw_write(manager, "DROP TABLE daily_close_pk")
+    # Same (Ticker, Date) inserted twice — now possible without the PK.
+    _raw_write(
+        manager,
+        "INSERT INTO daily_close VALUES "
+        "('2026-01-06','AAPL',100,105,95,102,1000),"
+        "('2026-01-06','AAPL',101,106,96,103,1001)",
+    )
+    report = manager.check_daily_close_health(
+        tickers=["AAPL"], trading_days=["2026-01-06"]
+    )
+    assert report["health_status"] == "WARN"
+    dup = report["checks"]["duplicates"]
+    assert dup["duplicate_count"] == 1
+    assert dup["duplicates"] == [
+        {"ticker": "AAPL", "date": "2026-01-06", "count": 2}
+    ]
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_gap_detection_full_mode(manager):
+    """Full mode flags per-ticker missing NYSE sessions in the window."""
+    _seed_current(manager, ["AAPL"])
+    # MSFT is missing the middle session of the injected window.
+    _seed_current(manager, ["MSFT"], days=["2026-01-05", "2026-01-07", "2026-01-08"])
+    report = manager.check_daily_close_health(
+        tickers=["AAPL", "MSFT"],
+        include_gaps=True,
+        gap_days=4,
+        trading_days=HEALTH_DAYS,
+    )
+    assert report["health_status"] == "WARN"
+    assert report["mode"] == "full"
+    gaps = report["checks"]["gaps"]
+    assert gaps["gap_days"] == 4
+    assert gaps["window_start"] == "2026-01-05"
+    assert gaps["window_end"] == "2026-01-08"
+    assert gaps["expected_sessions"] == 4
+    assert gaps["tickers_with_gaps"] == 1
+    assert gaps["total_missing_days"] == 1
+    assert gaps["per_ticker"] == [
+        {"ticker": "MSFT", "missing_count": 1,
+         "missing_days": ["2026-01-06"]}
+    ]
+    json.dumps(report)
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_gap_window_bounded_by_gap_days(manager):
+    """Only the last ``gap_days`` sessions of the calendar are checked."""
+    _seed_current(manager, ["AAPL"], days=["2026-01-08"])
+    report = manager.check_daily_close_health(
+        tickers=["AAPL"],
+        include_gaps=True,
+        gap_days=2,
+        trading_days=HEALTH_DAYS,
+    )
+    gaps = report["checks"]["gaps"]
+    assert gaps["expected_sessions"] == 2
+    assert gaps["window_start"] == "2026-01-07"
+    assert gaps["window_end"] == "2026-01-08"
+    assert gaps["per_ticker"] == [
+        {"ticker": "AAPL", "missing_count": 1,
+         "missing_days": ["2026-01-07"]}
+    ]
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_check_failed_on_broken_db(manager):
+    """A failing check (daily_close missing) -> CHECK_FAILED, no raise."""
+    _raw_write(manager, "DROP TABLE daily_close")
+    report = manager.check_daily_close_health(
+        tickers=["AAPL"], trading_days=HEALTH_DAYS
+    )
+    assert report["health_status"] == "CHECK_FAILED"
+    assert "error" in report
+    json.dumps(report)
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_check_failed_on_empty_calendar(manager):
+    """An undeterminable trading calendar -> CHECK_FAILED."""
+    report = manager.check_daily_close_health(
+        tickers=["AAPL"], trading_days=[]
+    )
+    assert report["health_status"] == "CHECK_FAILED"
+    assert "error" in report
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_invalid_gap_days_check_failed(manager):
+    """A non-positive/non-int gap_days -> CHECK_FAILED, never raises."""
+    _seed_current(manager, ["AAPL"])
+    for bad in (0, -1, "x", True):
+        report = manager.check_daily_close_health(
+            include_gaps=True, gap_days=bad, trading_days=HEALTH_DAYS
+        )
+        assert report["health_status"] == "CHECK_FAILED", bad
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_real_nyse_calendar_path(manager):
+    """Without injection, pandas_market_calendars derives the latest
+    trading day (offline bundled calendar — no network)."""
+    _seed_current(manager, ["AAPL"], days=["2026-01-05"])
+    report = manager.check_daily_close_health(tickers=["AAPL"])
+    assert report["health_status"] in ("OK", "WARN")
+    assert report["latest_trading_day"] is not None
+    # 2026-01-05 is far in the past -> the ticker must be stale.
+    assert report["checks"]["staleness"]["stale_count"] == 1
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_lists_are_bounded(manager):
+    """Per-ticker lists never exceed ``max_items``; totals stay exact."""
+    _seed_current(manager, ["AAPL"], days=HEALTH_DAYS[:1])
+    report = manager.check_daily_close_health(
+        tickers=[f"T{i:02d}" for i in range(60)] + ["AAPL"],
+        trading_days=HEALTH_DAYS,
+        max_items=5,
+    )
+    coverage = report["checks"]["coverage"]
+    assert coverage["missing_count"] == 60
+    assert len(coverage["missing_tickers"]) == 5
