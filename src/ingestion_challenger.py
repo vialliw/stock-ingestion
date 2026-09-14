@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import pyarrow as pa
@@ -448,7 +448,16 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin):
 
         return self._normalize_batch_df(raw_df, effective_tickers)
 
-    def run_initial_load(self, years: int = 6) -> Dict[str, Any]:
+    def run_initial_load(self, years: Optional[int] = None) -> Dict[str, Any]:
+        """Initial historical load: ``years``-year download of all
+        configured tickers, upserted into DuckDB.
+
+        When ``years`` is ``None`` (or omitted) the configured
+        ``ingestion.initial_load_years`` depth is used (default 6).
+        An explicit int is honored as-is.
+        """
+        if years is None:
+            years = self.cfg.ingestion.initial_load_years
         start_time = datetime.now()
         logger.info("Initiating initial historical load (%d years)...", years)
         end_dt = datetime.now()
@@ -536,10 +545,12 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin):
             else:
                 logger.info(
                     "RUNTIME EVENT: New ticker(s) detected: %s. "
-                    "Database is empty, performing initial load (6 years).",
+                    "Database is empty, performing initial load "
+                    "(%d years).",
                     new_tickers,
+                    self.cfg.ingestion.initial_load_years,
                 )
-                result = self.run_initial_load(years=6)
+                result = self.run_initial_load()
                 total_rows += result.get("rows_upserted", 0)
                 all_succeeded.extend(result.get("tickers_succeeded", []))
                 all_failed.extend(result.get("tickers_failed", []))

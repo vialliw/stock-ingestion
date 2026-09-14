@@ -125,6 +125,31 @@ def _validate_daily_lookback_days(value: Any) -> int:
     return value
 
 
+def _validate_initial_load_years(value: Any) -> int:
+    """Coerce to int and enforce ``>= 1``.
+
+    Mirrors the executor's ``initial_load_years: int = Field(default=6,
+    ge=1)`` in ``src/config.py``: the depth of the initial historical
+    load is a positive count of years.  ``None`` (YAML ``null`` or an
+    absent key) falls back to the default — consistent with
+    ``_validate_daily_lookback_days`` and this module's ``_coerce_str``
+    convention.  Booleans and non-numeric values are rejected; digit
+    strings are coerced like ``_validate_port``.
+    """
+    if value is None:
+        return 6
+    if isinstance(value, bool) or not isinstance(value, int):
+        if isinstance(value, str) and value.strip().lstrip("+-").isdigit():
+            value = int(value)
+        else:
+            raise ValueError(
+                f"initial_load_years must be an integer, got {value!r}"
+            )
+    if value < 1:
+        raise ValueError(f"initial_load_years must be >= 1, got {value}")
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Nested config dataclasses
 # ---------------------------------------------------------------------------
@@ -153,6 +178,11 @@ class IngestionConfig:
     # cfg.ingestion.daily_lookback_days; without it that pairing raised
     # AttributeError.
     daily_lookback_days: int = 4
+    # Historical depth (years) for run_initial_load when the caller does
+    # not pass an explicit value — parity with src/config.py
+    # IngestionConfig (F8-T1).  Read by
+    # ingestion_challenger.run_initial_load when years=None.
+    initial_load_years: int = 6
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "IngestionConfig":
@@ -162,6 +192,9 @@ class IngestionConfig:
             exclude_tickers=_normalize_tickers(data.get("exclude_tickers", [])),
             daily_lookback_days=_validate_daily_lookback_days(
                 data.get("daily_lookback_days")
+            ),
+            initial_load_years=_validate_initial_load_years(
+                data.get("initial_load_years")
             ),
         )
 

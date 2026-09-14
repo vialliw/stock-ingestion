@@ -82,7 +82,7 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 
 ### Data Ingestion
 
-- **Initial load** — fetches 6 years of daily OHLCV data for all configured tickers.
+- **Initial load** — fetches `initial_load_years` years of daily OHLCV data for all configured tickers (default 6; this repo's `config.yaml` sets 10).
 - **Daily load** — fetches the latest trading day's data. Two modes:
   - **Trading-day gated (default)** — skips weekends and NYSE market holidays. Used by the APScheduler daemon and GitHub Actions CI.
   - **Catch-up (`force=True`)** — runs even on non-trading days so a machine that was off on a trading day downloads the missed data on the next day it is on. Uses the configured `daily_lookback_days` window (default 4). Used by the local Windows scheduled task.
@@ -95,7 +95,7 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 - **`do_get`** — read-only SQL queries returning Arrow record batches. SELECT/WITH statements only. Configurable query timeout (default 120s, no row limit).
 - **`do_put`** — accepts external Arrow record batches matching the `daily_close` schema (7 columns), validates schema, filters excluded tickers, and upserts in a single vectorized operation.
 - **`do_action`** — seven administrative actions:
-  - `initial_load` — run initial 6-year historical load.
+  - `initial_load` — run the initial historical load. Depth = `ingestion.initial_load_years` (default 6); an explicit `years` key in the action payload overrides it.
   - `daily_load` — run today's incremental load.
   - `on_request_load` — load a custom date range for specified tickers.
   - `daily_report` — generate a top-20 dollar-volume report as JSON.
@@ -261,6 +261,8 @@ ingestion:
     - "NVDA"
   exclude_tickers:
     - "AVB"
+  daily_lookback_days: 4    # trailing calendar-day refresh window for daily_load
+  initial_load_years: 10    # historical depth for initial_load (default 6, must be >= 1)
 
 server:
   flight_host: "127.0.0.1"
@@ -394,7 +396,7 @@ import json
 
 client = flight.FlightClient("grpc://127.0.0.1:8815")
 
-# Initial 6-year load
+# Initial historical load — omit "years" to use ingestion.initial_load_years
 action = flight.Action("initial_load", b'{"years": 6}')
 results = list(client.do_action(action))
 print(json.loads(results[0].body.to_pybytes()))

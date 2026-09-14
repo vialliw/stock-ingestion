@@ -40,6 +40,23 @@ class IngestionConfig(BaseModel):
     tickers: List[str] = Field(default_factory=list)
     exclude_tickers: List[str] = Field(default_factory=list)
     daily_lookback_days: int = Field(default=4, ge=1)
+    initial_load_years: int = Field(default=6, ge=1)
+
+    @field_validator("initial_load_years", mode="before")
+    @classmethod
+    def validate_initial_load_years(cls, v) -> int:
+        """``None`` (YAML ``null`` / absent key) falls back to the
+        default — consistent with ``normalize_tickers`` treating null as
+        "no value".  Booleans are rejected: a bool is not a year count
+        (same rationale as ``validate_port``).
+        """
+        if v is None:
+            return 6
+        if isinstance(v, bool):
+            raise ValueError(
+                f"initial_load_years must be an integer >= 1, got bool {v}"
+            )
+        return v
 
     @field_validator("tickers", "exclude_tickers", mode="before")
     @classmethod

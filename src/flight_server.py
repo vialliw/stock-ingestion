@@ -203,7 +203,9 @@ class MarketDataFlightServer(flight.FlightServerBase):
         )
 
         if action_type == "initial_load":
-            years = payload.get("years", 6)
+            # years=None (absent key) -> the engine applies the
+            # configured ingestion.initial_load_years depth.
+            years = payload.get("years")
             result = self.engine.run_initial_load(years=years)
             status = "SUCCESS" if not result["tickers_failed"] else "PARTIAL"
             return _ActionResult(

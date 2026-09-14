@@ -263,7 +263,9 @@ class MarketDataFlightServer(flight.FlightServerBase):
     # ------------------------------------------------------------------
 
     def _handle_initial_load(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        years = payload.get("years", 6)
+        # years=None (absent key) -> the engine applies the
+        # configured ingestion.initial_load_years depth.
+        years = payload.get("years")
         result = self.engine.run_initial_load(years=years)
         return self._build_load_result(result)
 

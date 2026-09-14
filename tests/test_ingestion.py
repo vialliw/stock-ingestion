@@ -677,7 +677,8 @@ def test_run_daily_load_new_ticker_backfill(
 def test_run_daily_load_empty_db_initial_load(
     engine, db, cfg, module_name
 ):
-    """Empty DB (aligned_start None) -> run_initial_load (6-year download)."""
+    """Empty DB (aligned_start None) -> run_initial_load (configured
+    ``initial_load_years``-year download)."""
     mock_df = make_mock_download_df(
         ["AAPL", "MSFT"], dates_range("2018-01-01", "2024-01-02")
     )
@@ -772,4 +773,102 @@ def test_run_daily_load_market_closed_force_downloads(
 
     # The download path was taken despite the market being closed.
     mock_dl.assert_called()
+    assert result.get("status") != "SKIPPED"
+
+
+# ---------------------------------------------------------------------------
+# 12. F8-T1: run_initial_load years=None -> cfg.ingestion.initial_load_years
+# ---------------------------------------------------------------------------
+
+
+def _download_window_days(engine) -> int:
+    """Extract the (end - start) day count passed to fetch_and_clean."""
+    start_str, end_str = engine.fetch_and_clean.call_args.args[1:3]
+    start = datetime.strptime(start_str, "%Y-%m-%d")
+    end = datetime.strptime(end_str, "%Y-%m-%d")
+    return (end - start).days
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_run_initial_load_uses_config_years_when_none(
+    engine, db, cfg
+):
+    """years omitted -> the download window is the configured
+    ``ingestion.initial_load_years`` depth, not a hardcoded 6."""
+    cfg.ingestion.initial_load_years = 11  # non-default sentinel
+    engine.fetch_and_clean = MagicMock(
+        return_value=(pd.DataFrame(), ["AAPL"], [], {})
+    )
+    engine.db.upsert_dataframe = MagicMock(return_value=0)
+
+    engine.run_initial_load()  # years=None -> config value
+
+    engine.fetch_and_clean.assert_called_once()
+    assert _download_window_days(engine) == 11 * 365
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_run_initial_load_explicit_years_overrides_config(
+    engine, db, cfg
+):
+    """An explicit ``years`` int is honored over the configured value."""
+    cfg.ingestion.initial_load_years = 11  # sentinel — must NOT be used
+    engine.fetch_and_clean = MagicMock(
+        return_value=(pd.DataFrame(), ["AAPL"], [], {})
+    )
+    engine.db.upsert_dataframe = MagicMock(return_value=0)
+
+    engine.run_initial_load(years=3)
+
+    engine.fetch_and_clean.assert_called_once()
+    assert _download_window_days(engine) == 3 * 365
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_run_daily_load_empty_db_defers_years_to_config(
+    engine, db, cfg, module_name
+):
+    """The empty-DB fallback inside ``run_daily_load`` calls
+    ``run_initial_load`` without a ``years`` argument, so the configured
+    ``initial_load_years`` depth applies (F8-T1 req: internal callers
+    that omit ``years`` resolve to the config value)."""
+    sched = pd.DataFrame(
+        {"market_open": [pd.Timestamp("2024-01-02 09:30")],
+         "market_close": [pd.Timestamp("2024-01-02 16:00")]},
+        index=[pd.Timestamp("2024-01-02")],
+    )
+    mock_calendar = MagicMock()
+    mock_calendar.schedule.return_value = sched
+
+    with patch(f"{module_name}.mcal.get_calendar", return_value=mock_calendar), \
+         patch.object(
+             db, "detect_new_tickers", return_value=["AAPL", "MSFT"]
+         ), \
+         patch.object(db, "get_aligned_start_date", return_value=None), \
+         patch.object(
+             engine, "run_initial_load",
+             return_value={
+                 "rows_upserted": 0,
+                 "tickers_succeeded": [],
+                 "tickers_failed": [],
+                 "errors": {},
+                 "duration_ms": 1,
+             },
+         ) as mock_init, \
+         patch.object(
+             engine, "fetch_and_clean",
+             return_value=(pd.DataFrame(), [], [], {}),
+         ), \
+         patch.object(db, "upsert_dataframe", return_value=0):
+        result = engine.run_daily_load()
+
+    # Called exactly once, with NO years argument -> engine resolves
+    # cfg.ingestion.initial_load_years itself.
+    mock_init.assert_called_once_with()
     assert result.get("status") != "SKIPPED"

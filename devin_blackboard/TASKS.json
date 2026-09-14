@@ -2504,7 +2504,7 @@
     "title": "Configurable initial-load depth: ingestion.initial_load_years (default 6); config.yaml sets 10",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [],
     "input_files": [
       "/src/config.py",

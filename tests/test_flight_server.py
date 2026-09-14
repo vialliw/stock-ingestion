@@ -186,6 +186,56 @@ class TestDoAction:
         assert data["duration_ms"] == 500
         ingest_engine.run_initial_load.assert_called_once_with(years=6)
 
+    def test_initial_load_forwards_explicit_years(self, module):
+        # F8-T1: an explicit "years" in the payload is forwarded to the
+        # engine unchanged.
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_initial_load.return_value = {
+            "rows_upserted": 100,
+            "tickers_succeeded": ["AAPL"],
+            "tickers_failed": [],
+            "errors": {},
+            "duration_ms": 500,
+        }
+        action = make_action("initial_load", {"years": 12})
+        data = parse_result(server.do_action(MagicMock(), action))
+
+        assert data["status"] == "SUCCESS"
+        ingest_engine.run_initial_load.assert_called_once_with(years=12)
+
+    def test_initial_load_absent_years_passes_none(self, module):
+        # F8-T1: payload without "years" (or no body) -> years=None so
+        # the engine applies cfg.ingestion.initial_load_years.
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_initial_load.return_value = {
+            "rows_upserted": 100,
+            "tickers_succeeded": ["AAPL"],
+            "tickers_failed": [],
+            "errors": {},
+            "duration_ms": 500,
+        }
+        action = make_action("initial_load")  # no body at all
+        data = parse_result(server.do_action(MagicMock(), action))
+
+        assert data["status"] == "SUCCESS"
+        ingest_engine.run_initial_load.assert_called_once_with(years=None)
+
+    def test_initial_load_empty_payload_passes_none(self, module):
+        # F8-T1: an empty JSON body also yields years=None.
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_initial_load.return_value = {
+            "rows_upserted": 100,
+            "tickers_succeeded": ["AAPL"],
+            "tickers_failed": [],
+            "errors": {},
+            "duration_ms": 500,
+        }
+        action = make_action("initial_load", {})
+        data = parse_result(server.do_action(MagicMock(), action))
+
+        assert data["status"] == "SUCCESS"
+        ingest_engine.run_initial_load.assert_called_once_with(years=None)
+
     def test_daily_load_success(self, module):
         # AC 9: daily_load returns correct status structure
         server, db_mgr, ingest_engine, cfg = make_server(module)
@@ -332,6 +382,8 @@ class TestDoAction:
         data = parse_result(server.do_action(MagicMock(), action))
         assert data["status"] == "PARTIAL"
         assert data["tickers_failed"] == ["BAD"]
+        # No "years" key -> None -> engine applies the config default.
+        ingest_engine.run_initial_load.assert_called_once_with(years=None)
 
 
 # =====================================================================
