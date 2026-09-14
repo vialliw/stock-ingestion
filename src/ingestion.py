@@ -11,6 +11,7 @@ Spec reference: docs/tech_spec/gemini_tech_spec.1.0.2.md §10.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -33,6 +34,11 @@ class IngestionEngine:
     operational entry points: initial load, daily load, and on-request
     load.
     """
+
+    #: Seconds to wait before the second-pass retry download, letting a
+    #: yfinance rate limit (HTTP 429) cool down.  Mockable in tests via
+    #: ``time.sleep``.
+    _RETRY_DELAY_S: float = 15.0
 
     def __init__(self, db_mgr: DatabaseManager, cfg: PipelineConfig):
         self.db = db_mgr
@@ -224,14 +230,20 @@ class IngestionEngine:
     # ------------------------------------------------------------------
 
     def _batch_download(
-        self, tickers: List[str], start_date: str, end_date: str
+        self,
+        tickers: List[str],
+        start_date: str,
+        end_date: str,
+        threads: bool = True,
     ) -> pd.DataFrame:
         """Batch download via ``yf.download()``.
 
         ``end_date`` is treated as inclusive, so it is adjusted +1 day
         internally to satisfy yfinance's exclusive ``end`` parameter.
         Downloads use ``auto_adjust=True``, ``interval="1d"``,
-        ``group_by='ticker'`` and ``threads=True``.  ``progress=False``
+        ``group_by='ticker'`` and ``threads=True`` — pass
+        ``threads=False`` for gentler pacing (the second-pass retry
+        does this after a rate-limit cool-down).  ``progress=False``
         disables the tqdm progress bar: the Flight server runs headless
         under Windows Task Scheduler (no console, ``sys.stderr`` is
         ``None``), where the bar's finalizer crashes on
@@ -246,7 +258,7 @@ class IngestionEngine:
             interval="1d",
             auto_adjust=True,
             group_by="ticker",
-            threads=True,
+            threads=threads,
             progress=False,
         )
         return df
@@ -326,6 +338,65 @@ class IngestionEngine:
         return pd.DataFrame(), succeeded, failed, errors
 
     # ------------------------------------------------------------------
+    # Second-pass retry for transient empty-dataset failures
+    # ------------------------------------------------------------------
+
+    def _retry_failed_tickers(
+        self, failed: List[str], start_date: str, end_date: str
+    ) -> Tuple[pd.DataFrame, List[str], List[str], Dict[str, str]]:
+        """One-shot second-pass download for empty-dataset failures.
+
+        yfinance under rate-limiting (HTTP 429) returns "possibly
+        delisted; no price data found" for *valid* tickers — observed
+        live during the 1210-ticker 10-year load and in daily loads.
+        A single follow-up download after a short cool-down recovers
+        most of these transient failures.  Only the failed tickers are
+        re-requested, with ``threads=False`` for gentler pacing.
+
+        Returns a ``(df, succeeded, failed, errors)`` tuple for the
+        retried tickers only, in the same shape as
+        ``_normalize_batch_df``.
+        """
+        logger.warning(
+            "RUNTIME EVENT: %d ticker(s) returned empty datasets: %s. "
+            "Retrying once after a %.0fs rate-limit cool-down.",
+            len(failed),
+            failed,
+            self._RETRY_DELAY_S,
+        )
+        time.sleep(self._RETRY_DELAY_S)
+        try:
+            retry_raw = self._batch_download(
+                failed, start_date, end_date, threads=False
+            )
+        except Exception as e:
+            logger.error(
+                "Retry download raised for %s: %s — tickers stay failed.",
+                failed,
+                e,
+            )
+            return (
+                pd.DataFrame(),
+                [],
+                list(failed),
+                {t: "Empty dataset" for t in failed},
+            )
+        if retry_raw.empty:
+            logger.warning(
+                "RUNTIME EVENT: Retry download returned no data for %d "
+                "ticker(s): %s — they stay failed.",
+                len(failed),
+                failed,
+            )
+            return (
+                pd.DataFrame(),
+                [],
+                list(failed),
+                {t: "Empty dataset" for t in failed},
+            )
+        return self._normalize_batch_df(retry_raw, failed)
+
+    # ------------------------------------------------------------------
     # Fetch + clean (split check + batch download + normalize)
     # ------------------------------------------------------------------
 
@@ -370,11 +441,49 @@ class IngestionEngine:
         raw_df = self._batch_download(effective_tickers, start_date, end_date)
         if raw_df.empty:
             # All tickers returned nothing — vectorized dict comprehension
+            df = pd.DataFrame()
+            succeeded: List[str] = []
             failed: List[str] = list(effective_tickers)
-            errors: Dict[str, str] = {t: "Empty dataset from yf.download" for t in effective_tickers}
-            return pd.DataFrame(), [], failed, errors
+            errors: Dict[str, str] = {
+                t: "Empty dataset from yf.download" for t in effective_tickers
+            }
+        else:
+            df, succeeded, failed, errors = self._normalize_batch_df(
+                raw_df, effective_tickers
+            )
 
-        return self._normalize_batch_df(raw_df, effective_tickers)
+        # --- Second pass: retry transient empty-dataset failures once ---
+        # yfinance rate-limiting makes valid tickers report "possibly
+        # delisted; no price data found".  Only empty-dataset failures
+        # are retried — a per-ticker processing exception is
+        # deterministic and re-downloading would not fix it.
+        retry_candidates = [
+            t for t in failed if errors.get(t, "").startswith("Empty dataset")
+        ]
+        if retry_candidates:
+            retry_df, retry_ok, _retry_fail, retry_err = (
+                self._retry_failed_tickers(
+                    retry_candidates, start_date, end_date
+                )
+            )
+            recovered = set(retry_ok)
+            if recovered:
+                logger.info(
+                    "Retry recovered %d ticker(s): %s",
+                    len(retry_ok),
+                    retry_ok,
+                )
+                df = (
+                    retry_df
+                    if df.empty
+                    else pd.concat([df, retry_df], ignore_index=True)
+                )
+                succeeded = succeeded + retry_ok
+            failed = [t for t in failed if t not in recovered]
+            errors = {t: e for t, e in errors.items() if t not in recovered}
+            errors.update(retry_err)
+
+        return df, succeeded, failed, errors
 
     # ------------------------------------------------------------------
     # Entry points

@@ -69,6 +69,9 @@ class _DownloadMixin:
     _MAX_ATTEMPTS = 3
     #: Base backoff in seconds (doubled each attempt).
     _BACKOFF_BASE = 1.0
+    #: Cool-down (seconds) before the second-pass retry download for
+    #: tickers that returned empty datasets.  Mockable via ``time.sleep``.
+    _RETRY_DELAY_S: float = 15.0
 
     def _batch_download(
         self, tickers: List[str], start_date: str, end_date: str
@@ -119,6 +122,29 @@ class _DownloadMixin:
         raise DownloadError(
             f"Batch download failed for {tickers} after {self._MAX_ATTEMPTS} attempts: {last_exc}"
         ) from last_exc
+
+    def _retry_failed_download(
+        self, tickers: List[str], start_date: str, end_date: str
+    ) -> pd.DataFrame:
+        """Single follow-up ``yf.download`` for empty-dataset tickers.
+
+        Unlike ``_batch_download`` this performs exactly one attempt —
+        it is itself the second pass, run after a rate-limit cool-down —
+        and uses ``threads=False`` for gentler pacing.  ``end_date`` is
+        inclusive (+1 day internally), ``progress=False`` keeps the
+        headless Task Scheduler service safe.
+        """
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+        return yf.download(
+            tickers=tickers,
+            start=start_date,
+            end=end_dt.strftime("%Y-%m-%d"),
+            interval="1d",
+            auto_adjust=True,
+            group_by="ticker",
+            threads=False,
+            progress=False,
+        )
 
 
 class _NormalizeMixin:
@@ -447,11 +473,97 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin):
 
         if raw_df.empty:
             # All tickers returned nothing — vectorized dict comprehension
+            df = pd.DataFrame()
+            succeeded: List[str] = []
             failed = list(effective_tickers)
             errors = {t: "Empty dataset from yf.download" for t in effective_tickers}
-            return pd.DataFrame(), [], failed, errors
+        else:
+            df, succeeded, failed, errors = self._normalize_batch_df(
+                raw_df, effective_tickers
+            )
 
-        return self._normalize_batch_df(raw_df, effective_tickers)
+        # --- Second pass: retry transient empty-dataset failures once ---
+        # yfinance rate-limiting makes valid tickers report "possibly
+        # delisted; no price data found".  Only empty-dataset failures
+        # are retried — a per-ticker processing exception is
+        # deterministic and re-downloading would not fix it.
+        retry_candidates = [
+            t for t in failed if errors.get(t, "").startswith("Empty dataset")
+        ]
+        if retry_candidates:
+            df, succeeded, failed, errors = self._retry_empty_failures(
+                df, succeeded, failed, errors, retry_candidates,
+                start_date, end_date,
+            )
+
+        return df, succeeded, failed, errors
+
+    def _retry_empty_failures(
+        self,
+        df: pd.DataFrame,
+        succeeded: List[str],
+        failed: List[str],
+        errors: Dict[str, str],
+        retry_candidates: List[str],
+        start_date: str,
+        end_date: str,
+    ) -> Tuple[pd.DataFrame, List[str], List[str], Dict[str, str]]:
+        """Second-pass retry + merge for empty-dataset failures.
+
+        Sleeps ``_RETRY_DELAY_S`` to let a yfinance rate limit cool,
+        re-downloads only the failed tickers via
+        ``_retry_failed_download`` (one attempt, ``threads=False``),
+        normalizes the result and merges recovered tickers back into
+        the ``(df, succeeded, failed, errors)`` quadruple.
+        """
+        logger.warning(
+            "RUNTIME EVENT: %d ticker(s) returned empty datasets: %s. "
+            "Retrying once after a %.0fs rate-limit cool-down.",
+            len(retry_candidates),
+            retry_candidates,
+            self._RETRY_DELAY_S,
+        )
+        time.sleep(self._RETRY_DELAY_S)
+        try:
+            retry_raw = self._retry_failed_download(
+                retry_candidates, start_date, end_date
+            )
+        except Exception as exc:  # noqa: BLE001 — stay failed, never raise
+            logger.error(
+                "Retry download raised for %s: %s — tickers stay failed.",
+                retry_candidates,
+                exc,
+            )
+            return df, succeeded, failed, errors
+        if retry_raw.empty:
+            logger.warning(
+                "RUNTIME EVENT: Retry download returned no data for %d "
+                "ticker(s): %s — they stay failed.",
+                len(retry_candidates),
+                retry_candidates,
+            )
+            return df, succeeded, failed, errors
+
+        retry_df, retry_ok, _retry_fail, retry_err = self._normalize_batch_df(
+            retry_raw, retry_candidates
+        )
+        recovered = set(retry_ok)
+        if recovered:
+            logger.info(
+                "Retry recovered %d ticker(s): %s",
+                len(retry_ok),
+                retry_ok,
+            )
+            df = (
+                retry_df
+                if df.empty
+                else pd.concat([df, retry_df], ignore_index=True)
+            )
+            succeeded = succeeded + retry_ok
+            failed = [t for t in failed if t not in recovered]
+            errors = {t: e for t, e in errors.items() if t not in recovered}
+        errors.update(retry_err)
+        return df, succeeded, failed, errors
 
     def run_initial_load(self, years: Optional[int] = None) -> Dict[str, Any]:
         """Initial historical load: ``years``-year download of all

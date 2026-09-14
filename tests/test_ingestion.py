@@ -604,6 +604,7 @@ def test_empty_nonexcluded_ticker_not_purged(
 
     with patch(f"{module_name}.yf.download", return_value=combined), \
          patch(f"{module_name}.yf.Ticker", return_value=mock_ticker), \
+         patch(f"{module_name}.time.sleep"), \
          patch.object(db, "purge_ticker") as mock_purge:
         df, succeeded, failed, errors = engine.fetch_and_clean(
             ["AAPL", "UNKNOWN"], "2024-01-01", "2024-01-03"
@@ -896,3 +897,177 @@ def test_run_daily_load_empty_db_defers_years_to_config(
     # cfg.ingestion.initial_load_years itself.
     mock_init.assert_called_once_with()
     assert result.get("status") != "SKIPPED"
+
+
+# ---------------------------------------------------------------------------
+# 13. F9-T1: second-pass retry for transient empty-dataset failures
+# ---------------------------------------------------------------------------
+
+
+def _combined_good_and_empty(good_ticker: str, empty_ticker: str, dates):
+    """Build a MultiIndex download df: good_ticker has data, empty_ticker
+    is all-NaN (yfinance 'possibly delisted; no price data found')."""
+    good = make_mock_download_df([good_ticker], dates)
+    empty_cols = pd.MultiIndex.from_product(
+        [[empty_ticker], ["Open", "High", "Low", "Close", "Volume"]]
+    )
+    empty_idx = pd.to_datetime(dates)
+    empty_idx.name = "Date"
+    empty_df = pd.DataFrame(
+        np.full((len(dates), 5), np.nan), index=empty_idx, columns=empty_cols
+    )
+    combined = pd.concat([good, empty_df], axis=1)
+    combined.index.name = "Date"
+    return combined
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_retry_recovers_empty_ticker(
+    engine, db, cfg, module_name
+):
+    """F9-T1 (a): first batch empty for MSFT, retry returns data ->
+    MSFT moves from failed to succeeded and its rows join the df."""
+    dates = dates_range("2024-01-01", "2024-01-03")
+    first = _combined_good_and_empty("AAPL", "MSFT", dates)
+    retry_df = make_mock_download_df(["MSFT"], dates)
+
+    with patch(
+        f"{module_name}.yf.download", side_effect=[first, retry_df]
+    ) as mock_dl, \
+         patch(f"{module_name}.time.sleep") as mock_sleep:
+        df, succeeded, failed, errors = engine.fetch_and_clean(
+            ["AAPL", "MSFT"], "2024-01-01", "2024-01-03"
+        )
+
+    assert mock_dl.call_count == 2
+    # The second download requests ONLY the failed ticker (AC c).
+    assert mock_dl.call_args_list[1].kwargs["tickers"] == ["MSFT"]
+    # F9-T1: gentler pacing on the retry pass.
+    assert mock_dl.call_args_list[1].kwargs["threads"] is False
+    # Cool-down sleep ran exactly once (AC d — mocked).
+    mock_sleep.assert_called_once()
+    # MSFT recovered: failed -> succeeded, rows merged, errors cleared.
+    assert "AAPL" in succeeded
+    assert "MSFT" in succeeded
+    assert failed == []
+    assert errors == {}
+    assert (df["Ticker"] == "MSFT").any()
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_retry_still_empty_stays_failed(
+    engine, db, cfg, module_name
+):
+    """F9-T1 (b): still-empty on retry -> ticker stays failed."""
+    dates = dates_range("2024-01-01", "2024-01-03")
+    first = _combined_good_and_empty("AAPL", "MSFT", dates)
+    # Build an all-NaN single-ticker MultiIndex frame for the retry.
+    retry_empty_cols = pd.MultiIndex.from_product(
+        [["MSFT"], ["Open", "High", "Low", "Close", "Volume"]]
+    )
+    retry_empty = pd.DataFrame(
+        np.full((len(dates), 5), np.nan),
+        index=pd.to_datetime(dates),
+        columns=retry_empty_cols,
+    )
+    retry_empty.index.name = "Date"
+
+    with patch(
+        f"{module_name}.yf.download", side_effect=[first, retry_empty]
+    ) as mock_dl, \
+         patch(f"{module_name}.time.sleep") as mock_sleep:
+        df, succeeded, failed, errors = engine.fetch_and_clean(
+            ["AAPL", "MSFT"], "2024-01-01", "2024-01-03"
+        )
+
+    assert mock_dl.call_count == 2
+    mock_sleep.assert_called_once()
+    assert "AAPL" in succeeded
+    assert "MSFT" in failed
+    assert errors["MSFT"] == "Empty dataset"
+    # df holds only the recovered/first-pass successes (AAPL).
+    assert not df.empty
+    assert not (df["Ticker"] == "MSFT").any()
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_no_retry_when_no_failures(
+    engine, db, cfg, module_name
+):
+    """F9-T1 (c/d): no failed tickers -> no retry download, no sleep."""
+    dates = dates_range("2024-01-01", "2024-01-03")
+    good = make_mock_download_df(["AAPL", "MSFT"], dates)
+
+    with patch(f"{module_name}.yf.download", return_value=good) as mock_dl, \
+         patch(f"{module_name}.time.sleep") as mock_sleep:
+        df, succeeded, failed, errors = engine.fetch_and_clean(
+            ["AAPL", "MSFT"], "2024-01-01", "2024-01-03"
+        )
+
+    mock_dl.assert_called_once()
+    mock_sleep.assert_not_called()
+    assert failed == []
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_retry_after_fully_empty_batch(
+    engine, db, cfg, module_name
+):
+    """F9-T1: a wholly-empty first batch (raw_df.empty) is retried too —
+    the mass-throttle scenario where every ticker comes back empty."""
+    dates = dates_range("2024-01-01", "2024-01-03")
+    first = pd.DataFrame()  # yf.download returned nothing at all
+    retry_df = make_mock_download_df(["AAPL", "MSFT"], dates)
+
+    with patch(
+        f"{module_name}.yf.download", side_effect=[first, retry_df]
+    ) as mock_dl, \
+         patch(f"{module_name}.time.sleep") as mock_sleep:
+        df, succeeded, failed, errors = engine.fetch_and_clean(
+            ["AAPL", "MSFT"], "2024-01-01", "2024-01-03"
+        )
+
+    assert mock_dl.call_count == 2
+    assert sorted(mock_dl.call_args_list[1].kwargs["tickers"]) == [
+        "AAPL",
+        "MSFT",
+    ]
+    mock_sleep.assert_called_once()
+    assert sorted(succeeded) == ["AAPL", "MSFT"]
+    assert failed == []
+    assert not df.empty
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_retry_download_error_keeps_failures(
+    engine, db, cfg, module_name
+):
+    """F9-T1: if the retry download itself raises, tickers stay failed
+    and the error is swallowed (never propagates to the caller)."""
+    dates = dates_range("2024-01-01", "2024-01-03")
+    first = _combined_good_and_empty("AAPL", "MSFT", dates)
+
+    with patch(
+        f"{module_name}.yf.download",
+        side_effect=[first, RuntimeError("429 boom")],
+    ) as mock_dl, \
+         patch(f"{module_name}.time.sleep") as mock_sleep:
+        df, succeeded, failed, errors = engine.fetch_and_clean(
+            ["AAPL", "MSFT"], "2024-01-01", "2024-01-03"
+        )
+
+    assert mock_dl.call_count == 2
+    mock_sleep.assert_called_once()
+    assert "AAPL" in succeeded
+    assert "MSFT" in failed
+    assert "MSFT" in errors

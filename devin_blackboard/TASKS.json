@@ -2563,7 +2563,7 @@
     "title": "Retry transient empty-dataset failures: second-pass download for failed tickers",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [],
     "input_files": [
       "/src/ingestion.py",

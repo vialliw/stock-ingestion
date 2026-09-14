@@ -87,6 +87,7 @@ The project was built using a coordinated multi-agent workflow (executor → cha
   - **Trading-day gated (default)** — skips weekends and NYSE market holidays. Used by the APScheduler daemon and GitHub Actions CI.
   - **Catch-up (`force=True`)** — runs even on non-trading days so a machine that was off on a trading day downloads the missed data on the next day it is on. Uses the configured `daily_lookback_days` window (default 4). Used by the local Windows scheduled task.
 - **On-request load** — fetches a custom date range for specific tickers.
+- **Automatic retry** — after the first batch download, tickers that came back empty (e.g. yfinance rate-limiting reporting valid tickers as "possibly delisted; no price data found") are retried once in a follow-up download after a ~15s cool-down, single-threaded for gentler pacing. Recovered tickers move from `tickers_failed` to `tickers_succeeded` and their rows are merged into the result.
 - **Split adjustment** — tracks processed splits in a dedicated table to avoid double-adjustment. Re-downloads happen **before** any delete, and only tickers that returned data are replaced — a failed or empty re-download preserves existing history and leaves the split unprocessed for retry.
 - **Ticker exclusion** — an `exclude_tickers` list filters out unwanted tickers during ingestion and `do_put`.
 
