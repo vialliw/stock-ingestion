@@ -370,6 +370,14 @@ The registration script converts `scheduler.schedule_time` from `scheduler.timez
 
 This differs from the GitHub Actions path (`scripts/ci_daily_load.py`), which still skips on market-closed days — CI runs on a weekday cron schedule, so catching up is unnecessary there.
 
+### Migrating from the legacy Pipe01 job
+
+This project replaces the legacy `projects\jobs\Pipe01.get.data.via.DuckDB.py` daily-ingestion job. The equivalent of `python projects\jobs\Pipe01.get.data.via.DuckDB.py <db>` is the `StockIngestion-DailyLoad` scheduled task (or `python scripts/daily_load_once.py` manually), which writes `daily_close` into `stock_ingestion.duckdb` through the Flight service's `daily_load` action.
+
+- **Coverage parity verified** — after the 10-year `initial_load`, every configured ticker's `daily_close` in `stock_ingestion.duckdb` has `MIN(Date)`/`MAX(Date)` coverage at least equal to the legacy file's; no backfill was needed.
+- **Legacy file frozen** — `pipe01.get.data.via.duckdb.duckdb` is no longer updated. Scripts that read it keep working on stale data; `weekly_close`/`weekly_indicators_*` consumers should move to a later migration stage.
+- **Deliberate deviation** — the legacy job ran `CHECKPOINT`/`VACUUM` after each load; this project relies on DuckDB's automatic per-commit checkpointing. Run `VACUUM` manually while the service is stopped if the file ever needs compacting.
+
 ### Querying via Arrow Flight (do_get)
 
 Connect to the Flight server and send a JSON ticket containing a `sql` field:
