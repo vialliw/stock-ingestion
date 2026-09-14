@@ -739,12 +739,18 @@ class TestReportTop25Active:
 
     def test_sql_has_limit_25_and_friendly_headers(self):
         """The PM-supplied query was adapted: TOP 25 via LIMIT 25,
-        ordered by avg_trade_money DESC, with friendly output headers."""
+        ordered by avg_trade_money DESC, with friendly output headers.
+        The money column is rendered in millions of dollars (raw avg /
+        1e6 rounded to one decimal) under the "Avg Trade Money ($M)"
+        header; ordering stays on the raw value."""
         sql = report_top25_active.TOP25_SQL
         assert "LIMIT 25" in sql
         assert "ORDER BY a.avg_trade_money DESC" in sql
         assert 'AS "Ticker"' in sql
-        assert 'AS "Avg Trade Money"' in sql
+        assert (
+            'ROUND(a.avg_trade_money / 1000000, 1) '
+            'AS "Avg Trade Money ($M)"'
+        ) in sql
         assert 'AS "% of Total"' in sql
         # Window is the last 30 trading periods per ticker.
         assert "period_rank <= 30" in sql
@@ -757,7 +763,7 @@ class TestReportTop25Active:
         table = pa.table(
             {
                 "Ticker": ["MSFT", "AAPL"],
-                "Avg Trade Money": [1234.5, 678.9],
+                "Avg Trade Money ($M)": [1234.5, 678.9],
                 "% of Total": [64.5, 35.5],
             }
         )
@@ -779,7 +785,7 @@ class TestReportTop25Active:
         wb = openpyxl.load_workbook(out_path)
         ws = wb.active
         headers = [cell.value for cell in ws[1]]
-        assert headers == ["Ticker", "Avg Trade Money", "% of Total"]
+        assert headers == ["Ticker", "Avg Trade Money ($M)", "% of Total"]
         data_rows = list(ws.iter_rows(min_row=2, values_only=True))
         assert len(data_rows) == 2
         assert data_rows[0][0] == "MSFT"
@@ -800,7 +806,7 @@ class TestReportTop25Active:
         table = pa.table(
             {
                 "Ticker": ["MSFT"],
-                "Avg Trade Money": [1.0],
+                "Avg Trade Money ($M)": [1.0],
                 "% of Total": [100.0],
             }
         )
@@ -828,8 +834,19 @@ class TestReportTop25Active:
         config = _report_config(tmp_path)
         db_path = config.db_path
         # One row per ticker; OHLC all 1.0 so trade_money == Volume.
+        # Volumes are seeded in the 1e9 range so the report's
+        # million-scaled "Avg Trade Money ($M)" lands on verifiable
+        # values: T00 -> 1000.0 ($M), T24 -> 976.0 ($M).
         rows = [
-            ("2026-09-01", f"T{i:02d}", 1.0, 1.0, 1.0, 1.0, float(1000 - i))
+            (
+                "2026-09-01",
+                f"T{i:02d}",
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                float(1000 - i) * 1_000_000,
+            )
             for i in range(30)
         ]
         _seed_daily_close(db_path, rows)
@@ -853,8 +870,11 @@ class TestReportTop25Active:
         out_path = tmp_path / "logs" / "Report_Top_25_Active.xlsx"
         wb = openpyxl.load_workbook(out_path)
         ws = wb.active
+        headers = [cell.value for cell in ws[1]]
+        assert headers == ["Ticker", "Avg Trade Money ($M)", "% of Total"]
         data_rows = list(ws.iter_rows(min_row=2, values_only=True))
-        # LIMIT 25 applied: T00 (vol 1000) .. T24 (vol 976), T25+ dropped.
+        # LIMIT 25 applied: T00 (vol 1e9) .. T24 (vol 976e6), T25+
+        # dropped; the money column is rendered in $M (vol / 1e6).
         assert len(data_rows) == 25
         assert data_rows[0][0] == "T00"
         assert data_rows[0][1] == pytest.approx(1000.0)

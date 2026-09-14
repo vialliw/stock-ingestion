@@ -209,7 +209,7 @@ stock-ingestion/
 │   ├── register_daily_task.ps1 # schtasks registration (timezone conversion, idempotent)
 │   ├── register_flight_service.ps1  # AtStartup service task for the Flight server (restart-on-failure)
 │   ├── report_app.py           # Streamlit report app (2 daily + 3 weekly RVOL/regime tabs)
-│   ├── report_top25_active.py  # Top-25 active xlsx report (Flight-first, read-only DuckDB fallback)
+│   ├── report_top25_active.py  # Top-25 active xlsx report — "Avg Trade Money ($M)" column (Flight-first, read-only DuckDB fallback)
 │   ├── run_flight_server.py    # cwd-safe wrapper launching src.main.main() for the service task
 │   └── workflow_phase2.py      # Dynamic Workflow orchestration script
 ├── .github/workflows/

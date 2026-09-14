@@ -77,7 +77,10 @@ _FLIGHT_GET_TIMEOUT_S = 120
 _WIDTH_PADDING = 2
 
 # PM-supplied query, adapted: LIMIT 25 and friendly output headers
-# ("Ticker", "Avg Trade Money", "% of Total").
+# ("Ticker", "Avg Trade Money ($M)", "% of Total").  The money column
+# is rendered in millions of dollars (raw avg / 1e6, one decimal);
+# ordering stays on the raw avg_trade_money so ties/precision are
+# unaffected.
 TOP25_SQL = """
 WITH trade_money AS (
   SELECT Ticker, Date,
@@ -97,7 +100,7 @@ total_trade_money AS (
   SELECT SUM(avg_trade_money) AS total FROM avg_trade_money
 )
 SELECT a.Ticker AS "Ticker",
-  a.avg_trade_money AS "Avg Trade Money",
+  ROUND(a.avg_trade_money / 1000000, 1) AS "Avg Trade Money ($M)",
   ROUND((a.avg_trade_money / t.total) * 100, 2) AS "% of Total"
 FROM avg_trade_money a CROSS JOIN total_trade_money t
 ORDER BY a.avg_trade_money DESC

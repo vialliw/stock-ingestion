@@ -2690,7 +2690,7 @@
     "title": "Report_Top_25_Active.xlsx: express Avg Trade Money in millions ($M)",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [],
     "input_files": [
       "/scripts/report_top25_active.py",
