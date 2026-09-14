@@ -2531,5 +2531,31 @@
     ],
     "acceptance_criteria": "(1) src/config.py IngestionConfig gains initial_load_years: int = Field(default=6, ge=1); src/config_challenger.py gains equivalent field with same default/validation semantics. (2) src/config.yaml gains initial_load_years: 10 under ingestion:. (3) src/ingestion.py + src/ingestion_challenger.py run_initial_load signature becomes years: Optional[int] = None (or equivalent); None -> uses cfg.ingestion.initial_load_years; explicit int still honored. Callers that omit years (e.g. empty-DB path inside run_daily_load) therefore pick up the config value. (4) src/flight_server.py + src/flight_server_challenger.py initial_load action passes payload.get('years') (None when absent) instead of hardcoded 6. (5) Tests parametrized over BOTH impls: config field default/validation, engine uses cfg default when years omitted, flight action forwards payload years and falls back to cfg. (6) python -m pytest tests/ exits 0; python scripts/check_loops.py --src-dir src and --strict exit 0. (7) README.md + docs/README.md document the new config key (files kept byte-identical).",
     "assigned_to": "B"
+  },
+  {
+    "id": "F8-T2",
+    "title": "Headless fix: yfinance progress bar crashes when sys.stderr is None (Task Scheduler service mode)",
+    "role": "executor",
+    "model": "swe",
+    "status": "in_progress",
+    "depends_on": [
+      "F8-T1"
+    ],
+    "input_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/scripts/run_flight_server.py"
+    ],
+    "output_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/scripts/run_flight_server.py",
+      "/tests/test_ingestion.py",
+      "/tests/test_scheduler.py",
+      "/README.md",
+      "/docs/README.md"
+    ],
+    "acceptance_criteria": "Root cause: Flight server running via Task Scheduler has no console -> sys.stderr is None -> yf.download progress bar finalizer calls sys.stderr.flush() -> AttributeError AFTER download completes, killing the whole initial_load (live crash observed). Fixes: (1) add progress=False to the yf.download call in _batch_download in BOTH src/ingestion.py and src/ingestion_challenger.py (headless-safe, progress bar useless in a service anyway). (2) defensive fallback in scripts/run_flight_server.py before main(): if sys.stderr is None -> sys.stderr = open(os.devnull, 'w'); same for sys.stdout — covers any other stdio-touching lib. (3) Tests: assert _batch_download calls yf.download with progress=False (parametrized both impls); test the stdio-fallback logic. (4) pytest exits 0; check_loops + --strict exit 0. (5) README.md + docs/README.md note headless-safety; byte-identical.",
+    "assigned_to": "B"
   }
 ]
