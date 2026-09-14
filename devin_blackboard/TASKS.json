@@ -2498,5 +2498,38 @@
     ],
     "acceptance_criteria": "(1) scripts/report_app.py BASIC_GUIDE drops exactly 3 stale session-dated lines from the verbatim extract (PM-approved deviation): the title-block line \"Session: September 11, 2026 (most recent full trading day as of Sep 13)\", the \"Data sources: MarketBeat, MarketGrep, Yahoo Finance, Seeking Alpha/AP most-actives, ...\" line, and the Methodology bullet \"Markets closed Sep 13; this reflects the Sep 11 session. Refresh with live feeds for the next open.\" — everything else in the constant stays byte-verbatim to report_basic.md. Add a brief comment noting the deliberate drop. (2) tests/test_report_app.py: relax/adjust the BASIC_GUIDE verbatim test so it still pins the extraction (e.g. assert verbatim after removing those 3 lines from the source slices, or assert the constant equals head+tail minus the dropped lines — NOT just non-empty), plus an explicit test that the 3 dropped strings are absent. (3) pytest -q exit 0; check_loops + --strict exit 0.",
     "assigned_to": "B"
+  },
+  {
+    "id": "F8-T1",
+    "title": "Configurable initial-load depth: ingestion.initial_load_years (default 6); config.yaml sets 10",
+    "role": "executor",
+    "model": "swe",
+    "status": "in_progress",
+    "depends_on": [],
+    "input_files": [
+      "/src/config.py",
+      "/src/config.yaml",
+      "/src/ingestion.py",
+      "/src/flight_server.py",
+      "/src/config_challenger.py",
+      "/src/ingestion_challenger.py",
+      "/src/flight_server_challenger.py"
+    ],
+    "output_files": [
+      "/src/config.py",
+      "/src/config_challenger.py",
+      "/src/config.yaml",
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/src/flight_server.py",
+      "/src/flight_server_challenger.py",
+      "/tests/test_config.py",
+      "/tests/test_ingestion.py",
+      "/tests/test_flight_server.py",
+      "/README.md",
+      "/docs/README.md"
+    ],
+    "acceptance_criteria": "(1) src/config.py IngestionConfig gains initial_load_years: int = Field(default=6, ge=1); src/config_challenger.py gains equivalent field with same default/validation semantics. (2) src/config.yaml gains initial_load_years: 10 under ingestion:. (3) src/ingestion.py + src/ingestion_challenger.py run_initial_load signature becomes years: Optional[int] = None (or equivalent); None -> uses cfg.ingestion.initial_load_years; explicit int still honored. Callers that omit years (e.g. empty-DB path inside run_daily_load) therefore pick up the config value. (4) src/flight_server.py + src/flight_server_challenger.py initial_load action passes payload.get('years') (None when absent) instead of hardcoded 6. (5) Tests parametrized over BOTH impls: config field default/validation, engine uses cfg default when years omitted, flight action forwards payload years and falls back to cfg. (6) python -m pytest tests/ exits 0; python scripts/check_loops.py --src-dir src and --strict exit 0. (7) README.md + docs/README.md document the new config key (files kept byte-identical).",
+    "assigned_to": "B"
   }
 ]
