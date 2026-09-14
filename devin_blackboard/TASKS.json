@@ -2609,7 +2609,7 @@
     "title": "Validate initial_load years payload: bound to int in [1, 30]",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [],
     "input_files": [
       "/src/ingestion.py",

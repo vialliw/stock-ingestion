@@ -96,7 +96,7 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 - **`do_get`** — read-only SQL queries returning Arrow record batches. SELECT/WITH statements only. Configurable query timeout (default 120s, no row limit).
 - **`do_put`** — accepts external Arrow record batches matching the `daily_close` schema (7 columns), validates schema, filters excluded tickers, and upserts in a single vectorized operation.
 - **`do_action`** — seven administrative actions:
-  - `initial_load` — run the initial historical load. Depth = `ingestion.initial_load_years` (default 6); an explicit `years` key in the action payload overrides it.
+  - `initial_load` — run the initial historical load. Depth = `ingestion.initial_load_years` (default 6); an explicit `years` key in the action payload overrides it. `years` must be an integer in `[1, 30]` (bool/non-int rejected); invalid values raise `ValueError` in the engine and surface as a `FlightServerError` — never a silent empty download.
   - `daily_load` — run today's incremental load.
   - `on_request_load` — load a custom date range for specified tickers.
   - `daily_report` — generate a top-20 dollar-volume report as JSON.
@@ -263,7 +263,7 @@ ingestion:
   exclude_tickers:
     - "AVB"
   daily_lookback_days: 4    # trailing calendar-day refresh window for daily_load
-  initial_load_years: 10    # historical depth for initial_load (default 6, must be >= 1)
+  initial_load_years: 10    # historical depth for initial_load (default 6, valid range 1-30)
 
 server:
   flight_host: "127.0.0.1"
@@ -407,7 +407,8 @@ import json
 
 client = flight.FlightClient("grpc://127.0.0.1:8815")
 
-# Initial historical load — omit "years" to use ingestion.initial_load_years
+# Initial historical load — omit "years" to use ingestion.initial_load_years;
+# an explicit "years" must be an integer in [1, 30]
 action = flight.Action("initial_load", b'{"years": 6}')
 results = list(client.do_action(action))
 print(json.loads(results[0].body.to_pybytes()))

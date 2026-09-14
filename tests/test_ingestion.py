@@ -1071,3 +1071,61 @@ def test_retry_download_error_keeps_failures(
     assert "AAPL" in succeeded
     assert "MSFT" in failed
     assert "MSFT" in errors
+
+
+# ---------------------------------------------------------------------------
+# 14. F9-T3: run_initial_load validates effective years (int, 1 <= y <= 30)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_years", [0, -1, 31, 100, "10", "6", True, 1.5])
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_run_initial_load_invalid_years_raises(
+    engine, db, cfg, bad_years
+):
+    """F9-T3: an invalid explicit ``years`` raises ValueError BEFORE any
+    download — never a silent empty download."""
+    engine.fetch_and_clean = MagicMock(
+        return_value=(pd.DataFrame(), [], [], {})
+    )
+    with pytest.raises(ValueError):
+        engine.run_initial_load(years=bad_years)
+    engine.fetch_and_clean.assert_not_called()
+
+
+@pytest.mark.parametrize("good_years", [1, 30])
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_run_initial_load_boundary_years_ok(
+    engine, db, cfg, good_years
+):
+    """F9-T3: the boundary values 1 and 30 are accepted."""
+    engine.fetch_and_clean = MagicMock(
+        return_value=(pd.DataFrame(), ["AAPL"], [], {})
+    )
+    engine.db.upsert_dataframe = MagicMock(return_value=0)
+
+    engine.run_initial_load(years=good_years)
+
+    engine.fetch_and_clean.assert_called_once()
+    assert _download_window_days(engine) == good_years * 365
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_run_initial_load_invalid_config_years_raises(
+    engine, db, cfg
+):
+    """F9-T3: the config-resolved value is validated too — a bypassed
+    (invalid) ``initial_load_years`` still raises before downloading."""
+    cfg.ingestion.initial_load_years = 0  # direct assignment bypasses validation
+    engine.fetch_and_clean = MagicMock(
+        return_value=(pd.DataFrame(), [], [], {})
+    )
+    with pytest.raises(ValueError):
+        engine.run_initial_load()  # years=None -> resolves to config value
+    engine.fetch_and_clean.assert_not_called()

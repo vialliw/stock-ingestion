@@ -204,9 +204,15 @@ class MarketDataFlightServer(flight.FlightServerBase):
 
         if action_type == "initial_load":
             # years=None (absent key) -> the engine applies the
-            # configured ingestion.initial_load_years depth.
+            # configured ingestion.initial_load_years depth.  An
+            # invalid explicit value (non-int, bool, or outside
+            # [1, 30]) raises ValueError in the engine — surface it as
+            # a FlightServerError instead of a silent empty download.
             years = payload.get("years")
-            result = self.engine.run_initial_load(years=years)
+            try:
+                result = self.engine.run_initial_load(years=years)
+            except ValueError as e:
+                raise flight.FlightServerError(str(e)) from e
             status = "SUCCESS" if not result["tickers_failed"] else "PARTIAL"
             return _ActionResult(
                 json.dumps({"status": status, **result}).encode("utf-8")

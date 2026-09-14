@@ -264,9 +264,16 @@ class MarketDataFlightServer(flight.FlightServerBase):
 
     def _handle_initial_load(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         # years=None (absent key) -> the engine applies the
-        # configured ingestion.initial_load_years depth.
+        # configured ingestion.initial_load_years depth.  An invalid
+        # explicit value (non-int, bool, or outside [1, 30]) raises
+        # ValueError in the engine — convert to FlightActionError so
+        # the dispatcher surfaces it as a FlightServerError instead
+        # of a silent empty download.
         years = payload.get("years")
-        result = self.engine.run_initial_load(years=years)
+        try:
+            result = self.engine.run_initial_load(years=years)
+        except ValueError as e:
+            raise FlightActionError(str(e)) from e
         return self._build_load_result(result)
 
     def _handle_daily_load(self, payload: Dict[str, Any]) -> Dict[str, Any]:

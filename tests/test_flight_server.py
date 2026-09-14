@@ -91,6 +91,13 @@ def parse_result(result):
     return json.loads(result.body.to_pybytes().decode("utf-8"))
 
 
+# Each Flight server is paired with its sibling ingestion engine.
+_ENGINE_MODULES = {
+    "src.flight_server": "src.ingestion",
+    "src.flight_server_challenger": "src.ingestion_challenger",
+}
+
+
 # =====================================================================
 # _validate_select_only — acceptance criteria 1-6
 # =====================================================================
@@ -235,6 +242,41 @@ class TestDoAction:
 
         assert data["status"] == "SUCCESS"
         ingest_engine.run_initial_load.assert_called_once_with(years=None)
+
+    @pytest.mark.parametrize("bad_years", [0, -1, 31, "10", True])
+    def test_initial_load_invalid_years_surfaces_error(
+        self, module, bad_years
+    ):
+        # F9-T3: an invalid "years" payload must surface as a
+        # FlightServerError — never a silent empty download.  Uses the
+        # REAL engine (validation raises before it touches yfinance or
+        # the DB) so the check is end-to-end, not a mocked side_effect.
+        engine_mod = importlib.import_module(
+            _ENGINE_MODULES[module.__name__]
+        )
+        real_engine = engine_mod.IngestionEngine(MagicMock(), MagicMock())
+        server, db_mgr, _, cfg = make_server(module)
+        server.engine = real_engine
+
+        action = make_action("initial_load", {"years": bad_years})
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(MagicMock(), action)
+
+    def test_initial_load_valid_years_bounds_forwarded(self, module):
+        # F9-T3: boundary values 1 and 30 are valid and forwarded.
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_initial_load.return_value = {
+            "rows_upserted": 0,
+            "tickers_succeeded": [],
+            "tickers_failed": [],
+            "errors": {},
+            "duration_ms": 1,
+        }
+        for bound in (1, 30):
+            action = make_action("initial_load", {"years": bound})
+            data = parse_result(server.do_action(MagicMock(), action))
+            assert data["status"] == "SUCCESS"
+        assert ingest_engine.run_initial_load.call_count == 2
 
     def test_daily_load_success(self, module):
         # AC 9: daily_load returns correct status structure

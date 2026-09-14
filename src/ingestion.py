@@ -495,13 +495,25 @@ class IngestionEngine:
 
         When ``years`` is ``None`` (or omitted) the configured
         ``ingestion.initial_load_years`` depth is used (default 6).
-        An explicit int is honored as-is.
+        The effective value — explicit arg or config-resolved — must
+        be an ``int`` (bool rejected) with ``1 <= years <= 30``; a
+        violation raises ``ValueError`` before any download so an
+        invalid action payload can never silently produce an empty
+        download.
 
         Returns a dict with ``rows_upserted``, ``tickers_succeeded``,
         ``tickers_failed``, ``errors`` and ``duration_ms``.
         """
         if years is None:
             years = self.cfg.ingestion.initial_load_years
+        if (
+            not isinstance(years, int)
+            or isinstance(years, bool)
+            or not 1 <= years <= 30
+        ):
+            raise ValueError(
+                f"years must be an integer in the range [1, 30], got {years!r}"
+            )
         start_time = datetime.now()
         logger.info("Initiating initial historical load (%s years)...", years)
         end_dt = datetime.now()
