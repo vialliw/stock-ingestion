@@ -2196,3 +2196,19 @@ LIVE ARTIFACT READBACK (openpyxl, read-only — no duckdb open): C:\Intel\parque
 NON-BLOCKING OBSERVATION: N1 (cosmetic, test-quality) test_xlsx_written_via_flight is a mock-table test — the mock supplies the new column name, so that header assertion alone cannot distinguish old SQL from new. Irrelevant in aggregate: the SQL-string test and seeded fallback test are independent sensitive pins.
 
 No src/, tests/, scripts/, or docs files modified by Challenger C — blackboard only.
+
+[2026-09-14T21:48:51.780994+00:00] [CRITIC-D] INDEPENDENT FINAL VERIFICATION of F9-T6 (commits b5d0c72 claim + b6b029d impl + a017615 blackboard + 15b0010 challenger review; verified at HEAD 15b0010). Every claim re-derived from real code/artifacts — prior B/C entries not trusted. VERDICT: PASS.
+
+AC-BY-AC, VERIFIED MYSELF:
+  (a) SQL re-read at scripts/report_top25_active.py:103 = `ROUND(a.avg_trade_money / 1000000, 1) AS "Avg Trade Money ($M)"` — exact /1000000, ROUND to 1 decimal, exact new header.
+  (b) :104 `ROUND((a.avg_trade_money / t.total) * 100, 2) AS "% of Total"` — raw-avg share, unchanged; :106 `ORDER BY a.avg_trade_money DESC` still on the RAW value (ties/precision unaffected); :107 LIMIT 25 intact; friendly-headers comment :79-83 updated. One SQL line changed, zero other query semantics.
+  (c) TESTS GENUINELY SENSITIVE (own reading, no worktree needed): test_sql_has_limit_25_and_friendly_headers (:740-757) asserts the full new expr string — old line `a.avg_trade_money AS "Avg Trade Money"` cannot contain it. test_flight_down_falls_back_to_direct_readonly_db (:831-883) runs the REAL TOP25_SQL through real duckdb on seeded data (30 tickers, OHLC=1.0 so trade_money==Volume, vol=(1000-i)*1e6): header row == [Ticker, Avg Trade Money ($M), % of Total] + T00==approx(1000.0) + T24==approx(976.0). Arithmetic recomputed: (1+1+1+1)/4*Vol = Vol; (1000-i)*1e6/1e6 = 1000-i -> T00=1000.0, T24=976.0. On pre-change code the header assert fails AND values are 1e9-scale. Standalone run: 6/6 TestReportTop25Active passed.
+  (d) LIVE ARTIFACT own openpyxl readback (read-only, duckdb never opened): C:\Intel\parquet\Report_Top_25_Active.xlsx (5,555 B, mtime 2026-09-14 22:28:39 — post-change). Sheet 'Top 25 Active' A1:C26; headers ('Ticker','Avg Trade Money ($M)','% of Total'); SPY top 30456.9 $M (~30.5B, consistent with prior ~30.9B raw — AC's 'e.g. 30876.5' was illustrative), DELL bottom 3847.7; values strictly DESC; % of Total still raw-share (sum 43.89); widths A/B/C = 8/22/12 -> B = len('Avg Trade Money ($M)')=20 + padding 2 — auto-width works with the new header.
+  (e) README.md == docs/README.md byte-identical (41,010 B each, md5 98f8796f72adb25bfa6e33a143de4e20). README :212 file-tree comment — the only place the xlsx columns are documented — now notes 'Avg Trade Money ($M)'. (Other report mentions at :539/:552 describe the Streamlit app, not this report.)
+  (f) OWN pytest full suite on HEAD: 509 passed in 113.62s, exit 0.
+  (g) check_loops --src-dir src -> clean (14 files) exit 0; --strict -> clean exit 0.
+  (h) COMMIT SCOPE (git show --name-only): b6b029d touches exactly declared output_files (scripts/report_top25_active.py, tests/test_scheduler.py, README.md, docs/README.md) + EVENTS.log/TASKS.json + F9-T6.lock deletion; b5d0c72, a017615, 15b0010 blackboard-only. git status clean; stash empty; locks dir empty.
+
+CHALLENGER N1 CONFIRMED (cosmetic, non-blocking): test_xlsx_written_via_flight is a mock-table test — the mock supplies the new column name, so that header assert alone cannot distinguish old vs new SQL. Irrelevant in aggregate: the SQL-string test and seeded real-DuckDB fallback test are independent sensitive pins.
+
+No src/, tests/, scripts/, or docs files modified by Critic D — blackboard only.
