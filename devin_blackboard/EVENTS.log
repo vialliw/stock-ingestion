@@ -2103,3 +2103,31 @@ NON-BLOCKING OBSERVATIONS:
 
 No src/, tests/, or scripts/ files modified by Challenger C (one accidental literal '%TEMP%' worktree dir was created inside the repo mid-review and fully remov
 ed — git status verified clean). Blackboard only.
+[2026-09-14T17:26:39Z] [CRITIC-D] INDEPENDENT FINAL VERIFICATION of F9-T1..F9-T4 (commits 2a14db6, 41a70e7, eb0e591, a94d1e2; verified at HEAD 5521c57) — own commands run, claims re-derived from the code, not prior log entries. VERDICT: PASS.
+
+F9-T1 (empty-dataset retry) VERIFIED in code, both engines:
+  - Retry runs INSIDE fetch_and_clean before return — executor src/ingestion.py:512-543 (retry block before `return df, succeeded, failed, errors` at :543); challenger src/ingestion_challenger.py:542-556 (delegates to _retry_empty_failures, returns merged tuple at :556). Caller sees merged results; split delete-after-download ordering untouched.
+  - 15s sleep ONCE per fetch_and_clean call, not per ticker — single `time.sleep(self._RETRY_DELAY_S)` at executor :424 (_RETRY_DELAY_S=15.0 class attr :41, `import time` :14) and challenger :583 (_RETRY_DELAY_S=15.0 :74, `import time` :30). Sleep precedes the one retry download; no per-ticker loop.
+  - Only failed tickers re-requested with threads=False — executor `_retry_failed_tickers` :401-454 calls `_batch_download(failed, ..., threads=False)` (:426-428; threads kwarg added :237, forwarded :261); challenger `_retry_failed_download` :126-147 is a dedicated single-attempt `yf.download(threads=False, progress=False)` (+1d end) — correctly avoids re-entering the 3-attempt backoff. Only `'Empty dataset'`-prefixed errors are candidates (executor :517-519 / challenger :547-549), covering both the per-ticker 'Empty dataset' and whole-batch 'Empty dataset from yf.download' (:505/:536). Retry exceptions swallowed — tickers stay failed (executor :429-453; challenger :584-602).
+  - Merge verified: recovered tickers concat into df, extend succeeded, removed from failed, errors re-keyed + retry_err merged (executor :526-541; challenger :604-622).
+  - Own standalone run: 5 retry tests x2 impls -> 10 passed (tests assert threads is False kwarg, mock_sleep.assert_called_once, only-failed-ticker request list). Tests are meaningful (real engine, mocked yf.download + time.sleep).
+
+F9-T3 (effective-years validation) VERIFIED:
+  - Both engines validate the EFFECTIVE value (explicit arg, else cfg.ingestion.initial_load_years at executor :565 / challenger :638) BEFORE start_time/fetch_and_clean: isinstance(int), bool rejected, 1<=y<=30, else ValueError — executor :566-573, challenger :639-646.
+  - Flight surfacing end-to-end: executor flight_server.py:211-215 catches ValueError -> flight.FlightServerError; challenger _handle_initial_load :272-276 -> FlightActionError -> dispatcher :218-225 -> FlightServerError. Not silent on either path.
+  - Own standalone run: invalid-years x8/boundary 1+30/config-resolved-invalid x2 impls (22 tests) + all initial_load flight tests x2 impls (incl. 5 invalid payloads x2 via REAL engine -> FlightServerError asserted) -> all pass.
+
+F9-T2 (_confirm_delisted purge gate) VERIFIED + challenger N1 CONFIRMED:
+  - Executor :270-304 / challenger :155-189: single-ticker `yf.download(tickers=t, period='1mo', interval='1d', auto_adjust=True, progress=False)`; True only on second empty; rows OR exception -> unconfirmed -> no purge.
+  - Gates BOTH purge_ticker sites in _normalize_batch_df — empty-data path (executor :341-355 / challenger :222-237) and processing-exception path (executor :380-391 / challenger :263-274).
+  - N1 CONFIRMED by own call-site audit: every _normalize_batch_df caller passes a non-excluded subset — executor :126 (split affected ⊆ effective_tickers), :454 (retry failed ⊆ retry_candidates ⊆ effective), :508 (effective); challenger :366, :538, :604 likewise. Exclusion filter runs pre-download at executor :474-475 / challenger :499-500, and even run_on_request_load routes through fetch_and_clean's filter -> guarded branch unreachable in production (dead code / defense-in-depth only). Sole production purge is config-driven bulk purge_tickers (executor :490 / challenger :515), which never consults download results — cannot wipe on false data. AC letter met.
+  - Own standalone run: 4 confirm tests x2 impls -> 8 passed.
+
+F9-T4 (WARNING failure summary) VERIFIED:
+  - One WARNING naming failed tickers per entry point x2 impls: executor 'Initial load finished...' :594-599, 'Daily load finished...' :735-740 (deduped result['tickers_failed'] = list(set(all_failed)) :718), 'On-request load finished...' :775-780; challenger :659-664, :771-776 (sorted(set(all_failed))), :801-806. Each guarded by `if failed:`/`if all_failed:` -> absent on clean runs.
+  - Own standalone run: 4 summary tests x2 impls -> 8 passed.
+
+OWN RE-RUNS on HEAD (5521c57): python -m pytest tests/ -q -> 444 passed in 56.22s, exit 0 (real 15s sleeps present, consistent with expectation); python scripts/check_loops.py --src-dir src -> 'No unjustified loops found. (14 files checked)' exit 0; --strict -> clean exit 0; fc /b README.md docs/README.md -> identical (38,890 B each); git status --porcelain -> empty (clean); git stash list -> empty.
+COMMIT SCOPE: 2a14db6 (F9-T1), eb0e591 (F9-T2), a94d1e2 (F9-T4), 41a70e7 (F9-T3) each touch only declared output_files + blackboard/lock files; 1966b36 + 5521c57 blackboard-only. Verified via git show --name-only.
+
+Challenger's 6 non-blocking findings (N1 dead-code purge guard — independently confirmed above; N2 string-prefix classification brittleness; N3 executor whole-batch raise bypasses retry; N4 permanent-dead-ticker cost ~15-30s/run; N5 duplicate summary on empty-DB fallback; N6 executor daily_load branch lacks try/except) are all accurate observations; none blocks the ACs. No src/, tests/, or scripts/ files modified by Critic D — blackboard only.
