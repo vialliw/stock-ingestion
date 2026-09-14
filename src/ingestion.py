@@ -267,6 +267,42 @@ class IngestionEngine:
     # Normalization
     # ------------------------------------------------------------------
 
+    def _confirm_delisted(self, ticker: str) -> bool:
+        """Cheap independent confirmation that ``ticker`` has no data.
+
+        Runs a small single-ticker ``yf.download`` over a recent short
+        window.  Returns ``True`` only when that second, independent
+        request also comes back empty — i.e. the delisting is confirmed
+        by two empty responses.  Returned rows OR an unexpected error
+        both mean *unconfirmed*: yfinance under rate-limiting reports
+        valid tickers as "possibly delisted", and a throttle must never
+        wipe real history, so the caller must then skip ``purge_ticker``.
+        """
+        try:
+            recent = yf.download(
+                tickers=ticker,
+                period="1mo",
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+            )
+        except Exception as e:
+            logger.warning(
+                "Delisting check for '%s' errored (%s) — delisting "
+                "unconfirmed; skipping purge.",
+                ticker,
+                e,
+            )
+            return False
+        if recent is not None and not recent.empty:
+            logger.warning(
+                "Delisting check for '%s' returned data — delisting "
+                "unconfirmed; skipping purge.",
+                ticker,
+            )
+            return False
+        return True
+
     def _normalize_batch_df(
         self, df: pd.DataFrame, tickers: List[str]
     ) -> Tuple[pd.DataFrame, List[str], List[str], Dict[str, str]]:
@@ -274,9 +310,11 @@ class IngestionEngine:
 
         Handles both multi-ticker (``columns.nlevels == 2``) and
         single-ticker output.  Drops rows with NaN OHLC.  An empty
-        ticker that is in ``exclude_tickers`` is purged from the DB and
-        logged; an empty ticker not in ``exclude_tickers`` produces a
-        warning log only (no purge).  Returns
+        ticker that is in ``exclude_tickers`` is purged from the DB
+        only after ``_confirm_delisted`` independently verifies the
+        delisting (a rate-limit throttle must never wipe real history);
+        an empty ticker not in ``exclude_tickers`` produces a warning
+        log only (no purge).  Returns
         ``(df, succeeded, failed, errors)``.
         """
         records: List[pd.DataFrame] = []
@@ -300,12 +338,21 @@ class IngestionEngine:
                 ticker_df = ticker_df.dropna(subset=["Open", "High", "Low", "Close"])
                 if ticker_df.empty:
                     if t in self.cfg.ingestion.exclude_tickers:
-                        logger.warning(
-                            "RUNTIME EVENT: Ticker '%s' returned empty dataset. "
-                            "Matches exclusion criteria.",
-                            t,
-                        )
-                        self.db.purge_ticker(t)
+                        if self._confirm_delisted(t):
+                            logger.warning(
+                                "RUNTIME EVENT: Ticker '%s' returned empty "
+                                "dataset; delisting independently confirmed. "
+                                "Matches exclusion criteria.",
+                                t,
+                            )
+                            self.db.purge_ticker(t)
+                        else:
+                            logger.warning(
+                                "RUNTIME EVENT: Ticker '%s' returned empty "
+                                "dataset and matches exclusion criteria, but "
+                                "delisting unconfirmed — NOT purging.",
+                                t,
+                            )
                     else:
                         logger.warning(
                             "RUNTIME EVENT: Ticker '%s' returned empty dataset. "
@@ -331,7 +378,17 @@ class IngestionEngine:
                 failed.append(t)
                 errors[t] = str(e)
                 if t in self.cfg.ingestion.exclude_tickers:
-                    self.db.purge_ticker(t)
+                    # Same safeguard as the empty-data path: only purge
+                    # when an independent check also finds no data.
+                    if self._confirm_delisted(t):
+                        self.db.purge_ticker(t)
+                    else:
+                        logger.warning(
+                            "RUNTIME EVENT: Ticker '%s' failed processing "
+                            "and matches exclusion criteria, but delisting "
+                            "unconfirmed — NOT purging.",
+                            t,
+                        )
 
         if records:
             return pd.concat(records, ignore_index=True), succeeded, failed, errors

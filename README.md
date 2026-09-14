@@ -90,6 +90,7 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 - **Automatic retry** — after the first batch download, tickers that came back empty (e.g. yfinance rate-limiting reporting valid tickers as "possibly delisted; no price data found") are retried once in a follow-up download after a ~15s cool-down, single-threaded for gentler pacing. Recovered tickers move from `tickers_failed` to `tickers_succeeded` and their rows are merged into the result.
 - **Split adjustment** — tracks processed splits in a dedicated table to avoid double-adjustment. Re-downloads happen **before** any delete, and only tickers that returned data are replaced — a failed or empty re-download preserves existing history and leaves the split unprocessed for retry.
 - **Ticker exclusion** — an `exclude_tickers` list filters out unwanted tickers during ingestion and `do_put`.
+- **Purge safeguard** — an excluded ticker that returns empty data is only purged after a cheap independent confirmation (a small single-ticker `yf.download` over a recent window) also finds no data. If the check returns rows or errors unexpectedly, the delisting is "unconfirmed" — the ticker stays in `tickers_failed` and its stored history is preserved (a rate-limit throttle can never wipe real data).
 
 ### Arrow Flight Server
 

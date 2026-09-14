@@ -24,6 +24,7 @@ exercised.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import List
 from unittest.mock import MagicMock, patch
@@ -1129,3 +1130,121 @@ def test_run_initial_load_invalid_config_years_raises(
     with pytest.raises(ValueError):
         engine.run_initial_load()  # years=None -> resolves to config value
     engine.fetch_and_clean.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# 15. F9-T2: delisting verification before purge_ticker
+# ---------------------------------------------------------------------------
+
+
+def _all_nan_download_df(ticker: str, dates) -> pd.DataFrame:
+    """An all-NaN MultiIndex download frame for one ticker (empty data)."""
+    cols = pd.MultiIndex.from_product(
+        [[ticker], ["Open", "High", "Low", "Close", "Volume"]]
+    )
+    idx = pd.to_datetime(dates)
+    idx.name = "Date"
+    return pd.DataFrame(
+        np.full((len(idx), 5), np.nan), index=idx, columns=cols
+    )
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_excluded_empty_confirm_empty_purged(
+    engine, db, cfg, module_name
+):
+    """F9-T2 (a): excluded + empty batch + confirm-empty -> purge called."""
+    dates = dates_range("2024-01-01", "2024-01-03")
+    batch = _all_nan_download_df("BADTICKER", dates)
+
+    # The confirmation download also comes back empty -> confirmed delisted.
+    with patch(
+        f"{module_name}.yf.download", return_value=pd.DataFrame()
+    ) as mock_dl, \
+         patch.object(db, "purge_ticker") as mock_purge:
+        df, succeeded, failed, errors = engine._normalize_batch_df(
+            batch, ["BADTICKER"]
+        )
+
+    mock_dl.assert_called_once()  # the independent confirm check ran
+    mock_purge.assert_called_once_with("BADTICKER")
+    assert "BADTICKER" in failed
+    assert errors["BADTICKER"] == "Empty dataset"
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_excluded_empty_confirm_has_data_not_purged(
+    engine, db, cfg, module_name, caplog
+):
+    """F9-T2 (b): excluded + empty batch but the confirm check returns
+    data -> purge NOT called, ticker stays failed, warning logged."""
+    dates = dates_range("2024-01-01", "2024-01-03")
+    batch = _all_nan_download_df("BADTICKER", dates)
+    confirm_has_data = make_mock_download_df_single(dates)
+
+    with patch(
+        f"{module_name}.yf.download", return_value=confirm_has_data
+    ), \
+         patch.object(db, "purge_ticker") as mock_purge, \
+         caplog.at_level(logging.WARNING):
+        df, succeeded, failed, errors = engine._normalize_batch_df(
+            batch, ["BADTICKER"]
+        )
+
+    mock_purge.assert_not_called()
+    assert "BADTICKER" in failed
+    assert errors["BADTICKER"] == "Empty dataset"
+    assert "unconfirmed" in caplog.text.lower()
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_excluded_empty_confirm_error_not_purged(
+    engine, db, cfg, module_name, caplog
+):
+    """F9-T2: the confirm check raising an unexpected error also means
+    unconfirmed -> no purge (a throttle must never wipe history)."""
+    dates = dates_range("2024-01-01", "2024-01-03")
+    batch = _all_nan_download_df("BADTICKER", dates)
+
+    with patch(
+        f"{module_name}.yf.download",
+        side_effect=RuntimeError("HTTP 429"),
+    ), \
+         patch.object(db, "purge_ticker") as mock_purge, \
+         caplog.at_level(logging.WARNING):
+        df, succeeded, failed, errors = engine._normalize_batch_df(
+            batch, ["BADTICKER"]
+        )
+
+    mock_purge.assert_not_called()
+    assert "BADTICKER" in failed
+    assert "unconfirmed" in caplog.text.lower()
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_nonexcluded_empty_never_purged_no_confirm(
+    engine, db, cfg, module_name
+):
+    """F9-T2 (c): a non-excluded empty ticker is never purged AND the
+    confirmation download is never invoked for it."""
+    dates = dates_range("2024-01-01", "2024-01-03")
+    batch = _all_nan_download_df("UNKNOWN", dates)
+
+    with patch(f"{module_name}.yf.download") as mock_dl, \
+         patch.object(db, "purge_ticker") as mock_purge:
+        df, succeeded, failed, errors = engine._normalize_batch_df(
+            batch, ["UNKNOWN"]
+        )
+
+    mock_dl.assert_not_called()  # no confirmation call for non-excluded
+    mock_purge.assert_not_called()
+    assert "UNKNOWN" in failed
+    assert errors["UNKNOWN"] == "Empty dataset"
