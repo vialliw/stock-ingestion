@@ -2584,7 +2584,7 @@
     "title": "Delisting verification before purge_ticker on empty excluded ticker",
     "role": "executor",
     "model": "swe",
-    "status": "todo",
+    "status": "in_progress",
     "depends_on": [
       "F9-T1"
     ],
