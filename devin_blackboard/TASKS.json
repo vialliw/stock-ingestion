@@ -2635,7 +2635,7 @@
     "title": "Prominent failure summary logging at end of each load run",
     "role": "executor",
     "model": "swe",
-    "status": "todo",
+    "status": "in_progress",
     "depends_on": [
       "F9-T1"
     ],
