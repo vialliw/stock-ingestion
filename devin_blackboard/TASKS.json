@@ -2537,7 +2537,7 @@
     "title": "Headless fix: yfinance progress bar crashes when sys.stderr is None (Task Scheduler service mode)",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F8-T1"
     ],

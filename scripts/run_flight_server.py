@@ -31,6 +31,16 @@ in-process retry window is instead *renewed* on every launch: each of
 the 3 restarts gets a fresh ~10-minute window, compounding coverage
 instead of spending it.  It is also self-contained — no re-registration
 is needed for it to take effect.
+
+Headless safety (F8-T2): the scheduled task runs with no console, so
+``sys.stdout``/``sys.stderr`` are ``None``.  ``_ensure_stdio_fallbacks``
+redirects any missing stream to the null device *before* the third-party
+imports below — the live-observed crash was the ``yf.download`` tqdm
+progress-bar finalizer calling ``sys.stderr.flush()`` after a download
+completed (``AttributeError: 'NoneType' object has no attribute
+'flush'``), which killed a finished load.  Both ingestion engines also
+call ``yf.download(..., progress=False)``; this guard covers every other
+stdio-touching library as well.
 """
 
 from __future__ import annotations
@@ -40,6 +50,26 @@ import os
 import re
 import sys
 import time
+
+
+def _ensure_stdio_fallbacks() -> None:
+    """Redirect ``sys.stdout``/``sys.stderr`` to the null device if None.
+
+    A console-less Windows Task Scheduler process starts with both
+    streams set to ``None``; any library touching them (tqdm progress
+    finalizers, warnings, prints) then crashes.  Idempotent: real
+    streams are left untouched, so calling it under a normal console or
+    inside pytest is a no-op.
+    """
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
+
+# Patch missing stdio as early as possible — before the third-party
+# imports below and long before ``main()`` is invoked.
+_ensure_stdio_fallbacks()
 
 # Ensure src/ is importable regardless of the task's working directory.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -159,4 +189,7 @@ def _main_with_db_retry() -> None:
 
 
 if __name__ == "__main__":
+    # Idempotent re-check in case an embedding host nulled the streams
+    # between import time and launch.
+    _ensure_stdio_fallbacks()
     _main_with_db_retry()

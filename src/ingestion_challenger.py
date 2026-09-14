@@ -79,6 +79,10 @@ class _DownloadMixin:
         yfinance's exclusive ``end`` parameter.
         Retries up to ``_MAX_ATTEMPTS`` times with exponential backoff on
         failure, raising ``DownloadError`` if all attempts fail.
+        ``progress=False`` disables the tqdm progress bar — the Flight
+        server runs headless under Windows Task Scheduler (no console,
+        ``sys.stderr`` is ``None``), where the bar's finalizer crashes
+        on ``sys.stderr.flush()`` *after* the download completes.
         """
         end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
         end_str = end_dt.strftime("%Y-%m-%d")
@@ -94,6 +98,7 @@ class _DownloadMixin:
                     auto_adjust=True,
                     group_by="ticker",
                     threads=True,
+                    progress=False,
                 )
                 return df
             except Exception as exc:  # noqa: BLE001 — yfinance raises varied errors

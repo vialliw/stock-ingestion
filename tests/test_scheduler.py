@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import signal
@@ -602,6 +603,71 @@ class TestChallengerDailyLookbackParity:
         ingest_engine.run_daily_load.assert_called_once_with(
             lookback_days=9, force=False
         )
+
+
+# =====================================================================
+# F8-T2: run_flight_server._ensure_stdio_fallbacks — headless stdio guard
+# =====================================================================
+
+
+class TestEnsureStdioFallbacks:
+    """Unit tests for ``scripts/run_flight_server._ensure_stdio_fallbacks``.
+
+    The ``StockIngestion-FlightServer`` scheduled task runs with no
+    console, so Python starts with ``sys.stdout is sys.stderr is None``.
+    The live-observed crash was yfinance's tqdm progress-bar finalizer
+    calling ``sys.stderr.flush()`` *after* a download completed —
+    ``AttributeError: 'NoneType' object has no attribute 'flush'`` —
+    killing a finished 10-year initial_load before upsert.  The guard
+    redirects missing streams to the null device; existing streams must
+    be left untouched.
+    """
+
+    def test_none_stderr_replaced_with_writable_devnull(self, monkeypatch):
+        monkeypatch.setattr(sys, "stderr", None)
+        run_flight_server._ensure_stdio_fallbacks()
+        assert sys.stderr is not None
+        # The exact call that crashed live — must not raise.
+        sys.stderr.flush()
+        sys.stderr.write("headless write\n")
+        assert sys.stderr.name == os.devnull
+
+    def test_none_stdout_replaced_with_writable_devnull(self, monkeypatch):
+        monkeypatch.setattr(sys, "stdout", None)
+        run_flight_server._ensure_stdio_fallbacks()
+        assert sys.stdout is not None
+        sys.stdout.flush()
+        sys.stdout.write("headless write\n")
+        assert sys.stdout.name == os.devnull
+
+    def test_both_streams_none_replaced(self, monkeypatch):
+        monkeypatch.setattr(sys, "stdout", None)
+        monkeypatch.setattr(sys, "stderr", None)
+        run_flight_server._ensure_stdio_fallbacks()
+        assert sys.stdout is not None
+        assert sys.stderr is not None
+        sys.stdout.flush()
+        sys.stderr.flush()
+
+    def test_existing_streams_left_untouched(self, monkeypatch):
+        """Idempotent no-op: real streams (console, pytest capture) must
+        never be swapped out."""
+        sentinel_out = io.StringIO()
+        sentinel_err = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", sentinel_out)
+        monkeypatch.setattr(sys, "stderr", sentinel_err)
+        run_flight_server._ensure_stdio_fallbacks()
+        assert sys.stdout is sentinel_out
+        assert sys.stderr is sentinel_err
+
+    def test_partial_none_only_missing_stream_replaced(self, monkeypatch):
+        sentinel_out = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", sentinel_out)
+        monkeypatch.setattr(sys, "stderr", None)
+        run_flight_server._ensure_stdio_fallbacks()
+        assert sys.stdout is sentinel_out
+        assert sys.stderr is not None
+        sys.stderr.flush()
 
 
 # =====================================================================

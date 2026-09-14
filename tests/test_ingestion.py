@@ -181,6 +181,30 @@ def test_batch_download_adds_one_day_to_end_date(
     assert kwargs["group_by"] == "ticker"
 
 
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_batch_download_disables_progress_bar(
+    engine, db, cfg, module_name
+):
+    """F8-T2: ``yf.download`` must be called with ``progress=False``.
+
+    The Flight server runs under Windows Task Scheduler with no console,
+    so ``sys.stderr is None`` and yfinance's tqdm progress-bar finalizer
+    crashes with ``AttributeError: 'NoneType' object has no attribute
+    'flush'`` — observed live killing a completed 10-year initial_load
+    before anything was upserted.  The progress bar is meaningless in a
+    headless service anyway.
+    """
+    dates = dates_range("2024-01-01", "2024-01-10")
+    mock_df = make_mock_download_df(["AAPL"], dates)
+    with patch(f"{module_name}.yf.download", return_value=mock_df) as mock_dl:
+        engine._batch_download(["AAPL"], "2024-01-01", "2024-01-10")
+    assert mock_dl.called
+    _, kwargs = mock_dl.call_args
+    assert kwargs["progress"] is False
+
+
 # ---------------------------------------------------------------------------
 # 2. fetch_and_clean returns (df, succeeded, failed, errors) tuple
 # ---------------------------------------------------------------------------

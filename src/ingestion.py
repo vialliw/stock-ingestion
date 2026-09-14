@@ -231,7 +231,12 @@ class IngestionEngine:
         ``end_date`` is treated as inclusive, so it is adjusted +1 day
         internally to satisfy yfinance's exclusive ``end`` parameter.
         Downloads use ``auto_adjust=True``, ``interval="1d"``,
-        ``group_by='ticker'`` and ``threads=True``.
+        ``group_by='ticker'`` and ``threads=True``.  ``progress=False``
+        disables the tqdm progress bar: the Flight server runs headless
+        under Windows Task Scheduler (no console, ``sys.stderr`` is
+        ``None``), where the bar's finalizer crashes on
+        ``sys.stderr.flush()`` *after* the download completes — losing
+        the whole load.  The bar is meaningless in a service anyway.
         """
         end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
         df = yf.download(
@@ -242,6 +247,7 @@ class IngestionEngine:
             auto_adjust=True,
             group_by="ticker",
             threads=True,
+            progress=False,
         )
         return df
 

@@ -332,6 +332,8 @@ The registration uses the PowerShell `ScheduledTasks` cmdlets with:
 
 The task runs as `SYSTEM` whether or not a user is logged on. Note that **user-scoped environment variables are not visible to `SYSTEM`** — if `r2.enabled` is true, set `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_ENDPOINT_URL` at machine scope.
 
+The service is **headless-safe**: the task runs with no console attached (`sys.stdout`/`sys.stderr` are `None`), so `scripts\run_flight_server.py` redirects any missing stdio stream to the null device before startup — guarding every library that touches stdio (the observed crash was the `yf.download` progress-bar finalizer calling `sys.stderr.flush()` *after* a download completed). Both ingestion engines additionally call `yf.download(..., progress=False)`, so the tqdm progress bar never engages.
+
 > **Single writer:** while this service task is registered, do **not** also run `python -m src.scheduler_main` (the standalone APScheduler daemon). The Flight server holds the DuckDB write lock for its whole lifetime, and `scheduler_main.py` would fight it for that lock. The daily scheduled task below already routes its load through the running service.
 
 When the service is up, `scripts/daily_load_once.py` sends `do_action("daily_load", {"force": true})` to `grpc://{server.flight_host}:{server.flight_port}` instead of opening DuckDB itself — the service performs the catch-up load and stays the single writer. If the service is unreachable (short connect probe fails), the runner logs the fallback and opens DuckDB directly as before.
