@@ -2050,3 +2050,5 @@ ECHOED NON-BLOCKERS for orchestrator: (N1) 'tqdm' is a cosmetic misnomer in docs
   Task C: no legacy scheduled task exists (job was manual); README.md + docs/README.md gained 'Migrating from the legacy Pipe01 job' section (commit 6a8ffa9).
   Task D e2e: schtasks /run StockIngestion-DailyLoad -> Flight-routed daily_load PARTIAL (3611 rows, 6 rate-limit failures: HTFL,CHTR,REYN,UPS,RKLB,UBER); Report_Top_25_Active.xlsx regenerated 17:30; legacy file mtime frozen at Sep 4.
   NOTE: 10-year initial_load completed earlier (2,776,005 rows, 2016-09-16->2026-09-14, 1210 tickers) incl. manual retry of 10 rate-limited tickers via on_request_load.
+
+[2026-09-14T16:46:22.475289+00:00] [EXECUTOR] claimed F9-T1

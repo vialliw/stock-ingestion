@@ -2557,5 +2557,100 @@
     ],
     "acceptance_criteria": "Root cause: Flight server running via Task Scheduler has no console -> sys.stderr is None -> yf.download progress bar finalizer calls sys.stderr.flush() -> AttributeError AFTER download completes, killing the whole initial_load (live crash observed). Fixes: (1) add progress=False to the yf.download call in _batch_download in BOTH src/ingestion.py and src/ingestion_challenger.py (headless-safe, progress bar useless in a service anyway). (2) defensive fallback in scripts/run_flight_server.py before main(): if sys.stderr is None -> sys.stderr = open(os.devnull, 'w'); same for sys.stdout — covers any other stdio-touching lib. (3) Tests: assert _batch_download calls yf.download with progress=False (parametrized both impls); test the stdio-fallback logic. (4) pytest exits 0; check_loops + --strict exit 0. (5) README.md + docs/README.md note headless-safety; byte-identical.",
     "assigned_to": "B"
+  },
+  {
+    "id": "F9-T1",
+    "title": "Retry transient empty-dataset failures: second-pass download for failed tickers",
+    "role": "executor",
+    "model": "swe",
+    "status": "in_progress",
+    "depends_on": [],
+    "input_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py"
+    ],
+    "output_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/tests/test_ingestion.py",
+      "/README.md",
+      "/docs/README.md"
+    ],
+    "acceptance_criteria": "After the initial _batch_download in fetch_and_clean, tickers that failed with \"Empty dataset\" are retried once in a follow-up yf.download batch (short delay, e.g. time.sleep(10-30s) to let rate-limit cool; may use threads=False or smaller chunks for gentler pacing). Successful retries move from failed to succeeded; their rows join the returned df; errors dict updated. Applies to BOTH src/ingestion.py and src/ingestion_challenger.py. The retry happens inside fetch_and_clean BEFORE the caller consumes results, preserving the download-before-delete split ordering. The retry loop needs a '# justified:' comment (check_loops). Delisted/excluded tickers still resolve to their existing fate (purge path unchanged — F9-T2 handles verification). Tests parametrized over both impls: (a) first batch empty for ticker X, retry returns data -> X in succeeded, rows present; (b) still-empty on retry -> stays failed; (c) retry invoked only for failed tickers, not all; (d) delay/sleep mocked. pytest exits 0; check_loops + --strict clean. README notes automatic retry.",
+    "assigned_to": "B"
+  },
+  {
+    "id": "F9-T2",
+    "title": "Delisting verification before purge_ticker on empty excluded ticker",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": [
+      "F9-T1"
+    ],
+    "input_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/src/db.py",
+      "/src/db_challenger.py"
+    ],
+    "output_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/tests/test_ingestion.py",
+      "/README.md",
+      "/docs/README.md"
+    ],
+    "acceptance_criteria": "Before purge_ticker is called for an excluded ticker that returned empty data (and after F9-T1 retry also failed), perform a cheap independent confirmation — e.g. yf.Ticker(t).fast_info or a single-ticker yf.download for a recent short window — and only purge when the confirmation also indicates no data. If the confirm check returns data or raises an unexpected error, skip the purge and keep the ticker in failed with a log line noting unconfirmed-delisting. BOTH impls. The confirmation result must be mockable in tests. Tests parametrized over both impls: (a) excluded+empty+confirm-empty -> purge called; (b) excluded+empty+confirm-has-data -> purge NOT called, ticker failed, warning logged; (c) non-excluded empty -> never purged regardless. pytest exits 0; check_loops clean. README documents the purge safeguard.",
+    "assigned_to": "B"
+  },
+  {
+    "id": "F9-T3",
+    "title": "Validate initial_load years payload: bound to int in [1, 30]",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": [],
+    "input_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/src/flight_server.py",
+      "/src/flight_server_challenger.py"
+    ],
+    "output_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/src/flight_server.py",
+      "/src/flight_server_challenger.py",
+      "/tests/test_ingestion.py",
+      "/tests/test_flight_server.py",
+      "/README.md",
+      "/docs/README.md"
+    ],
+    "acceptance_criteria": "run_initial_load validates the effective years value (explicit arg or config-resolved): must be an int (bool rejected) with 1 <= years <= 30; violation raises ValueError before any download. Applies to BOTH engines AND surfaced through BOTH flight servers (invalid payload -> FlightServerError or error-status result, not a silent empty download). years=0/-1/'10'/True/None-handling all covered. Tests parametrized over both impls for engine-level validation and action-level propagation. pytest exits 0; check_loops clean. README documents the valid range.",
+    "assigned_to": "B"
+  },
+  {
+    "id": "F9-T4",
+    "title": "Prominent failure summary logging at end of each load run",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": [
+      "F9-T1"
+    ],
+    "input_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py"
+    ],
+    "output_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/tests/test_ingestion.py",
+      "/README.md",
+      "/docs/README.md"
+    ],
+    "acceptance_criteria": "At the end of run_initial_load/run_daily_load/run_on_request_load, when tickers_failed is non-empty, log a WARNING-level summary line naming the failed tickers (e.g. 'Load finished with N failed tickers: [...]') in BOTH engines, so PARTIAL outcomes are visible in stock_ingestion.log without querying errors_json. Tests assert the warning is emitted with ticker names when failures exist and absent on clean runs (caplog or mocked logger), parametrized over both impls. pytest exits 0; check_loops clean. README notes the summary line.",
+    "assigned_to": "B"
   }
 ]
