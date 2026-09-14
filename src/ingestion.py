@@ -591,6 +591,12 @@ class IngestionEngine:
             "duration_ms": duration_ms,
         }
         self.db.record_ingestion_run("initial_load", result, started_at=start_time)
+        if failed:
+            logger.warning(
+                "Initial load finished with %d failed tickers: %s",
+                len(failed),
+                failed,
+            )
         logger.info("Initial load completed. Rows upserted: %s.", rows)
         return result
 
@@ -726,6 +732,12 @@ class IngestionEngine:
                 result["r2_sync"] = {"status": "FAILED", "error": str(exc)}
                 logger.error("Daily load R2 sync failed: %s", exc)
 
+        if all_failed:
+            logger.warning(
+                "Daily load finished with %d failed tickers: %s",
+                len(result["tickers_failed"]),
+                result["tickers_failed"],
+            )
         logger.info("Daily load complete. Total rows upserted: %s.", total_rows)
         return result
 
@@ -760,6 +772,12 @@ class IngestionEngine:
         self.db.record_ingestion_run(
             "on_request_load", result, started_at=start_time
         )
+        if failed:
+            logger.warning(
+                "On-request load finished with %d failed tickers: %s",
+                len(failed),
+                failed,
+            )
         logger.info("On-request load complete. Rows upserted: %s.", rows)
         return result
 

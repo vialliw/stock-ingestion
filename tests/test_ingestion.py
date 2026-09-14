@@ -1248,3 +1248,147 @@ def test_nonexcluded_empty_never_purged_no_confirm(
     mock_purge.assert_not_called()
     assert "UNKNOWN" in failed
     assert errors["UNKNOWN"] == "Empty dataset"
+
+
+# ---------------------------------------------------------------------------
+# 16. F9-T4: WARNING failure-summary line at end of each load run
+# ---------------------------------------------------------------------------
+
+
+def _open_market_calendar():
+    """A MagicMock NYSE calendar returning a non-empty (open) schedule."""
+    sched = pd.DataFrame(
+        {"market_open": [pd.Timestamp("2024-01-02 09:30")],
+         "market_close": [pd.Timestamp("2024-01-02 16:00")]},
+        index=[pd.Timestamp("2024-01-02")],
+    )
+    mock_calendar = MagicMock()
+    mock_calendar.schedule.return_value = sched
+    return mock_calendar
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_initial_load_logs_failed_ticker_summary(
+    engine, db, cfg, caplog
+):
+    """F9-T4: run_initial_load emits a WARNING naming failed tickers."""
+    engine.fetch_and_clean = MagicMock(
+        return_value=(
+            pd.DataFrame(),
+            ["AAPL"],
+            ["MSFT"],
+            {"MSFT": "Empty dataset"},
+        )
+    )
+    engine.db.upsert_dataframe = MagicMock(return_value=0)
+
+    with caplog.at_level(logging.WARNING):
+        result = engine.run_initial_load()
+
+    assert result["tickers_failed"] == ["MSFT"]
+    warnings = [
+        r for r in caplog.records if r.levelno >= logging.WARNING
+    ]
+    assert any(
+        "1 failed tickers" in r.getMessage() and "MSFT" in r.getMessage()
+        for r in warnings
+    )
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_daily_load_logs_failed_ticker_summary(
+    engine, db, cfg, module_name, caplog
+):
+    """F9-T4: run_daily_load emits a WARNING naming failed tickers."""
+    with patch(
+        f"{module_name}.mcal.get_calendar",
+        return_value=_open_market_calendar(),
+    ), \
+         patch.object(db, "detect_new_tickers", return_value=[]), \
+         patch.object(
+             engine,
+             "fetch_and_clean",
+             return_value=(
+                 pd.DataFrame(),
+                 ["AAPL"],
+                 ["MSFT"],
+                 {"MSFT": "Empty dataset"},
+             ),
+         ), \
+         patch.object(db, "upsert_dataframe", return_value=0), \
+         caplog.at_level(logging.WARNING):
+        result = engine.run_daily_load()
+
+    assert result["tickers_failed"] == ["MSFT"]
+    warnings = [
+        r for r in caplog.records if r.levelno >= logging.WARNING
+    ]
+    assert any(
+        "1 failed tickers" in r.getMessage() and "MSFT" in r.getMessage()
+        for r in warnings
+    )
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_on_request_load_logs_failed_ticker_summary(
+    engine, db, cfg, caplog
+):
+    """F9-T4: run_on_request_load emits a WARNING naming failed tickers."""
+    engine.fetch_and_clean = MagicMock(
+        return_value=(
+            pd.DataFrame(),
+            ["AAPL"],
+            ["MSFT"],
+            {"MSFT": "Empty dataset"},
+        )
+    )
+    engine.db.upsert_dataframe = MagicMock(return_value=0)
+
+    with caplog.at_level(logging.WARNING):
+        result = engine.run_on_request_load(
+            ["AAPL", "MSFT"], "2024-01-01", "2024-01-03"
+        )
+
+    assert result["tickers_failed"] == ["MSFT"]
+    warnings = [
+        r for r in caplog.records if r.levelno >= logging.WARNING
+    ]
+    assert any(
+        "1 failed tickers" in r.getMessage() and "MSFT" in r.getMessage()
+        for r in warnings
+    )
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_clean_run_logs_no_failed_ticker_summary(
+    engine, db, cfg, module_name, caplog
+):
+    """F9-T4: no failures -> no 'failed tickers' WARNING on either
+    initial or daily load."""
+    engine.fetch_and_clean = MagicMock(
+        return_value=(pd.DataFrame(), ["AAPL"], [], {})
+    )
+    engine.db.upsert_dataframe = MagicMock(return_value=0)
+
+    with caplog.at_level(logging.WARNING):
+        engine.run_initial_load()
+
+    with patch(
+        f"{module_name}.mcal.get_calendar",
+        return_value=_open_market_calendar(),
+    ), \
+         patch.object(db, "detect_new_tickers", return_value=[]), \
+         caplog.at_level(logging.WARNING):
+        engine.run_daily_load()
+
+    assert not any(
+        "failed tickers" in r.getMessage() for r in caplog.records
+    )

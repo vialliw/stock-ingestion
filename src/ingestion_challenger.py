@@ -656,6 +656,12 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin):
         rows = self.db.upsert_dataframe(df)
         self._record_historical_splits(succeeded)
         duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+        if failed:
+            logger.warning(
+                "Initial load finished with %d failed tickers: %s",
+                len(failed),
+                failed,
+            )
         logger.info("Initial load completed. Rows upserted: %d.", rows)
         return {
             "rows_upserted": rows,
@@ -762,6 +768,12 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin):
         all_errors.update(err)
 
         duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+        if all_failed:
+            logger.warning(
+                "Daily load finished with %d failed tickers: %s",
+                len(set(all_failed)),
+                sorted(set(all_failed)),
+            )
         logger.info("Daily load complete. Total rows upserted: %d.", total_rows)
         return {
             "rows_upserted": total_rows,
@@ -786,6 +798,12 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin):
         )
         rows = self.db.upsert_dataframe(df)
         duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+        if failed:
+            logger.warning(
+                "On-request load finished with %d failed tickers: %s",
+                len(failed),
+                failed,
+            )
         logger.info("On-request load complete. Rows upserted: %d.", rows)
         return {
             "rows_upserted": rows,

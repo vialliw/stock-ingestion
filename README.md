@@ -134,6 +134,7 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 - Configurable format: `text` (default) or `json` (via `python-json-logger`).
 - Dual output: console (stderr) + file at a configurable path.
 - All modules use standard `logging.getLogger(__name__)`.
+- Every load run (`initial_load`, `daily_load`, `on_request_load`) ends with a `WARNING`-level summary naming failed tickers when any exist — e.g. `Daily load finished with 6 failed tickers: [...]` — so PARTIAL outcomes are visible in the log without querying `errors_json`.
 
 ### Audit Trail
 
