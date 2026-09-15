@@ -1093,3 +1093,103 @@ class TestDataframeToXlsxBytes:
         ws = wb["Empty"]
         assert [cell.value for cell in ws[1]] == ["Ticker", "rvol"]
         wb.close()
+
+
+class TestMarketBreadthTab:
+    """The "Market Breadth" tab — 6th tab, added after the two daily
+    tabs (F11-T1).  The heavy lifting lives in
+    ``scripts/breadth_dashboard.py``; here we only check the tab is
+    wired into ``main()`` and that the render path drives the shared
+    cached fetch + ``st.plotly_chart``."""
+
+    def test_tab_label_in_main_tab_list(self):
+        import inspect
+
+        src = inspect.getsource(report_app.main)
+        assert '"Market Breadth"' in src
+        # Sixth and last tab — after the two daily tabs.
+        assert src.index('"Daily — Acceleration Candidates"') < src.index(
+            '"Market Breadth"'
+        )
+
+    @staticmethod
+    def _synthetic_frames():
+        import breadth_dashboard
+
+        dates = pd.date_range("2025-01-01", periods=80, freq="B")
+        n = len(dates)
+        breadth = pd.DataFrame(
+            {
+                "Date": dates,
+                "Total_Stocks": [100] * n,
+                "Advances": [60] * n,
+                "Declines": [30] * n,
+                "Above_SMA_50": [55] * n,
+                "Above_SMA_200": [45] * n,
+                "Adv_Volume": [6000.0] * n,
+                "Dec_Volume": [3000.0] * n,
+                "New_Highs": [12] * n,
+                "New_Lows": [4] * n,
+            }
+        )
+        spy = pd.DataFrame(
+            {
+                "Date": dates,
+                "Open": [100.0] * n,
+                "High": [101.0] * n,
+                "Low": [99.0] * n,
+                "Close": [100.5 + i for i in range(n)],
+                "Volume": [1_000_000.0] * n,
+            }
+        )
+        return breadth, spy
+
+    def test_render_drives_fetch_and_plotly_chart(
+        self, tmp_path, monkeypatch
+    ):
+        breadth, spy = self._synthetic_frames()
+
+        def fake_cached_fetch(st, sql, config):
+            if "Ticker = 'SPY'" in sql:
+                return spy
+            return breadth
+
+        monkeypatch.setattr(
+            report_app, "cached_fetch_dataframe", fake_cached_fetch
+        )
+        st = MagicMock()
+        st.number_input.return_value = 0
+        st.button.return_value = False
+
+        report_app._render_market_breadth_tab(st, _config(tmp_path))
+
+        st.plotly_chart.assert_called_once()
+        # Params expander + interpretation-guide expander used.
+        assert st.expander.call_count >= 2
+        # The verbatim HTML guide renders via st.html (streamlit 1.58)
+        # or unsafe markdown — one of them must have been called with it.
+        guide_calls = (
+            getattr(st.html, "call_args_list", [])
+            + getattr(st.markdown, "call_args_list", [])
+        )
+        assert any(
+            "Complete Interpretation Guide" in str(c)
+            for c in guide_calls
+        )
+
+    def test_render_errors_when_fetch_returns_none(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: None,
+        )
+        st = MagicMock()
+        st.number_input.return_value = 0
+        st.button.return_value = False
+
+        report_app._render_market_breadth_tab(st, _config(tmp_path))
+
+        st.error.assert_called_once()
+        st.plotly_chart.assert_not_called()

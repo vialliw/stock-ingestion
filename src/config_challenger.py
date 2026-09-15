@@ -150,6 +150,32 @@ def _validate_initial_load_years(value: Any) -> int:
     return value
 
 
+def _validate_market_breadth_years(value: Any) -> int:
+    """Coerce to int and enforce ``>= 0``.
+
+    Mirrors the executor's ``market_breadth_years: int = Field(default=3,
+    ge=0)`` in ``src/config.py``: the default trailing-years window for
+    the market-breadth dashboard.  ``0`` is valid and means "all data"
+    (the legacy ``years=None`` passthrough).  ``None`` (YAML ``null`` or
+    an absent key) falls back to the default — consistent with
+    ``_validate_initial_load_years`` and this module's ``_coerce_str``
+    convention.  Booleans and non-numeric values are rejected; digit
+    strings are coerced like ``_validate_port``.
+    """
+    if value is None:
+        return 3
+    if isinstance(value, bool) or not isinstance(value, int):
+        if isinstance(value, str) and value.strip().lstrip("+-").isdigit():
+            value = int(value)
+        else:
+            raise ValueError(
+                f"market_breadth_years must be an integer, got {value!r}"
+            )
+    if value < 0:
+        raise ValueError(f"market_breadth_years must be >= 0, got {value}")
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Nested config dataclasses
 # ---------------------------------------------------------------------------
@@ -228,12 +254,20 @@ class LoggingConfig:
 @dataclass
 class ReportsConfig:
     report_dir: str = "./data/reports"
+    # Default trailing-years window for the market-breadth dashboard
+    # (scripts/breadth_dashboard.py + the "Market Breadth" report_app
+    # tab) — parity with src/config.py ReportsConfig (F11-T1).  0 =
+    # all data; the cutoff is applied post-query in pandas.
+    market_breadth_years: int = 3
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ReportsConfig":
         data = data or {}
         return cls(
             report_dir=_coerce_str(data.get("report_dir"), "./data/reports"),
+            market_breadth_years=_validate_market_breadth_years(
+                data.get("market_breadth_years")
+            ),
         )
 
 

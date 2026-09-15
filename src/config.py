@@ -122,9 +122,40 @@ class LoggingConfig(BaseModel):
 
 
 class ReportsConfig(BaseModel):
-    """Directory for generated report JSON files."""
+    """Directory for generated report files + report-specific knobs.
+
+    ``market_breadth_years`` is the default trailing-years window for
+    the market-breadth dashboard (``scripts/breadth_dashboard.py`` and
+    the "Market Breadth" tab in ``scripts/report_app.py``): ``0`` means
+    "all data" (maps to the legacy ``years=None`` passthrough), any
+    positive int applies a trailing-N-years pandas cutoff *after* the
+    query so the SMA_200/252-day window lookbacks still see pre-cutoff
+    history.
+    """
 
     report_dir: str = "./data/reports"
+    market_breadth_years: int = Field(default=3, ge=0)
+
+    @field_validator("market_breadth_years", mode="before")
+    @classmethod
+    def validate_market_breadth_years(cls, v) -> int:
+        """``None`` (YAML ``null`` / absent key) falls back to the
+        default — consistent with ``validate_initial_load_years``.
+        Booleans and non-integer values are rejected (a bool is not a
+        year count — same rationale as ``validate_port``); digit
+        strings are coerced like ``_validate_port`` does in the
+        challenger.  ``0`` is valid (all data); negatives are rejected
+        by ``ge=0``.
+        """
+        if v is None:
+            return 3
+        if isinstance(v, str) and v.strip().lstrip("+-").isdigit():
+            v = int(v)
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError(
+                f"market_breadth_years must be an integer >= 0, got {v!r}"
+            )
+        return v
 
 
 class R2Config(BaseModel):

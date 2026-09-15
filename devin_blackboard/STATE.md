@@ -298,3 +298,13 @@ Final: 213/213 tests pass, loop checker `--strict` clean, do_put schema/filter/u
 - Flight Server restarted on SCHEMA_VERSION 4 (company_metadata live).
 - Live smoke passed: SPY/AAPL/MSFT fetched+upserted, do_get verified.
 - Full backfill deferred to daily-load bridge or manual script run.
+
+
+## F11-T1 — Market Breadth Dashboard — implemented by executor B (2026-09-15)
+- Ported legacy `breadth_builder02.py` verbatim (SQL, EMA seeding, indicator math, 5-subplot figure, guide HTML byte-identical vs legacy literals); only the data source changed.
+- NEW `scripts/breadth_dashboard.py`: build_breadth_sql / build_spy_sql / calculate_ema (legacy SMA-seed, NOT ewm) / compute_indicators / filter_years (post-query DateOffset cutoff, 0/None passthrough) / build_breadth_figure / BREADTH_GUIDE_HTML / generate_breadth_dashboard (fetch via report_app.fetch_dataframe — Flight do_get first, read-only DuckDB fallback; never a writable connection) / main() CLI with optional positional years override. Lazy plotly import; fixed output name `Stock_Ingestion_Market_Breadth.html` -> reports.report_dir.
+- `scripts/report_app.py`: 6th tab "Market Breadth" after the daily tabs (params expander + Refresh button, cached_fetch_dataframe + st.error on None, st.plotly_chart, guide via st.html, st.caption row counts).
+- `market_breadth_years` config (default 3, 0=all data, ge=0, bool/non-int rejected, digit-str coerced) in BOTH src/config.py (pydantic) and src/config_challenger.py (dataclass + from_dict); `src/config.yaml` reports: + `market_breadth_years: 3`.
+- `scripts/breadth_dashboard.bat` (CRLF/ASCII/pause/%* passthrough); requirements.txt + `plotly>=5`.
+- Tests: NEW tests/test_breadth_dashboard.py (21) + test_config.py (+22, both impls) + test_report_app.py (+3). 692/692 pytest (baseline 643, +49); check_loops --src-dir src + --strict clean; README.md == docs/README.md byte-identical (49,227 B).
+- LIVE smoke: `python scripts/breadth_dashboard.py` -> C:\Intel\parquet\Stock_Ingestion_Market_Breadth.html (4.9 MB) via Flight server 127.0.0.1:8815 — 2510 breadth rows / 2511 SPY rows, 3y cutoff 2023-09-14..2026-09-14; no query-timeout hit.

@@ -168,3 +168,119 @@ def test_real_config_yaml_sets_ten(cfg_cls):
     """src/config.yaml pins ``initial_load_years: 10`` (F8-T1 req 3)."""
     cfg = cfg_cls.from_yaml("src/config.yaml")
     assert cfg.ingestion.initial_load_years == 10
+
+
+# ===========================================================================
+# reports.market_breadth_years (F11-T1)
+# ===========================================================================
+# Same parametrization over BOTH implementations as above.  Semantics:
+#   - default is 3 when the key is absent / the file is missing / null
+#   - an explicit YAML value is honored
+#   - 0 is valid and means "all data" (legacy years=None passthrough)
+#   - negatives are rejected (executor: Field(ge=0) -> ValidationError,
+#     a ValueError subclass; challenger: _validate_market_breadth_years
+#     -> ValueError)
+#   - booleans and non-numeric strings are rejected; digit strings are
+#     coerced (same convention as _validate_port / initial_load_years)
+
+
+@pytest.mark.parametrize("cfg_cls", IMPLS)
+def test_mb_years_default_is_three(cfg_cls):
+    """Bare construction -> market_breadth_years defaults to 3."""
+    assert cfg_cls().reports.market_breadth_years == 3
+
+
+@pytest.mark.parametrize("cfg_cls", IMPLS)
+def test_mb_years_missing_file_returns_default(cfg_cls, tmp_path):
+    cfg = cfg_cls.from_yaml(str(tmp_path / "nonexistent.yaml"))
+    assert cfg.reports.market_breadth_years == 3
+
+
+@pytest.mark.parametrize("cfg_cls", IMPLS)
+def test_mb_years_absent_key_returns_default(cfg_cls, tmp_path):
+    path = _write_yaml(tmp_path, """
+        reports:
+          report_dir: /tmp/reports
+    """)
+    cfg = cfg_cls.from_yaml(path)
+    assert cfg.reports.market_breadth_years == 3
+
+
+@pytest.mark.parametrize("cfg_cls", IMPLS)
+def test_mb_years_null_falls_back_to_default(cfg_cls, tmp_path):
+    path = _write_yaml(tmp_path, """
+        reports:
+          market_breadth_years: null
+    """)
+    cfg = cfg_cls.from_yaml(path)
+    assert cfg.reports.market_breadth_years == 3
+
+
+@pytest.mark.parametrize("cfg_cls", IMPLS)
+def test_mb_years_yaml_value_is_read(cfg_cls, tmp_path):
+    path = _write_yaml(tmp_path, """
+        reports:
+          market_breadth_years: 5
+    """)
+    cfg = cfg_cls.from_yaml(path)
+    assert cfg.reports.market_breadth_years == 5
+
+
+@pytest.mark.parametrize("cfg_cls", IMPLS)
+def test_mb_years_zero_means_all_data(cfg_cls, tmp_path):
+    """ge=0: zero itself is valid — the 'all data' passthrough."""
+    path = _write_yaml(tmp_path, """
+        reports:
+          market_breadth_years: 0
+    """)
+    cfg = cfg_cls.from_yaml(path)
+    assert cfg.reports.market_breadth_years == 0
+
+
+@pytest.mark.parametrize("cfg_cls", IMPLS)
+def test_mb_years_digit_string_coerced(cfg_cls, tmp_path):
+    path = _write_yaml(tmp_path, """
+        reports:
+          market_breadth_years: "7"
+    """)
+    cfg = cfg_cls.from_yaml(path)
+    assert cfg.reports.market_breadth_years == 7
+
+
+@pytest.mark.parametrize("cfg_cls", IMPLS)
+@pytest.mark.parametrize("bad", ["-1", "-3"])
+def test_mb_years_rejects_negatives(cfg_cls, tmp_path, bad):
+    path = _write_yaml(tmp_path, f"""
+        reports:
+          market_breadth_years: {bad}
+    """)
+    with pytest.raises(ValueError):
+        cfg_cls.from_yaml(path)
+
+
+@pytest.mark.parametrize("cfg_cls", IMPLS)
+def test_mb_years_boolean_rejected(cfg_cls, tmp_path):
+    """``market_breadth_years: true`` is a bool, not a year count."""
+    path = _write_yaml(tmp_path, """
+        reports:
+          market_breadth_years: true
+    """)
+    with pytest.raises(ValueError):
+        cfg_cls.from_yaml(path)
+
+
+@pytest.mark.parametrize("cfg_cls", IMPLS)
+def test_mb_years_non_numeric_string_rejected(cfg_cls, tmp_path):
+    path = _write_yaml(tmp_path, """
+        reports:
+          market_breadth_years: "abc"
+    """)
+    with pytest.raises(ValueError):
+        cfg_cls.from_yaml(path)
+
+
+@pytest.mark.parametrize("cfg_cls", IMPLS)
+def test_real_config_yaml_sets_mb_years_three(cfg_cls):
+    """src/config.yaml pins ``market_breadth_years: 3`` (F11-T1)."""
+    cfg = cfg_cls.from_yaml("src/config.yaml")
+    assert cfg.reports.market_breadth_years == 3

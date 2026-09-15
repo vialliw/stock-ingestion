@@ -20,6 +20,7 @@ A quantitative stock-data ingestion service that centralizes daily equity data f
   - [Uploading Data via Arrow Flight (do_put)](#uploading-data-via-arrow-flight-do_put)
   - [R2 Synchronization](#r2-synchronization)
   - [Interactive Report App (Streamlit)](#interactive-report-app-streamlit)
+  - [Market Breadth Dashboard](#market-breadth-dashboard)
 - [Database Schema](#database-schema)
 - [Testing](#testing)
 - [Loop Checker](#loop-checker)
@@ -212,6 +213,8 @@ stock-ingestion/
 │   ├── ingestion_challenger.py # Challenger ingestion variant (review reference)
 │   └── store_challenger.py    # Challenger store variant (review reference)
 ├── tests/
+│   ├── test_breadth_dashboard.py  # Market breadth dashboard (SQL/EMA/indicators/figure/CLI)
+│   ├── test_config.py          # initial_load_years + market_breadth_years config fields
 │   ├── test_config_breaking.py
 │   ├── test_db.py
 │   ├── test_delisted_lifecycle.py
@@ -231,6 +234,8 @@ stock-ingestion/
 │   ├── test_scheduler.py
 │   └── test_store_csv.py
 ├── scripts/
+│   ├── breadth_dashboard.bat   # Double-click wrapper for breadth_dashboard.py
+│   ├── breadth_dashboard.py    # Market breadth HTML dashboard (port of legacy breadth_builder02.py, Flight-first)
 │   ├── check_loops.py          # AST-based loop justification checker
 │   ├── ci_daily_load.py        # GitHub Actions one-shot daily load (R2 download/upload)
 │   ├── daily_load_once.py      # Windows Task one-shot runner (Flight-first routing, catch-up mode, exit codes)
@@ -244,7 +249,7 @@ stock-ingestion/
 │   ├── pre_commit_check_loops.py  # Pre-commit hook wrapper
 │   ├── register_daily_task.ps1 # schtasks registration (timezone conversion, idempotent)
 │   ├── register_flight_service.ps1  # AtStartup service task for the Flight server (restart-on-failure)
-│   ├── report_app.py           # Streamlit report app (2 daily + 3 weekly RVOL/regime tabs)
+│   ├── report_app.py           # Streamlit report app (2 daily + 3 weekly RVOL/regime tabs + Market Breadth)
 │   ├── report_top25_active.py  # Top-25 active xlsx report — "Avg Trade Money ($M)" column (Flight-first, read-only DuckDB fallback)
 │   ├── run_flight_server.py    # cwd-safe wrapper launching src.main.main() for the service task
 │   └── workflow_phase2.py      # Dynamic Workflow orchestration script
@@ -298,6 +303,7 @@ pip install -r requirements.txt
 | `APScheduler` | Daily load scheduling |
 | `openpyxl` | Excel (xlsx) report output |
 | `streamlit` | Interactive report app |
+| `plotly` | Market breadth dashboard charts |
 
 ---
 
@@ -331,6 +337,7 @@ logging:
 
 reports:
   report_dir: "C:\Intel\parquet"
+  market_breadth_years: 3   # trailing-years window for the market-breadth dashboard (0 = all data)
 
 r2:
   enabled: false
@@ -572,13 +579,14 @@ r2:
 
 ### Interactive Report App (Streamlit)
 
-`scripts/report_app.py` is a Streamlit app that renders the RVOL edge reports from `docs/report_idea/` as five interactive tabs — the three weekly reports first, then the two daily ones:
+`scripts/report_app.py` is a Streamlit app that renders the RVOL edge reports from `docs/report_idea/` plus the market-breadth dashboard as six interactive tabs — the three weekly reports first, then the two daily ones, then Market Breadth:
 
 - **Weekly — Combined Regimes** — the combined weekly report (`report_weekly_trends.md`): all four non-Normal weekly volume regimes among the top-K most-liquid names, ordered by regime priority (Strong Acceleration, Acceleration, Strong Deceleration, Deceleration — matching the spec's recommended reading order) then `rvol` descending.
 - **Weekly — Acceleration** — weekly acceleration candidates only (`report_weekly_trend_accelerating.md`), ordered by `rvol` descending.
 - **Weekly — Deceleration** — weekly deceleration candidates only (`report_weekly_trend_decelerating.md`), ordered by `rvol` ascending (quietest names first).
 - **Daily — Top 25 by Dollar Volume** — top-N tickers ranked by latest-day dollar volume, enriched with RVOL, relative dollar volume, pct change, a `volume_regime` classification (Strong Acceleration / Acceleration / Normal / Deceleration / Strong Deceleration), and share of total average dollar volume.
 - **Daily — Acceleration Candidates** — keeps only `rvol >= threshold` names among the top-K most-liquid tickers by latest dollar volume, ordered by `rvol` descending.
+- **Market Breadth** — the 5-panel breadth dashboard ported verbatim (SQL / indicator math / figure / guide) from the legacy `breadth_builder02.py`: SPY candlestick + 50-day EMA, % of stocks above their 50-/200-day SMA, net advances & volume ratio, and new highs vs. new lows over a 252-day lookback. Rendered via `st.plotly_chart`; a "Years of history" widget (default `reports.market_breadth_years`, `0` = all data) applies a post-query trailing-years cutoff.
 
 The weekly tabs aggregate `daily_close` into weekly bars (`DATE_TRUNC('week', Date)`, first-Open/last-Close via `ARRAY_AGG`, summed volume and dollar volume, `LAG`-based weekly pct change) and average over the last N **weeks**. Note the weekly deceleration defaults differ from the daily ones: `strong_decel=0.50` / `decel=0.70` (daily uses 0.6 / 0.8).
 
@@ -593,6 +601,20 @@ streamlit run scripts/report_app.py
 Each tab exposes interactive parameters that feed into the generated SQL (numeric values only): lookback periods/weeks (default 30), top-N limit (daily top-25 tab, default 25), the four RVOL regime thresholds (daily defaults 2.5 / 1.8 / 0.8 / 0.6; weekly decel defaults 0.50 / 0.70), the liquidity top-K for the candidates/weekly tabs (default 50), and a `volume_regime` multiselect filter on the daily top-25 tab. Results render as a dataframe plus a bar chart of the key metric (`latest_dollar_volume` / `rvol`) — the chart is drawn via `st.altair_chart` with `sort=None` on the Ticker axis so the bars follow the query's `ORDER BY` (the table's default order), falling back to `st.vega_lite_chart` if Altair is unavailable — with a download button that produces an in-memory `.xlsx` (auto-sized columns via openpyxl) and a "Refresh data" button that clears the cached query result.
 
 **Data access:** the app queries the running Flight server first (`do_get` on `grpc://{server.flight_host}:{server.flight_port}`, 5-second availability probe, 120-second call bound) — **the Flight server must be running for the primary path**, and it is required whenever another process holds the DuckDB write lock. If the server is unreachable or the query fails, the app falls back to a direct *read-only* DuckDB connection (`duckdb.connect(db_path, read_only=True)`); if both fail, the tab shows an error.
+
+### Market Breadth Dashboard
+
+`scripts/breadth_dashboard.py` is the standalone (non-Streamlit) generator for the same 5-panel market breadth dashboard shown in the app's "Market Breadth" tab — a Flight-sourced port of the legacy `breadth_builder02.py`. It runs the two queries (universe breadth metrics excluding SPY, plus SPY OHLC) through the same Flight-first / read-only-DuckDB-fallback fetch path as the report app, applies the trailing-years cutoff in pandas *after* the query (the SMA_200 / 252-day lookback windows need pre-cutoff history), and writes a self-contained interactive HTML file.
+
+```bash
+python scripts/breadth_dashboard.py        # uses reports.market_breadth_years (default 3)
+python scripts/breadth_dashboard.py 5      # explicit trailing-years override
+python scripts/breadth_dashboard.py 0      # all history
+```
+
+Or double-click `scripts/breadth_dashboard.bat` (optional years argument passes through).
+
+Output: **`Stock_Ingestion_Market_Breadth.html`** written to `reports.report_dir` (`C:\Intel\parquet` in the shipped config) — the filename is fixed, not derived from the database name. The file embeds plotly.js plus the full interpretation guide.
 
 ---
 
@@ -674,10 +696,12 @@ python -m pytest tests/test_flight_server.py -q
 python -m pytest tests/ -v
 ```
 
-The test suite includes 643 tests covering:
+The test suite includes 692 tests covering:
 
 | Test File | Coverage |
 |-----------|----------|
+| `test_breadth_dashboard.py` | Market breadth dashboard: verbatim SQL, EMA seeding, indicators, figure, CLI |
+| `test_config.py` | `initial_load_years` + `market_breadth_years` config fields (both impls) |
 | `test_config_breaking.py` | Config validation, edge cases, breaking changes |
 | `test_db.py` | DatabaseManager: schema, migrations, upsert, queries |
 | `test_delisted_lifecycle.py` | Delisted ticker handling |
@@ -693,6 +717,7 @@ The test suite includes 643 tests covering:
 | `test_poll_tasks.py` | Task lifecycle manager (claim/done/blocked/stale) |
 | `test_query_timeout.py` | Query timeout enforcement, no LIMIT injection |
 | `test_r2_sync.py` | R2 sync (mocked boto3), auto-sync, manual sync |
+| `test_report_app.py` | Streamlit report app: SQL builders, fetch fallback, xlsx, Market Breadth tab |
 | `test_scheduler.py` | PipelineScheduler (mocked APScheduler) |
 | `test_store_csv.py` | CSV store (legacy) |
 

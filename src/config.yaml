@@ -1243,6 +1243,7 @@ logging:
   log_format: text
 reports:
   report_dir: C:\Intel\parquet
+  market_breadth_years: 3
 r2:
   enabled: false
   bucket_name: ''

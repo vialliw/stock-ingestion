@@ -1,5 +1,5 @@
-"""Interactive Streamlit report app with five tabs — the three weekly
-reports first, then the two daily ones:
+"""Interactive Streamlit report app with six tabs — the three weekly
+reports first, then the two daily ones, then Market Breadth:
 
 * **"Weekly — Combined Regimes"**: the combined weekly report from
   ``docs/report_idea/report_weekly_trends.md`` — all four non-Normal
@@ -28,6 +28,15 @@ reports first, then the two daily ones:
   among the top-K most-liquid names by latest dollar volume, ordered
   by ``rvol`` descending.  The query is the one inside
   ``docs/report_idea/report_Top 25 by Approximate Dollar Volume.md``.
+* **"Market Breadth"**: the 5-panel market breadth dashboard ported
+  from the legacy ``breadth_builder02.py`` (SQL, EMA seeding,
+  indicator formulas, figure construction and interpretation guide
+  live verbatim in ``scripts/breadth_dashboard.py``) — SPY
+  candlestick + 50-day EMA, % above SMA50/SMA200, net advances &
+  volume ratio, and new highs vs. new lows.  ``plotly`` is imported
+  lazily inside the tab path so this module stays importable without
+  it.  The trailing-years widget defaults to
+  ``reports.market_breadth_years`` (0 = all data).
 
 The weekly tabs aggregate ``daily_close`` into weekly bars
 (``DATE_TRUNC('week', Date)``, first-Open/last-Close via
@@ -1789,6 +1798,96 @@ def _render_weekly_decel_tab(st, config: PipelineConfig) -> None:
         st.markdown(WEEKLY_DECEL_GUIDE)
 
 
+def _render_market_breadth_tab(st, config: PipelineConfig) -> None:
+    """Market Breadth — the 5-panel breadth dashboard ported from the
+    legacy ``breadth_builder02.py``.
+
+    All SQL / indicator math / figure construction lives in
+    ``scripts/breadth_dashboard.py`` (imported lazily — it in turn
+    lazy-imports ``plotly`` inside ``build_breadth_figure``, so this
+    module stays importable without plotly).  Both queries go through
+    :func:`cached_fetch_dataframe` like every other tab; the
+    trailing-years cutoff is applied *post-query* in pandas because
+    the SMA_200 / 252-day lookback windows need pre-cutoff history.
+    """
+    import breadth_dashboard
+
+    with st.expander("Parameters", expanded=True):
+        years = st.number_input(
+            "Years of history (0 = all data)",
+            min_value=0,
+            max_value=30,
+            value=config.reports.market_breadth_years,
+            step=1,
+            key="mb_years",
+        )
+        if st.button("Refresh data", key="mb_refresh"):
+            _get_cached_fetch(st).clear()
+
+    breadth_df = cached_fetch_dataframe(
+        st, breadth_dashboard.build_breadth_sql(), config
+    )
+    if breadth_df is None:
+        st.error(
+            "Could not fetch report data — the Flight server is "
+            "unreachable and the direct read-only DuckDB fallback "
+            "failed (the database write lock is probably held by "
+            "another process, or the database file is unavailable)."
+        )
+        return
+    spy_df = cached_fetch_dataframe(
+        st, breadth_dashboard.build_spy_sql(), config
+    )
+    if spy_df is None:
+        st.error(
+            "Could not fetch report data — the Flight server is "
+            "unreachable and the direct read-only DuckDB fallback "
+            "failed (the database write lock is probably held by "
+            "another process, or the database file is unavailable)."
+        )
+        return
+
+    st.caption(
+        f"{len(breadth_df)} breadth row(s), {len(spy_df)} SPY row(s)"
+    )
+
+    # Same guards as the legacy generator.
+    if breadth_df.empty:
+        st.error(
+            "No breadth data returned from query. Check table name "
+            "and columns."
+        )
+        return
+    if spy_df.empty:
+        st.error(
+            "No SPY data found. Ensure 'SPY' ticker exists in "
+            "daily_close table."
+        )
+        return
+
+    breadth_df, spy_df = breadth_dashboard.filter_years(
+        breadth_df, spy_df, int(years)
+    )
+    spy_df["EMA_50"] = breadth_dashboard.calculate_ema(
+        spy_df["Close"], 50
+    )
+    breadth_df = breadth_dashboard.compute_indicators(breadth_df)
+    fig = breadth_dashboard.build_breadth_figure(
+        breadth_df, spy_df, source=config.database.duckdb_filename
+    )
+    st.plotly_chart(fig, width="stretch")
+    with st.expander("Interpretation guide"):
+        # The verbatim guide is an HTML grid — st.html embeds it
+        # directly; fall back to unsafe markdown on older streamlit.
+        if hasattr(st, "html"):
+            st.html(breadth_dashboard.BREADTH_GUIDE_HTML)
+        else:
+            st.markdown(
+                breadth_dashboard.BREADTH_GUIDE_HTML,
+                unsafe_allow_html=True,
+            )
+
+
 def main() -> None:
     """Streamlit entrypoint — run via ``streamlit run scripts/report_app.py``."""
     import streamlit as st
@@ -1810,6 +1909,7 @@ def main() -> None:
         tab_weekly_decel,
         tab_top25,
         tab_accel,
+        tab_breadth,
     ) = st.tabs(
         [
             "Weekly — Combined Regimes",
@@ -1817,6 +1917,7 @@ def main() -> None:
             "Weekly — Deceleration",
             "Daily — Top 25 by Dollar Volume",
             "Daily — Acceleration Candidates",
+            "Market Breadth",
         ]
     )
     with tab_weekly_combined:
@@ -1829,6 +1930,8 @@ def main() -> None:
         _render_top25_tab(st, config)
     with tab_accel:
         _render_accel_tab(st, config)
+    with tab_breadth:
+        _render_market_breadth_tab(st, config)
 
 
 # ``streamlit run`` executes this file as __main__, while unit tests
