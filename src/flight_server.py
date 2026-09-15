@@ -288,6 +288,59 @@ class MarketDataFlightServer(flight.FlightServerBase):
                 json.dumps({"status": status, **result}).encode("utf-8")
             )
 
+        elif action_type == "metadata_load":
+            # F10-T1: company_metadata backfill (rate-limit safe).
+            # Numeric payload fields are validated like gap_days/years —
+            # non-int/bool values are rejected, never silently coerced.
+            max_tickers = payload.get("max_tickers")
+            if max_tickers is not None and (
+                not isinstance(max_tickers, int)
+                or isinstance(max_tickers, bool)
+                or max_tickers < 1
+            ):
+                raise flight.FlightServerError(
+                    f"max_tickers must be an integer >= 1, got {max_tickers!r}"
+                )
+            delay_s = payload.get("delay_s")
+            if delay_s is not None and (
+                isinstance(delay_s, bool)
+                or not isinstance(delay_s, (int, float))
+                or delay_s < 0
+            ):
+                raise flight.FlightServerError(
+                    f"delay_s must be a number >= 0, got {delay_s!r}"
+                )
+            refresh = payload.get("refresh", False)
+            if not isinstance(refresh, bool):
+                raise flight.FlightServerError(
+                    f"refresh must be a bool, got {refresh!r}"
+                )
+            tickers = payload.get("tickers")
+            if tickers is not None and not (
+                isinstance(tickers, list)
+                and all(isinstance(t, str) for t in tickers)
+            ):
+                raise flight.FlightServerError(
+                    f"tickers must be a list of strings, got {tickers!r}"
+                )
+            kwargs = {"tickers": tickers, "refresh": refresh}
+            if delay_s is not None:
+                kwargs["delay_s"] = delay_s
+            if max_tickers is not None:
+                kwargs["max_tickers"] = max_tickers
+            try:
+                result = self.engine.run_metadata_load(**kwargs)
+            except ValueError as e:
+                raise flight.FlightServerError(str(e)) from e
+            status = (
+                "ABORTED"
+                if result.get("aborted")
+                else "PARTIAL" if result.get("tickers_failed") else "SUCCESS"
+            )
+            return _ActionResult(
+                json.dumps({"status": status, **result}).encode("utf-8")
+            )
+
         elif action_type == "daily_report":
             start_time = datetime.now()
             target_date = payload.get("date")

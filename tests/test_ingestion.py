@@ -828,6 +828,9 @@ def test_run_initial_load_uses_config_years_when_none(
         return_value=(pd.DataFrame(), ["AAPL"], [], {})
     )
     engine.db.upsert_dataframe = MagicMock(return_value=0)
+    # F10-T1: stub the metadata bridge — this test is not about it and
+    # must not make real yf.Ticker calls.
+    engine._metadata_bridge = MagicMock(return_value={"status": "NOT_NEEDED"})
 
     engine.run_initial_load()  # years=None -> config value
 
@@ -847,6 +850,8 @@ def test_run_initial_load_explicit_years_overrides_config(
         return_value=(pd.DataFrame(), ["AAPL"], [], {})
     )
     engine.db.upsert_dataframe = MagicMock(return_value=0)
+    # F10-T1: stub the metadata bridge (no real yf.Ticker calls).
+    engine._metadata_bridge = MagicMock(return_value={"status": "NOT_NEEDED"})
 
     engine.run_initial_load(years=3)
 
@@ -890,6 +895,10 @@ def test_run_daily_load_empty_db_defers_years_to_config(
          patch.object(
              engine, "fetch_and_clean",
              return_value=(pd.DataFrame(), [], [], {}),
+         ), \
+         patch.object(
+             engine, "_metadata_bridge",
+             return_value={"status": "NOT_NEEDED"},
          ), \
          patch.object(db, "upsert_dataframe", return_value=0):
         result = engine.run_daily_load()
@@ -1108,6 +1117,8 @@ def test_run_initial_load_boundary_years_ok(
         return_value=(pd.DataFrame(), ["AAPL"], [], {})
     )
     engine.db.upsert_dataframe = MagicMock(return_value=0)
+    # F10-T1: stub the metadata bridge (no real yf.Ticker calls).
+    engine._metadata_bridge = MagicMock(return_value={"status": "NOT_NEEDED"})
 
     engine.run_initial_load(years=good_years)
 
@@ -1283,6 +1294,8 @@ def test_initial_load_logs_failed_ticker_summary(
         )
     )
     engine.db.upsert_dataframe = MagicMock(return_value=0)
+    # F10-T1: stub the metadata bridge (no real yf.Ticker calls).
+    engine._metadata_bridge = MagicMock(return_value={"status": "NOT_NEEDED"})
 
     with caplog.at_level(logging.WARNING):
         result = engine.run_initial_load()
@@ -1318,6 +1331,10 @@ def test_daily_load_logs_failed_ticker_summary(
                  ["MSFT"],
                  {"MSFT": "Empty dataset"},
              ),
+         ), \
+         patch.object(
+             engine, "_metadata_bridge",
+             return_value={"status": "NOT_NEEDED"},
          ), \
          patch.object(db, "upsert_dataframe", return_value=0), \
          caplog.at_level(logging.WARNING):
@@ -1377,6 +1394,8 @@ def test_clean_run_logs_no_failed_ticker_summary(
         return_value=(pd.DataFrame(), ["AAPL"], [], {})
     )
     engine.db.upsert_dataframe = MagicMock(return_value=0)
+    # F10-T1: stub the metadata bridge (no real yf.Ticker calls).
+    engine._metadata_bridge = MagicMock(return_value={"status": "NOT_NEEDED"})
 
     with caplog.at_level(logging.WARNING):
         engine.run_initial_load()
@@ -1392,3 +1411,274 @@ def test_clean_run_logs_no_failed_ticker_summary(
     assert not any(
         "failed tickers" in r.getMessage() for r in caplog.records
     )
+
+
+# ---------------------------------------------------------------------------
+# 17. F10-T1: metadata bridge at the end of initial/daily loads
+# ---------------------------------------------------------------------------
+
+
+def _info_ticker_factory(responses, calls):
+    """``yf.Ticker`` replacement: responses maps ticker -> .info dict or
+    an Exception to raise (throttle).  Unmapped tickers get a good
+    .info payload."""
+
+    def _factory(t):
+        calls.append(t)
+        v = responses.get(
+            t,
+            {
+                "longName": f"{t} Inc.",
+                "sector": "Technology",
+                "industry": "Software",
+                "quoteType": "EQUITY",
+            },
+        )
+        if isinstance(v, Exception):
+            raise v
+        mock = MagicMock()
+        mock.info = v
+        mock.splits = pd.Series([], dtype=float, name="splits")
+        return mock
+
+    return _factory
+
+
+def _seed_metadata(db, ticker: str, name: str = "Seeded Co") -> None:
+    db.upsert_company_metadata(
+        [
+            {
+                "ticker": ticker,
+                "company_name": name,
+                "sector": "Technology",
+                "industry": "Software",
+                "quote_type": "EQUITY",
+            }
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_initial_load_bridges_metadata_when_missing(
+    engine, db, cfg, module_name
+):
+    """F10-T1: a completed initial load ends with a best-effort
+    company_metadata top-up, merged under the 'metadata' key."""
+    engine.fetch_and_clean = MagicMock(
+        return_value=(pd.DataFrame(), ["AAPL"], [], {})
+    )
+    engine.db.upsert_dataframe = MagicMock(return_value=0)
+    engine._record_historical_splits = MagicMock()
+
+    calls: List[str] = []
+    with patch(
+        f"{module_name}.yf.Ticker",
+        side_effect=_info_ticker_factory({}, calls),
+    ), patch(f"{module_name}.time.sleep"):
+        result = engine.run_initial_load()
+
+    assert "metadata" in result
+    meta = result["metadata"]
+    assert meta["status"] == "SUCCESS"
+    # Both configured tickers were missing -> both fetched.
+    assert sorted(calls) == ["AAPL", "MSFT"]
+    assert meta["tickers_fetched"] == 2
+    assert meta["rows_upserted"] == 2
+    # And the rows really landed in company_metadata.
+    rows = db.execute_query(
+        "SELECT ticker, company_name FROM company_metadata ORDER BY ticker"
+    ).to_pydict()
+    assert rows["ticker"] == ["AAPL", "MSFT"]
+    assert rows["company_name"] == ["AAPL Inc.", "MSFT Inc."]
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_daily_load_bridges_metadata_when_missing(
+    engine, db, cfg, module_name
+):
+    """F10-T1: a completed daily load also merges the metadata top-up."""
+    calls: List[str] = []
+    with patch(
+        f"{module_name}.mcal.get_calendar",
+        return_value=_open_market_calendar(),
+    ), \
+         patch.object(db, "detect_new_tickers", return_value=[]), \
+         patch.object(
+             engine, "fetch_and_clean",
+             return_value=(pd.DataFrame(), ["AAPL"], [], {}),
+         ), \
+         patch.object(db, "upsert_dataframe", return_value=0), \
+         patch(
+             f"{module_name}.yf.Ticker",
+             side_effect=_info_ticker_factory({}, calls),
+         ), \
+         patch(f"{module_name}.time.sleep"):
+        result = engine.run_daily_load()
+
+    assert result.get("status") != "SKIPPED"
+    assert "metadata" in result
+    assert result["metadata"]["status"] == "SUCCESS"
+    assert sorted(calls) == ["AAPL", "MSFT"]
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_daily_load_partial_still_bridges(
+    engine, db, cfg, module_name
+):
+    """The bridge runs on PARTIAL results too — a pricing failure must
+    not suppress the metadata top-up."""
+    calls: List[str] = []
+    with patch(
+        f"{module_name}.mcal.get_calendar",
+        return_value=_open_market_calendar(),
+    ), \
+         patch.object(db, "detect_new_tickers", return_value=[]), \
+         patch.object(
+             engine, "fetch_and_clean",
+             return_value=(
+                 pd.DataFrame(),
+                 ["AAPL"],
+                 ["MSFT"],
+                 {"MSFT": "Empty dataset"},
+             ),
+         ), \
+         patch.object(db, "upsert_dataframe", return_value=0), \
+         patch(
+             f"{module_name}.yf.Ticker",
+             side_effect=_info_ticker_factory({}, calls),
+         ), \
+         patch(f"{module_name}.time.sleep"):
+        result = engine.run_daily_load()
+
+    assert result["tickers_failed"] == ["MSFT"]
+    assert "metadata" in result
+    assert result["metadata"]["status"] == "SUCCESS"
+    assert sorted(calls) == ["AAPL", "MSFT"]
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_bridge_fetches_only_missing_tickers(
+    engine, db, cfg, module_name
+):
+    """The bridge uses the company_metadata anti-join: already-present
+    tickers are not refetched."""
+    _seed_metadata(db, "AAPL")
+    engine.fetch_and_clean = MagicMock(
+        return_value=(pd.DataFrame(), ["AAPL"], [], {})
+    )
+    engine.db.upsert_dataframe = MagicMock(return_value=0)
+    engine._record_historical_splits = MagicMock()
+
+    calls: List[str] = []
+    with patch(
+        f"{module_name}.yf.Ticker",
+        side_effect=_info_ticker_factory({}, calls),
+    ), patch(f"{module_name}.time.sleep"):
+        result = engine.run_initial_load()
+
+    # AAPL is filtered out by the anti-join BEFORE the fetch loop, so it
+    # never enters the call list and isn't counted as "skipped" there.
+    assert calls == ["MSFT"]
+    assert result["metadata"]["status"] == "SUCCESS"
+    assert result["metadata"]["tickers_fetched"] == 1
+    assert result["metadata"]["tickers_skipped"] == 0
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_bridge_not_needed_when_all_present(
+    engine, db, cfg, module_name
+):
+    """All configured tickers present -> NOT_NEEDED, zero yf calls."""
+    _seed_metadata(db, "AAPL")
+    _seed_metadata(db, "MSFT")
+    engine.fetch_and_clean = MagicMock(
+        return_value=(pd.DataFrame(), ["AAPL"], [], {})
+    )
+    engine.db.upsert_dataframe = MagicMock(return_value=0)
+    engine._record_historical_splits = MagicMock()
+
+    with patch(f"{module_name}.yf.Ticker") as mock_ticker, \
+         patch(f"{module_name}.time.sleep"):
+        result = engine.run_initial_load()
+
+    assert result["metadata"]["status"] == "NOT_NEEDED"
+    assert result["metadata"]["tickers_fetched"] == 0
+    mock_ticker.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_bridge_failure_does_not_fail_load(
+    engine, db, cfg, module_name
+):
+    """A raising metadata bridge is logged + reported as FAILED — the
+    completed pricing load must survive intact."""
+    engine.fetch_and_clean = MagicMock(
+        return_value=(pd.DataFrame(), ["AAPL"], [], {})
+    )
+    engine.db.upsert_dataframe = MagicMock(return_value=0)
+    engine._record_historical_splits = MagicMock()
+
+    with patch.object(
+        engine, "run_metadata_load", side_effect=RuntimeError("meta boom")
+    ):
+        result = engine.run_initial_load()
+
+    assert result["metadata"]["status"] == "FAILED"
+    assert "meta boom" in result["metadata"]["error"]
+    assert "rows_upserted" in result
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_daily_load_skipped_has_no_metadata(
+    engine, db, cfg, module_name
+):
+    """A SKIPPED daily load (market closed) must NOT bridge — the early
+    return path carries no 'metadata' key."""
+    empty_sched = pd.DataFrame()
+    mock_calendar = MagicMock()
+    mock_calendar.schedule.return_value = empty_sched
+
+    with patch(
+        f"{module_name}.mcal.get_calendar", return_value=mock_calendar
+    ), patch.object(engine, "_metadata_bridge") as mock_bridge:
+        result = engine.run_daily_load()
+
+    assert result["status"] == "SKIPPED"
+    assert "metadata" not in result
+    mock_bridge.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_on_request_load_has_no_metadata(
+    engine, db, cfg, module_name
+):
+    """run_on_request_load never bridges — on-request is a client-driven
+    pricing fetch, not a maintenance load."""
+    engine.fetch_and_clean = MagicMock(
+        return_value=(pd.DataFrame(), ["AAPL"], [], {})
+    )
+    engine.db.upsert_dataframe = MagicMock(return_value=0)
+
+    with patch.object(engine, "_metadata_bridge") as mock_bridge:
+        result = engine.run_on_request_load(
+            ["AAPL"], "2024-01-01", "2024-01-03"
+        )
+
+    assert "metadata" not in result
+    mock_bridge.assert_not_called()

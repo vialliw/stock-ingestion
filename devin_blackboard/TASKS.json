@@ -2735,7 +2735,7 @@
     "title": "company_metadata ingestion (rate-limit safe) + daily/initial-load bridge + metadata_load action + client script",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [],
     "input_files": [
       "/src/db.py",

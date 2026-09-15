@@ -14,7 +14,7 @@ import pyarrow as pa
 import pyarrow.flight as flight
 import pytest
 
-from src.db import DatabaseManager
+from src.db import DatabaseManager, SCHEMA_VERSION
 from src.db_challenger import DatabaseManager as ChallengerDatabaseManager
 from src.flight_server import MarketDataFlightServer
 from src.flight_server_challenger import (
@@ -140,15 +140,16 @@ def test_get_run_history_empty_table():
     assert data["run_history"] == []
 
 
-def test_database_schema_version_is_three(tmp_path):
-    """A fresh DatabaseManager initializes the schema to version 3."""
+def test_database_schema_version_is_current(tmp_path):
+    """A fresh DatabaseManager initializes the schema to SCHEMA_VERSION
+    (currently 4 — F10-T1 added company_metadata)."""
     db_path = tmp_path / "schema_test.duckdb"
     db = DatabaseManager(str(db_path))
     try:
         row = db.conn.execute(
             "SELECT MAX(version) FROM schema_version"
         ).fetchone()
-        assert row[0] == 3
+        assert row[0] == SCHEMA_VERSION
     finally:
         db.close()
 
@@ -219,7 +220,7 @@ def test_get_health_info_field_mapping(tmp_path):
         health = db.get_health_info()
 
         assert health["db_connected"] is True
-        assert health["schema_version"] == 3
+        assert health["schema_version"] == SCHEMA_VERSION
         assert isinstance(health["schema_version"], int)
         # MAX(completed_at) is a datetime — must be stringified, not the int
         assert isinstance(health["last_run"], str)
@@ -266,7 +267,7 @@ def test_health_check_over_wire(tmp_path):
         assert data["status"] == "SUCCESS"
         assert data["db_connected"] is True
         assert data["db_path"] == cfg.db_path
-        assert data["schema_version"] == 3
+        assert data["schema_version"] == SCHEMA_VERSION
         assert isinstance(data["schema_version"], int)
         assert isinstance(data["last_run"], str)
         assert data["ingestion_runs_count"] == 1

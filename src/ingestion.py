@@ -543,6 +543,263 @@ class IngestionEngine:
         return df, succeeded, failed, errors
 
     # ------------------------------------------------------------------
+    # Company metadata load (F10-T1) — rate-limit safe
+    # ------------------------------------------------------------------
+
+    def run_metadata_load(
+        self,
+        tickers: Optional[List[str]] = None,
+        refresh: bool = False,
+        delay_s: float = 0.5,
+        max_consecutive_failures: int = 15,
+        max_tickers: Optional[int] = None,
+        batch_size: int = 50,
+    ) -> Dict[str, Any]:
+        """Fetch ``yf.Ticker(t).info`` metadata into ``company_metadata``.
+
+        Port of the legacy ``load_company_metadata_to_duckdb3b.py`` job
+        (longName/sector/industry/quoteType, skip-existing, ON CONFLICT
+        upsert) with deliberate rate-limit hardening:
+
+        * ``tickers=None`` uses all configured tickers (minus
+          ``exclude_tickers``); an explicit list is normalized
+          (strip/upper/dedup) and taken as-is.
+        * ``refresh=False`` fetches only tickers missing from
+          ``company_metadata`` (skip-existing); ``refresh=True``
+          re-fetches every given ticker.
+        * ``delay_s`` paces the per-ticker ``.info`` calls — yfinance has
+          no batch API for them, and unpaced bursts trigger HTTP 429.
+        * A per-ticker EXCEPTION adds the ticker to ``tickers_failed``,
+          increments a consecutive-failure counter, and writes NO row —
+          a deliberate deviation from the legacy job (which wrote a
+          NULL-field row on exception): a throttled ticker must stay
+          "missing" so the next run retries it instead of being
+          poisoned by a permanent NULL placeholder.  A *successful* but
+          empty/sparse ``.info`` response DOES write a NULL-field row,
+          matching the legacy behaviour for genuinely unknown symbols.
+        * ``max_consecutive_failures`` is a circuit breaker: that many
+          fetch exceptions in a row aborts the run early with
+          ``aborted=True`` and ``reason`` set; unprocessed tickers stay
+          missing for a later retry.
+        * Rows are upserted in ``batch_size`` chunks DURING the loop plus
+          a final flush on abort/return, so an aborted run keeps the
+          progress it already flushed.
+
+        Returns ``{tickers_fetched, tickers_skipped, tickers_failed,
+        rows_upserted, aborted, reason, errors, duration_ms}``.
+        """
+        if (
+            isinstance(delay_s, bool)
+            or not isinstance(delay_s, (int, float))
+            or delay_s < 0
+        ):
+            raise ValueError(
+                f"delay_s must be a number >= 0, got {delay_s!r}"
+            )
+        if (
+            not isinstance(max_consecutive_failures, int)
+            or isinstance(max_consecutive_failures, bool)
+            or max_consecutive_failures < 1
+        ):
+            raise ValueError(
+                "max_consecutive_failures must be an integer >= 1, "
+                f"got {max_consecutive_failures!r}"
+            )
+        if max_tickers is not None and (
+            not isinstance(max_tickers, int)
+            or isinstance(max_tickers, bool)
+            or max_tickers < 1
+        ):
+            raise ValueError(
+                f"max_tickers must be an integer >= 1, got {max_tickers!r}"
+            )
+        if (
+            not isinstance(batch_size, int)
+            or isinstance(batch_size, bool)
+            or batch_size < 1
+        ):
+            raise ValueError(
+                f"batch_size must be an integer >= 1, got {batch_size!r}"
+            )
+        if not isinstance(refresh, bool):
+            raise ValueError(f"refresh must be a bool, got {refresh!r}")
+
+        start_time = datetime.now()
+
+        if tickers is None:
+            excluded = set(self.cfg.ingestion.exclude_tickers)
+            requested = [
+                t for t in self.cfg.ingestion.tickers if t not in excluded
+            ]
+        else:
+            requested = list(
+                dict.fromkeys(
+                    t.strip().upper()
+                    for t in tickers
+                    if isinstance(t, str) and t.strip()
+                )
+            )
+
+        if refresh:
+            to_fetch = list(requested)
+            skipped = 0
+        else:
+            to_fetch = self.db.get_missing_metadata_tickers(requested)
+            skipped = len(requested) - len(to_fetch)
+        if max_tickers is not None and len(to_fetch) > max_tickers:
+            skipped += len(to_fetch) - max_tickers
+            to_fetch = to_fetch[:max_tickers]
+
+        fetched = 0
+        failed: List[str] = []
+        errors: Dict[str, str] = {}
+        rows: List[Dict[str, Any]] = []
+        rows_upserted = 0
+        consecutive_failures = 0
+        aborted = False
+        reason: Optional[str] = None
+
+        def _flush() -> None:
+            """Upsert the buffered rows; a flush failure is logged and
+            recorded in ``errors`` but never propagated."""
+            nonlocal rows_upserted, rows
+            if not rows:
+                return
+            try:
+                rows_upserted += self.db.upsert_company_metadata(rows)
+            except Exception as exc:
+                logger.error(
+                    "company_metadata upsert flush failed (%d rows): %s",
+                    len(rows),
+                    exc,
+                )
+                errors["__upsert__"] = str(exc)
+            rows = []
+
+        # justified: yfinance exposes no batch API for Ticker.info — each
+        # ticker needs its own .info call, paced by delay_s to stay under
+        # the rate limit.  The per-ticker try/except and the incremental
+        # batch flush cannot be expressed in SQL or a vectorized op.
+        for i, t in enumerate(to_fetch):
+            if i:
+                time.sleep(delay_s)
+            try:
+                info = yf.Ticker(t).info
+            except Exception as e:
+                consecutive_failures += 1
+                failed.append(t)
+                errors[t] = str(e)
+                logger.warning(
+                    "Metadata fetch failed for '%s' (%d consecutive): %s",
+                    t,
+                    consecutive_failures,
+                    e,
+                )
+                if consecutive_failures >= max_consecutive_failures:
+                    aborted = True
+                    skipped += len(to_fetch) - (i + 1)
+                    reason = (
+                        f"circuit breaker: {consecutive_failures} "
+                        f"consecutive fetch failures "
+                        f"(>= {max_consecutive_failures}) — aborting "
+                        f"early; {skipped} ticker(s) left unfetched and "
+                        f"still missing for the next run"
+                    )
+                    logger.error("RUNTIME EVENT: Metadata load aborted — %s", reason)
+                    break
+                continue
+            consecutive_failures = 0
+            if not isinstance(info, dict):
+                # A successful call returning a non-dict (e.g. None) is
+                # treated like an empty dict — write the NULL-field row.
+                info = {}
+            rows.append(
+                {
+                    "ticker": t,
+                    "company_name": info.get("longName"),
+                    "sector": info.get("sector"),
+                    "industry": info.get("industry"),
+                    "quote_type": info.get("quoteType"),
+                }
+            )
+            fetched += 1
+            if len(rows) >= batch_size:
+                _flush()
+
+        _flush()  # final flush — keeps flushed progress on abort/return
+        duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+        result = {
+            "tickers_fetched": fetched,
+            "tickers_skipped": skipped,
+            "tickers_failed": failed,
+            "rows_upserted": rows_upserted,
+            "aborted": aborted,
+            "reason": reason,
+            "errors": errors,
+            "duration_ms": duration_ms,
+        }
+        if failed:
+            logger.warning(
+                "Metadata load finished with %d fetch failure(s): %s",
+                len(failed),
+                failed,
+            )
+        logger.info(
+            "Metadata load complete. Fetched: %s, skipped: %s, "
+            "rows upserted: %s, aborted: %s.",
+            fetched,
+            skipped,
+            rows_upserted,
+            aborted,
+        )
+        return result
+
+    def _metadata_bridge(self) -> Dict[str, Any]:
+        """Best-effort company-metadata top-up after a load; NEVER raises.
+
+        Mirrors the report-only ``health`` embedding in the Flight
+        layer: the outcome is merged under a ``'metadata'`` key on
+        SUCCESS/PARTIAL load results, and any failure is logged as a
+        warning and surfaced as ``{'status': 'FAILED', 'error': ...}``
+        so it can never break a completed load.
+        """
+        try:
+            excluded = set(self.cfg.ingestion.exclude_tickers)
+            configured = [
+                t for t in self.cfg.ingestion.tickers if t not in excluded
+            ]
+            missing = self.db.get_missing_metadata_tickers(configured)
+            if not missing:
+                return {
+                    "status": "NOT_NEEDED",
+                    "tickers_fetched": 0,
+                    "tickers_skipped": len(configured),
+                    "tickers_failed": [],
+                    "rows_upserted": 0,
+                    "aborted": False,
+                    "reason": None,
+                    "errors": {},
+                    "duration_ms": 0,
+                }
+            logger.info(
+                "Metadata bridge: %d configured ticker(s) missing from "
+                "company_metadata — fetching them now.",
+                len(missing),
+            )
+            meta = self.run_metadata_load(tickers=missing)
+            status = (
+                "ABORTED"
+                if meta.get("aborted")
+                else "PARTIAL" if meta.get("tickers_failed") else "SUCCESS"
+            )
+            return {"status": status, **meta}
+        except Exception as exc:
+            logger.warning(
+                "Metadata bridge failed (load unaffected): %s", exc
+            )
+            return {"status": "FAILED", "error": str(exc)}
+
+    # ------------------------------------------------------------------
     # Entry points
     # ------------------------------------------------------------------
 
@@ -591,6 +848,9 @@ class IngestionEngine:
             "duration_ms": duration_ms,
         }
         self.db.record_ingestion_run("initial_load", result, started_at=start_time)
+        # F10-T1: best-effort company-metadata top-up — merged under
+        # 'metadata'; never fails the load (mirrors the 'health' embed).
+        result["metadata"] = self._metadata_bridge()
         if failed:
             logger.warning(
                 "Initial load finished with %d failed tickers: %s",
@@ -731,6 +991,11 @@ class IngestionEngine:
             except Exception as exc:
                 result["r2_sync"] = {"status": "FAILED", "error": str(exc)}
                 logger.error("Daily load R2 sync failed: %s", exc)
+
+        # F10-T1: best-effort company-metadata top-up — merged under
+        # 'metadata' on SUCCESS/PARTIAL only (the SKIPPED path above
+        # returns early); never fails the load.
+        result["metadata"] = self._metadata_bridge()
 
         if all_failed:
             logger.warning(

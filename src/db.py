@@ -23,7 +23,7 @@ import pyarrow as pa
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class DatabaseManager:
@@ -83,6 +83,15 @@ class DatabaseManager:
                     duration_ms INTEGER
                 );
             """)
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS company_metadata (
+                    ticker VARCHAR PRIMARY KEY,
+                    company_name VARCHAR,
+                    sector VARCHAR,
+                    industry VARCHAR,
+                    quote_type VARCHAR
+                );
+            """)
 
             # Determine current schema version (0 = fresh database).
             try:
@@ -115,6 +124,12 @@ class DatabaseManager:
             if current_version < 3:
                 self.conn.execute(
                     "INSERT INTO schema_version (version) VALUES (?)", [3]
+                )
+
+            # --- v3 -> v4: company_metadata table (already created above) ---
+            if current_version < 4:
+                self.conn.execute(
+                    "INSERT INTO schema_version (version) VALUES (?)", [4]
                 )
 
     # ------------------------------------------------------------------
@@ -292,6 +307,82 @@ class DatabaseManager:
     def detect_new_tickers(self, configured_tickers: List[str]) -> List[str]:
         existing = self.get_existing_tickers()
         return [t for t in configured_tickers if t not in existing]
+
+    # ------------------------------------------------------------------
+    # Company metadata (F10-T1)
+    # ------------------------------------------------------------------
+
+    def get_missing_metadata_tickers(self, tickers: List[str]) -> List[str]:
+        """Return the entries of ``tickers`` absent from ``company_metadata``.
+
+        SQL anti-join of the given tickers against ``company_metadata``
+        (NOT ``daily_close`` — a ticker can have price history but no
+        metadata row).  The result preserves the input order so callers
+        fetch in configured order.
+        """
+        if not tickers:
+            return []
+        conn = self._read_only_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT c.ticker
+                FROM (SELECT unnest(?) AS ticker) AS c
+                WHERE c.ticker NOT IN (SELECT ticker FROM company_metadata)
+                """,
+                [list(tickers)],
+            ).fetchall()
+        finally:
+            conn.close()
+        missing = {r[0] for r in rows}
+        return [t for t in tickers if t in missing]
+
+    def upsert_company_metadata(self, rows: List[Dict[str, Any]]) -> int:
+        """Upsert ``company_metadata`` rows; return the count staged.
+
+        ``rows`` is a list of dicts with keys ``ticker``,
+        ``company_name``, ``sector``, ``industry``, ``quote_type``.
+        ``ON CONFLICT (ticker) DO UPDATE`` refreshes the four fields —
+        a successful-but-empty fetch writes NULL fields (a placeholder
+        row so the ticker stops counting as missing), while a later
+        successful fetch overwrites them.
+        """
+        if not rows:
+            return 0
+        work = pd.DataFrame(
+            rows,
+            columns=[
+                "ticker",
+                "company_name",
+                "sector",
+                "industry",
+                "quote_type",
+            ],
+        )
+        # pandas 3.x 'str' dtype cannot be scanned by duckdb's register()
+        # path — normalize to object dtype exactly like upsert_dataframe.
+        str_cols = [
+            c for c in work.columns if str(work[c].dtype) in ("str", "string")
+        ]
+        if str_cols:
+            work[str_cols] = work[str_cols].astype(object)
+        with self._write_lock:
+            self.conn.register("staging_metadata", work)
+            try:
+                self.conn.execute("""
+                    INSERT INTO company_metadata AS target
+                        (ticker, company_name, sector, industry, quote_type)
+                    SELECT ticker, company_name, sector, industry, quote_type
+                    FROM staging_metadata
+                    ON CONFLICT (ticker) DO UPDATE SET
+                        company_name = EXCLUDED.company_name,
+                        sector = EXCLUDED.sector,
+                        industry = EXCLUDED.industry,
+                        quote_type = EXCLUDED.quote_type;
+                """)
+            finally:
+                self.conn.unregister("staging_metadata")
+        return len(rows)
 
     # ------------------------------------------------------------------
     # Reports (§9)

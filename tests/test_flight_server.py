@@ -739,3 +739,170 @@ class TestDoActionOverWire:
         _, client, _, _, _ = wire_server
         with pytest.raises(flight.FlightError):
             list(client.do_action(flight.Action("no_such_action", b"{}")))
+
+
+# =====================================================================
+# F10-T1: metadata_load action
+# =====================================================================
+
+def _metadata_result(**overrides):
+    result = {
+        "tickers_fetched": 2,
+        "tickers_skipped": 0,
+        "tickers_failed": [],
+        "rows_upserted": 2,
+        "aborted": False,
+        "reason": None,
+        "errors": {},
+        "duration_ms": 10,
+    }
+    result.update(overrides)
+    return result
+
+
+class TestMetadataLoadAction:
+    """The ``metadata_load`` action routes to engine.run_metadata_load
+    with validated payload options (F10-T1)."""
+
+    def test_metadata_load_success(self, module):
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_metadata_load.return_value = _metadata_result()
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("metadata_load"))
+        )
+        assert data["status"] == "SUCCESS"
+        assert data["tickers_fetched"] == 2
+        assert data["rows_upserted"] == 2
+        assert data["aborted"] is False
+        # No payload -> engine defaults (tickers=None -> configured,
+        # refresh=False -> skip-existing).
+        ingest_engine.run_metadata_load.assert_called_once_with(
+            tickers=None, refresh=False
+        )
+
+    def test_metadata_load_forwards_options(self, module):
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_metadata_load.return_value = _metadata_result()
+        payload = {
+            "tickers": ["AAPL", "MSFT"],
+            "refresh": True,
+            "delay_s": 1.5,
+            "max_tickers": 10,
+        }
+        data = parse_result(
+            server.do_action(
+                MagicMock(), make_action("metadata_load", payload)
+            )
+        )
+        assert data["status"] == "SUCCESS"
+        ingest_engine.run_metadata_load.assert_called_once_with(
+            tickers=["AAPL", "MSFT"],
+            refresh=True,
+            delay_s=1.5,
+            max_tickers=10,
+        )
+
+    def test_metadata_load_partial_on_failures(self, module):
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_metadata_load.return_value = _metadata_result(
+            tickers_fetched=1,
+            tickers_failed=["BAD"],
+            errors={"BAD": "HTTP 429"},
+            rows_upserted=1,
+        )
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("metadata_load"))
+        )
+        assert data["status"] == "PARTIAL"
+        assert data["tickers_failed"] == ["BAD"]
+
+    def test_metadata_load_aborted_status(self, module):
+        """Circuit-breaker abort -> ABORTED status + reason."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_metadata_load.return_value = _metadata_result(
+            tickers_fetched=0,
+            tickers_failed=["A", "B"],
+            aborted=True,
+            reason="circuit breaker: 15 consecutive fetch failures",
+            rows_upserted=0,
+        )
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("metadata_load"))
+        )
+        assert data["status"] == "ABORTED"
+        assert data["aborted"] is True
+        assert "circuit breaker" in data["reason"]
+
+    @pytest.mark.parametrize("bad", [0, -1, "5", 2.5, True])
+    def test_metadata_load_invalid_max_tickers_raises(self, module, bad):
+        """Non-int / bool / <1 max_tickers -> FlightServerError."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(),
+                make_action("metadata_load", {"max_tickers": bad}),
+            )
+        ingest_engine.run_metadata_load.assert_not_called()
+
+    @pytest.mark.parametrize("bad", ["fast", True, -0.5])
+    def test_metadata_load_invalid_delay_s_raises(self, module, bad):
+        """Non-numeric / bool / negative delay_s -> FlightServerError."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(),
+                make_action("metadata_load", {"delay_s": bad}),
+            )
+        ingest_engine.run_metadata_load.assert_not_called()
+
+    @pytest.mark.parametrize("bad", ["yes", 1, 0])
+    def test_metadata_load_invalid_refresh_raises(self, module, bad):
+        """Non-bool refresh -> FlightServerError (no silent coercion)."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(),
+                make_action("metadata_load", {"refresh": bad}),
+            )
+        ingest_engine.run_metadata_load.assert_not_called()
+
+    @pytest.mark.parametrize("bad", ["AAPL", {"t": "AAPL"}, [1, 2]])
+    def test_metadata_load_invalid_tickers_raises(self, module, bad):
+        """tickers must be a list of strings — anything else is rejected."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(),
+                make_action("metadata_load", {"tickers": bad}),
+            )
+        ingest_engine.run_metadata_load.assert_not_called()
+
+    def test_metadata_load_over_wire(self, wire_server):
+        # Real gRPC: metadata_load must return one parseable JSON Result.
+        server, client, db_mgr, ingest_engine, cfg = wire_server
+        ingest_engine.run_metadata_load.return_value = _metadata_result(
+            tickers_fetched=3, rows_upserted=3
+        )
+        action = flight.Action(
+            "metadata_load",
+            json.dumps({"refresh": True, "delay_s": 0.1}).encode("utf-8"),
+        )
+        results = list(client.do_action(action))
+        assert len(results) == 1
+        data = json.loads(results[0].body.to_pybytes().decode("utf-8"))
+        assert data["status"] == "SUCCESS"
+        assert data["tickers_fetched"] == 3
+        ingest_engine.run_metadata_load.assert_called_once_with(
+            tickers=None, refresh=True, delay_s=0.1
+        )
+
+    def test_metadata_load_validation_error_over_wire(self, wire_server):
+        # Bad payload -> FlightServerError propagates to the client.
+        _, client, _, ingest_engine, _ = wire_server
+        action = flight.Action(
+            "metadata_load",
+            json.dumps({"max_tickers": "5"}).encode("utf-8"),
+        )
+        with pytest.raises(flight.FlightError):
+            list(client.do_action(action))
+        ingest_engine.run_metadata_load.assert_not_called()

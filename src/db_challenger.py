@@ -64,7 +64,7 @@ import pyarrow as pa
 
 logger = logging.getLogger("MarketDataPipeline")
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Maximum number of read cursors the pool will keep alive at once.
 # Additional concurrent readers block until a cursor is returned.
@@ -202,6 +202,41 @@ CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER NOT NULL,
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+"""
+
+_COMPANY_METADATA_DDL = """
+CREATE TABLE IF NOT EXISTS company_metadata (
+    ticker VARCHAR PRIMARY KEY,
+    company_name VARCHAR,
+    sector VARCHAR,
+    industry VARCHAR,
+    quote_type VARCHAR
+);
+"""
+
+# Arrow staging schema for upsert_company_metadata — explicit so all-NULL
+# columns still land as VARCHAR (from_pylist would infer null type).
+_COMPANY_METADATA_ARROW_SCHEMA = pa.schema(
+    [
+        pa.field("ticker", pa.string()),
+        pa.field("company_name", pa.string()),
+        pa.field("sector", pa.string()),
+        pa.field("industry", pa.string()),
+        pa.field("quote_type", pa.string()),
+    ]
+)
+
+# ON CONFLICT refresh — structurally different from MERGE INTO (diff #5).
+_COMPANY_METADATA_UPSERT_SQL = """
+INSERT INTO company_metadata
+    (ticker, company_name, sector, industry, quote_type)
+SELECT ticker, company_name, sector, industry, quote_type
+FROM staging_metadata
+ON CONFLICT (ticker) DO UPDATE SET
+    company_name = excluded.company_name,
+    sector       = excluded.sector,
+    industry     = excluded.industry,
+    quote_type   = excluded.quote_type;
 """
 
 # Upsert via INSERT ... ON CONFLICT (structurally different from MERGE INTO).
@@ -381,6 +416,7 @@ class DatabaseManager:
             conn.execute(_DAILY_CLOSE_DDL)
             conn.execute(_SPLITS_PROCESSED_DDL)
             conn.execute(_SCHEMA_VERSION_DDL)
+            conn.execute(_COMPANY_METADATA_DDL)
             conn.execute(
                 "INSERT INTO schema_version (version) "
                 "SELECT $version WHERE NOT EXISTS ("
@@ -464,6 +500,49 @@ class DatabaseManager:
     def detect_new_tickers(self, configured_tickers: List[str]) -> List[str]:
         existing = self.get_existing_tickers()
         return [t for t in configured_tickers if t not in existing]
+
+    # -- company metadata (F10-T1) -------------------------------------
+
+    def get_missing_metadata_tickers(self, tickers: List[str]) -> List[str]:
+        """Entries of ``tickers`` absent from ``company_metadata``.
+
+        SQL anti-join against ``company_metadata`` (NOT ``daily_close``);
+        the result preserves the input order so callers fetch in
+        configured order.
+        """
+        if not tickers:
+            return []
+        with self._reads.read() as conn:
+            rows = conn.execute(
+                "SELECT c.ticker "
+                "FROM (SELECT unnest($tickers) AS ticker) AS c "
+                "WHERE c.ticker NOT IN "
+                "(SELECT ticker FROM company_metadata)",
+                {"tickers": list(tickers)},
+            ).fetchall()
+        missing = {row[0] for row in rows}
+        return [t for t in tickers if t in missing]
+
+    def upsert_company_metadata(self, rows: List[Dict[str, Any]]) -> int:
+        """Upsert ``company_metadata`` rows; return the count staged.
+
+        ``rows`` is a list of dicts keyed ``ticker`` / ``company_name`` /
+        ``sector`` / ``industry`` / ``quote_type``.  Staged through an
+        Arrow table (sidesteps the pandas ``str``-dtype limitation) and
+        upserted via ``ON CONFLICT (ticker) DO UPDATE``.
+        """
+        if not rows:
+            return 0
+        arrow_table = pa.Table.from_pylist(
+            rows, schema=_COMPANY_METADATA_ARROW_SCHEMA
+        )
+        with self._write.connection() as conn:
+            conn.register("staging_metadata", arrow_table)
+            try:
+                conn.execute(_COMPANY_METADATA_UPSERT_SQL)
+            finally:
+                conn.unregister("staging_metadata")
+        return len(rows)
 
     # -- data-health checks (F9-T5; report-only — never repairs) --------
 

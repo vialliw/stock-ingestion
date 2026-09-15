@@ -96,10 +96,11 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 
 - **`do_get`** — read-only SQL queries returning Arrow record batches. SELECT/WITH statements only. Configurable query timeout (default 120s, no row limit).
 - **`do_put`** — accepts external Arrow record batches matching the `daily_close` schema (7 columns), validates schema, filters excluded tickers, and upserts in a single vectorized operation.
-- **`do_action`** — eight administrative actions:
+- **`do_action`** — nine administrative actions:
   - `initial_load` — run the initial historical load. Depth = `ingestion.initial_load_years` (default 6); an explicit `years` key in the action payload overrides it. `years` must be an integer in `[1, 30]` (bool/non-int rejected); invalid values raise `ValueError` in the engine and surface as a `FlightServerError` — never a silent empty download.
   - `daily_load` — run today's incremental load.
   - `on_request_load` — load a custom date range for specified tickers.
+  - `metadata_load` — backfill `company_metadata` from `yf.Ticker(t).info` (see [Company Metadata](#company-metadata)). Payload: `tickers` (list of strings, optional — defaults to all configured tickers), `refresh` (bool, default `false` — `true` re-fetches even present tickers), `delay_s` (number ≥ 0, default 0.5 — pacing between `.info` calls), `max_tickers` (integer ≥ 1, optional cap). Returns `SUCCESS` (no failures), `PARTIAL` (some `tickers_failed`), or `ABORTED` (circuit breaker tripped).
   - `daily_report` — generate a top-20 dollar-volume report as JSON.
   - `health_check` — return server uptime, DB status, ticker count, row count, schema version.
   - `data_health` — run the full `daily_close` data-health report (see [Data Health Checks](#data-health-checks)).
@@ -161,6 +162,32 @@ The report dict carries `health_status` in `{OK, WARN, CHECK_FAILED}` plus per-c
 - **Embedded in loads** — completed `daily_load` and `initial_load` results include a `health` key with the light report (staleness + coverage + integrity + duplicates, no gaps). `SKIPPED` results and `on_request_load` carry no health block. The server logs a `WARNING` whenever `health_status != OK`.
 - **`daily_load_once.py`** — logs a `WARNING` naming the health status when a Flight-routed load reports `health_status != OK`; the exit code is unchanged.
 
+### Company Metadata
+
+`company_metadata` stores per-ticker reference data fetched from `yf.Ticker(t).info` — `company_name` (from `longName`), `sector`, `industry`, and `quote_type` (from `quoteType`), keyed by `ticker`. It is populated by `IngestionEngine.run_metadata_load`, reachable only through the Flight `metadata_load` action so the server stays the single DuckDB writer.
+
+Rate-limit safety (a port of the legacy `load_company_metadata_to_duckdb3b.py` job, hardened):
+
+- **Skip-existing by default** — without `refresh`, only tickers missing from `company_metadata` are fetched (a SQL anti-join against that table — *not* `daily_close`, so a ticker with prices but no metadata is still fetched).
+- **Pacing** — `delay_s` seconds are slept between `.info` calls (default 0.5). yfinance has no batch API for `.info`, so each ticker is a separate call.
+- **Circuit breaker** — `max_consecutive_failures` (default 15) fetch exceptions in a row aborts the run early with `aborted=True` and a `reason`; unprocessed tickers stay missing for a later retry.
+- **No NULL-row poisoning** — a fetch *exception* writes no row (unlike the legacy job, which wrote a NULL-field row that permanently poisoned skip-existing under rate-limiting). A *successful* but empty/sparse `.info` still writes a NULL-field row, matching the legacy behaviour for genuinely unknown symbols.
+- **Incremental flush** — rows upsert in `batch_size` chunks (default 50) during the loop plus a final flush, so an aborted run keeps the progress it already wrote.
+- **`max_tickers`** caps the fetch list — useful for smoke tests.
+
+Bridging: completed `initial_load` and `daily_load` runs (SUCCESS and PARTIAL only — never `SKIPPED`, never `on_request_load`) end with a best-effort metadata top-up: configured tickers missing from `company_metadata` are fetched and the result is merged under a `metadata` key on the load result. Any bridge failure is logged as a warning and reported as `{"status": "FAILED", ...}` — it can never fail a completed load.
+
+On-demand CLI (Flight-only — never opens DuckDB directly):
+
+```bash
+python scripts/load_company_metadata.py                # missing tickers only
+python scripts/load_company_metadata.py --refresh      # re-fetch all configured
+python scripts/load_company_metadata.py --tickers AAPL,MSFT --refresh
+python scripts/load_company_metadata.py --limit 5 --delay 1.0   # smoke test
+```
+
+`scripts/load_company_metadata.bat` is the double-clickable Windows wrapper (flags pass through, e.g. `load_company_metadata.bat --refresh`).
+
 ---
 
 ## Project Structure
@@ -195,6 +222,7 @@ stock-ingestion/
 │   ├── test_integration.py
 │   ├── test_logging.py
 │   ├── test_lookback_days.py
+│   ├── test_metadata.py
 │   ├── test_phase2_integration.py
 │   ├── test_poll_tasks.py
 │   ├── test_query_timeout.py
@@ -207,9 +235,11 @@ stock-ingestion/
 │   ├── ci_daily_load.py        # GitHub Actions one-shot daily load (R2 download/upload)
 │   ├── daily_load_once.py      # Windows Task one-shot runner (Flight-first routing, catch-up mode, exit codes)
 │   ├── data_health.bat         # Double-click wrapper for data_health_report.py
+│   ├── load_company_metadata.bat  # Double-click wrapper for load_company_metadata.py
 │   ├── data_health_report.py   # On-demand daily_close health report via the data_health Flight action
 │   ├── data_health_verify.bat  # Double-click wrapper for data_health_verify.py
 │   ├── data_health_verify.py   # Probes flagged gaps vs yfinance: download_gap vs halt_or_suspension
+│   ├── load_company_metadata.py   # company_metadata backfill via the metadata_load Flight action
 │   ├── poll_tasks.py           # Multi-agent task lifecycle manager
 │   ├── pre_commit_check_loops.py  # Pre-commit hook wrapper
 │   ├── register_daily_task.ps1 # schtasks registration (timezone conversion, idempotent)
@@ -456,6 +486,11 @@ results = list(client.do_action(action))
 action = flight.Action("data_health", b'{"gap_days": 30}')
 results = list(client.do_action(action))
 
+# Company-metadata backfill — missing tickers only by default;
+# all payload keys are optional (tickers/refresh/delay_s/max_tickers)
+action = flight.Action("metadata_load", b'{"refresh": false, "delay_s": 0.5}')
+results = list(client.do_action(action))
+
 # Get ingestion run history
 action = flight.Action("get_run_history", b'{}')
 results = list(client.do_action(action))
@@ -563,7 +598,7 @@ Each tab exposes interactive parameters that feed into the generated SQL (numeri
 
 ## Database Schema
 
-The DuckDB database contains four tables:
+The DuckDB database contains five tables:
 
 ### `daily_close` (canonical OHLCV data)
 
@@ -603,6 +638,18 @@ Primary key: `(Date, Ticker)` — upsert semantics on conflict.
 | `errors_json` | VARCHAR | JSON-encoded error details |
 | `duration_ms` | INTEGER | Run duration in milliseconds |
 
+### `company_metadata` (per-ticker reference data)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `ticker` | VARCHAR | Ticker symbol (primary key) |
+| `company_name` | VARCHAR | Company name (from `yf.Ticker.info["longName"]`) |
+| `sector` | VARCHAR | Sector (nullable) |
+| `industry` | VARCHAR | Industry (nullable) |
+| `quote_type` | VARCHAR | Quote type, e.g. `EQUITY`/`ETF` (from `quoteType`) |
+
+Populated by the `metadata_load` Flight action (see [Company Metadata](#company-metadata)). Upsert semantics on `ticker`; a successful-but-empty `.info` writes a NULL-field row so the ticker stops counting as missing, while a fetch exception writes no row so it stays retriable.
+
 ### `schema_version` (migration tracking)
 
 | Column | Type | Description |
@@ -610,7 +657,7 @@ Primary key: `(Date, Ticker)` — upsert semantics on conflict.
 | `version` | INTEGER | Schema version number |
 | `applied_at` | TIMESTAMP | When the migration was applied |
 
-Current schema version: 3. The database auto-migrates from v1 (legacy `daily_quotes` table) to v2 (rename to `daily_close`) to v3 (add `ingestion_runs` table).
+Current schema version: 4. The database auto-migrates from v1 (legacy `daily_quotes` table) to v2 (rename to `daily_close`) to v3 (add `ingestion_runs` table) to v4 (add `company_metadata` table).
 
 ---
 
@@ -627,7 +674,7 @@ python -m pytest tests/test_flight_server.py -q
 python -m pytest tests/ -v
 ```
 
-The test suite includes 306 tests covering:
+The test suite includes 643 tests covering:
 
 | Test File | Coverage |
 |-----------|----------|
@@ -641,6 +688,7 @@ The test suite includes 306 tests covering:
 | `test_integration.py` | End-to-end Flight server integration |
 | `test_logging.py` | JSON/text logging, log file path |
 | `test_lookback_days.py` | daily_lookback_days config, load windows, force/catch-up flag |
+| `test_metadata.py` | company_metadata load: skip-existing, refresh, pacing, circuit breaker, batch flush |
 | `test_phase2_integration.py` | Phase 2 end-to-end: scheduler → load → audit → R2 → health |
 | `test_poll_tasks.py` | Task lifecycle manager (claim/done/blocked/stale) |
 | `test_query_timeout.py` | Query timeout enforcement, no LIMIT injection |
