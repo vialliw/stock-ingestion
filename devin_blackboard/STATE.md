@@ -308,3 +308,5 @@ Final: 213/213 tests pass, loop checker `--strict` clean, do_put schema/filter/u
 - `scripts/breadth_dashboard.bat` (CRLF/ASCII/pause/%* passthrough); requirements.txt + `plotly>=5`.
 - Tests: NEW tests/test_breadth_dashboard.py (21) + test_config.py (+22, both impls) + test_report_app.py (+3). 692/692 pytest (baseline 643, +49); check_loops --src-dir src + --strict clean; README.md == docs/README.md byte-identical (49,227 B).
 - LIVE smoke: `python scripts/breadth_dashboard.py` -> C:\Intel\parquet\Stock_Ingestion_Market_Breadth.html (4.9 MB) via Flight server 127.0.0.1:8815 — 2510 breadth rows / 2511 SPY rows, 3y cutoff 2023-09-14..2026-09-14; no query-timeout hit.
+
+- F11-T1 C/D cycle closed (2026-09-15): C APPROVED (3 non-blocking), D PASS all ACs. Live artifact verified.
