@@ -54,7 +54,7 @@ import logging
 import queue
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import duckdb
@@ -468,11 +468,43 @@ class DatabaseManager:
     # -- data-health checks (F9-T5; report-only — never repairs) --------
 
     @staticmethod
-    def _nyse_sessions(start_date: str, end_date: str) -> List[str]:
-        """Return NYSE session dates in ``[start_date, end_date]`` (ISO)."""
+    def _nyse_sessions(
+        start_date: str,
+        end_date: str,
+        now: Optional[pd.Timestamp] = None,
+        grace_minutes: float = 120,
+    ) -> Tuple[List[str], Optional[str]]:
+        """Return NYSE session dates in ``[start_date, end_date]`` (ISO).
+
+        Only sessions that have *ended* count: when ``now`` is given, a
+        session is expected once ``market_close + grace_minutes <= now``
+        (mcal's ``market_close`` column is tz-aware; a naive ``now`` is
+        treated as UTC).  Returns ``(sessions, pending_session)`` where
+        ``pending_session`` is the latest session filtered out for not
+        yet having ended — ``None`` when nothing was filtered, or when
+        ``now`` is not given (no filtering at all).
+        """
         nyse = mcal.get_calendar("NYSE")
         sched = nyse.schedule(start_date=start_date, end_date=end_date)
-        return [d.strftime("%Y-%m-%d") for d in sched.index]
+        if sched.empty or now is None:
+            return [d.strftime("%Y-%m-%d") for d in sched.index], None
+        now_ts = pd.Timestamp(now)
+        if now_ts.tzinfo is None:
+            now_ts = now_ts.tz_localize("UTC")
+        ended = (
+            sched["market_close"] + pd.Timedelta(minutes=grace_minutes)
+            <= now_ts
+        )
+        sessions = [
+            d.strftime("%Y-%m-%d") for d in sched.index[ended.to_numpy()]
+        ]
+        pending_idx = sched.index[(~ended).to_numpy()]
+        pending_session = (
+            pending_idx.max().strftime("%Y-%m-%d")
+            if len(pending_idx)
+            else None
+        )
+        return sessions, pending_session
 
     def check_daily_close_health(
         self,
@@ -482,6 +514,8 @@ class DatabaseManager:
         as_of: Optional[str] = None,
         trading_days: Optional[List[str]] = None,
         max_items: int = _HEALTH_MAX_ITEMS,
+        grace_minutes: float = 120,
+        now: Optional[datetime] = None,
     ) -> Dict[str, Any]:
         """Run report-only data-health checks against ``daily_close``.
 
@@ -490,11 +524,14 @@ class DatabaseManager:
         dict carries ``health_status`` in ``{'OK', 'WARN',
         'CHECK_FAILED'}`` plus per-check counts and bounded per-ticker
         lists (first ``max_items``, with totals).
+        ``pending_session`` names the NYSE session excluded for not yet
+        having ended (``None`` when every session counts — e.g. a
+        post-close call or an injected ``trading_days``).
 
         Checks:
 
         * **staleness** — tickers whose ``MAX(Date)`` is older than the
-          latest NYSE trading day.
+          latest *ended* NYSE trading day.
         * **coverage** — entries of ``tickers`` absent from
           ``daily_close`` (skipped when ``tickers`` is None).
         * **integrity** — rows with NULL/non-positive OHLC, ``High <
@@ -515,22 +552,57 @@ class DatabaseManager:
             NYSE trading day and the gap window; defaults to today (UTC).
         trading_days:
             Injectable list of expected session dates — when given,
-            ``pandas_market_calendars`` is not consulted, the latest
-            trading day is ``max(trading_days)`` and the gap window is
-            its last ``gap_days`` entries.
+            ``pandas_market_calendars`` is not consulted, every listed
+            session counts, the latest trading day is
+            ``max(trading_days)`` and the gap window is its last
+            ``gap_days`` entries.
         gap_days:
             Number of trailing NYSE sessions in the gap window (>= 1).
         max_items:
             Bound applied to every per-ticker list in the report.
+        grace_minutes:
+            Minutes after a session's NYSE ``market_close`` before its
+            data is expected (default 120 — covers the scheduled
+            ~16:14 ET load completing).  Sessions whose
+            ``market_close + grace_minutes`` is still in the future are
+            excluded from ``latest_trading_day`` and the gap window, so
+            pre-open/early-session calls stop flagging today as missing.
+        now:
+            Injectable wall clock (``datetime``) used to decide which
+            sessions have ended; naive values are treated as UTC.  When
+            omitted: real time when ``as_of`` is also omitted, else
+            end-of-``as_of``-day UTC so sessions on ``as_of`` still
+            count (preserves the original test semantics).
 
         This method never raises: any failure (bad calendar, SQL error)
         returns ``health_status == 'CHECK_FAILED'`` with an ``error``
         field — health is report-only and must never break a load.
         """
         mode = "full" if include_gaps else "light"
-        if as_of is None:
-            as_of = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         try:
+            # Resolve the effective "now" used to decide which NYSE
+            # sessions have ended.  A naive now is treated as UTC; an
+            # explicit as_of without now treats the whole as_of day as
+            # elapsed (end-of-day UTC) so sessions on as_of still count
+            # — preserving the pre-F9-T7 test semantics.
+            if now is None:
+                if as_of is None:
+                    now_utc = pd.Timestamp.now(tz="UTC")
+                else:
+                    now_utc = (
+                        pd.Timestamp(as_of).tz_localize("UTC")
+                        + pd.Timedelta(days=1)
+                        - pd.Timedelta(microseconds=1)
+                    )
+            else:
+                now_utc = pd.Timestamp(now)
+                now_utc = (
+                    now_utc.tz_localize("UTC")
+                    if now_utc.tzinfo is None
+                    else now_utc.tz_convert("UTC")
+                )
+            if as_of is None:
+                as_of = now_utc.strftime("%Y-%m-%d")
             if (
                 not isinstance(gap_days, int)
                 or isinstance(gap_days, bool)
@@ -540,7 +612,10 @@ class DatabaseManager:
                     f"gap_days must be an integer >= 1, got {gap_days!r}"
                 )
             if trading_days is not None:
+                # Injected calendar: every listed session is expected —
+                # no ended-session filtering, nothing pending.
                 sessions = sorted({str(d)[:10] for d in trading_days})
+                pending_session = None
             else:
                 # Look back far enough to cover gap_days sessions plus
                 # holiday/weekend stretches (sessions are ~5 of 7 days).
@@ -548,7 +623,9 @@ class DatabaseManager:
                 start = (
                     pd.Timestamp(as_of) - pd.Timedelta(days=lookback)
                 ).strftime("%Y-%m-%d")
-                sessions = self._nyse_sessions(start, as_of)
+                sessions, pending_session = self._nyse_sessions(
+                    start, as_of, now=now_utc, grace_minutes=grace_minutes
+                )
             latest_trading_day = sessions[-1] if sessions else None
             if latest_trading_day is None:
                 return {
@@ -634,6 +711,7 @@ class DatabaseManager:
             "mode": mode,
             "as_of": as_of,
             "latest_trading_day": latest_trading_day,
+            "pending_session": pending_session,
             "checks": {
                 "staleness": {
                     "stale_count": len(stale_rows),

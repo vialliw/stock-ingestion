@@ -2711,7 +2711,7 @@
     "title": "Health check: only expect data for NYSE sessions that have ended (close + grace)",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [],
     "input_files": [
       "/src/db.py",

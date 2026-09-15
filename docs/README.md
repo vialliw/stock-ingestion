@@ -147,13 +147,15 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 
 `DatabaseManager.check_daily_close_health` runs SQL-driven, **report-only** health checks against `daily_close` — findings are never repaired and never change a load's status:
 
-- **Staleness** — tickers whose `MAX(Date)` is older than the latest NYSE trading day (via `pandas_market_calendars`; the reference date/calendar is injectable for tests).
+- **Staleness** — tickers whose `MAX(Date)` is older than the latest *ended* NYSE trading day (via `pandas_market_calendars`; the reference date/calendar is injectable for tests).
 - **Coverage** — configured tickers absent from `daily_close` (excluding `exclude_tickers`).
 - **Integrity** — rows with NULL/non-positive OHLC, `High < Low`, or `Volume < 0`.
 - **Duplicates** — `(Ticker, Date)` pairs with count > 1 (defensive; the primary key normally prevents them).
 - **Gaps** (full mode only) — per-ticker missing NYSE sessions inside a trailing `gap_days`-session window (default 30), via a SQL anti-join against the generated calendar.
 
-The report dict carries `health_status` in `{OK, WARN, CHECK_FAILED}` plus per-check counts and bounded per-ticker lists (first 50, with totals). `CHECK_FAILED` means the check itself could not run — it never masks or crashes a completed load.
+A session counts as expected only once it has **ended** — i.e. `market_close + grace_minutes <= now` (`grace_minutes` default 120, covering the scheduled ~16:14 ET load completing). Sessions whose close+grace is still in the future are excluded from both the staleness reference and the gap window, so pre-open/early-session calls no longer flag today as missing. `now` is injectable (naive values are treated as UTC); when `as_of` is given without `now`, the whole `as_of` day counts as elapsed.
+
+The report dict carries `health_status` in `{OK, WARN, CHECK_FAILED}` plus per-check counts and bounded per-ticker lists (first 50, with totals). `pending_session` names the NYSE session excluded for not yet having ended (`null` when every session counts — e.g. a post-close call or an injected `trading_days`). `CHECK_FAILED` means the check itself could not run — it never masks or crashes a completed load.
 
 - **Full report on demand** — the `data_health` Flight action returns the full report including gap detection; the payload may carry `gap_days` (integer ≥ 1).
 - **Embedded in loads** — completed `daily_load` and `initial_load` results include a `health` key with the light report (staleness + coverage + integrity + duplicates, no gaps). `SKIPPED` results and `on_request_load` carry no health block. The server logs a `WARNING` whenever `health_status != OK`.

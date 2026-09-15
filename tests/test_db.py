@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import threading
+from datetime import datetime, timezone
 
 import pandas as pd
 import pytest
@@ -567,3 +568,212 @@ def test_health_lists_are_bounded(manager):
     coverage = report["checks"]["coverage"]
     assert coverage["missing_count"] == 60
     assert len(coverage["missing_tickers"]) == 5
+
+
+# ---------------------------------------------------------------------------
+# 13. Ended-session filtering (F9-T7) — only sessions whose market_close +
+#     grace_minutes <= now count as expected.
+# ---------------------------------------------------------------------------
+
+# Real NYSE sessions around the regression seen live on 2026-09-15: the
+# bundled mcal calendar is offline, so no network is needed.  2026-09-15
+# (Tue) is a session; ENDED_DAYS are the four sessions before it.
+PENDING_DAY = "2026-09-15"
+PRIOR_DAY = "2026-09-14"
+ENDED_DAYS = ["2026-09-09", "2026-09-10", "2026-09-11", "2026-09-14"]
+
+# The 2026-09-15 NYSE close is 16:00 ET = 20:00 UTC; with the default
+# 120-minute grace the session counts from 22:00 UTC onward.
+PRE_CLOSE_NOWS = [
+    pytest.param(
+        datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc),
+        id="pre-open-08:00-ET",
+    ),
+    pytest.param(
+        datetime(2026, 9, 15, 19, 0, tzinfo=timezone.utc),
+        id="mid-session-15:00-ET",
+    ),
+    pytest.param(
+        datetime(2026, 9, 15, 21, 0, tzinfo=timezone.utc),
+        id="in-grace-17:00-ET",
+    ),
+]
+
+POST_GRACE_NOWS = [
+    pytest.param(
+        datetime(2026, 9, 15, 22, 0, tzinfo=timezone.utc),
+        id="exact-boundary-close+grace",
+    ),
+    pytest.param(
+        datetime(2026, 9, 15, 23, 0, tzinfo=timezone.utc),
+        id="post-grace-19:00-ET",
+    ),
+]
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+@pytest.mark.parametrize("now", PRE_CLOSE_NOWS)
+def test_health_pending_session_not_expected_pre_close(manager, now):
+    """Pre-close/in-grace ``now``: today's session is not yet expected.
+
+    Regression pin for F9-T7 — before the fix a pre-open call compared
+    tickers against the *scheduled* session and flagged every ticker as
+    stale for missing today's not-yet-finished session.
+    """
+    _seed_current(manager, ["AAPL", "MSFT"], days=ENDED_DAYS)
+    report = manager.check_daily_close_health(
+        tickers=["AAPL", "MSFT"], as_of=PENDING_DAY, now=now
+    )
+    assert report["health_status"] == "OK"
+    assert report["latest_trading_day"] == PRIOR_DAY
+    assert report["pending_session"] == PENDING_DAY
+    assert report["checks"]["staleness"]["stale_count"] == 0
+    json.dumps(report)
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+@pytest.mark.parametrize("now", POST_GRACE_NOWS)
+def test_health_post_grace_today_expected(manager, now):
+    """After ``market_close + grace_minutes`` today IS expected."""
+    _seed_current(manager, ["AAPL", "MSFT"], days=ENDED_DAYS)
+    report = manager.check_daily_close_health(
+        tickers=["AAPL", "MSFT"], as_of=PENDING_DAY, now=now
+    )
+    assert report["health_status"] == "WARN"
+    assert report["latest_trading_day"] == PENDING_DAY
+    assert report["pending_session"] is None
+    staleness = report["checks"]["staleness"]
+    assert staleness["stale_count"] == 2
+    assert staleness["stale_tickers"] == [
+        {"ticker": "AAPL", "last_date": PRIOR_DAY},
+        {"ticker": "MSFT", "last_date": PRIOR_DAY},
+    ]
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_post_grace_data_present_ok(manager):
+    """Post-grace with today loaded -> OK, nothing pending."""
+    _seed_current(manager, ["AAPL"], days=ENDED_DAYS + [PENDING_DAY])
+    report = manager.check_daily_close_health(
+        tickers=["AAPL"],
+        as_of=PENDING_DAY,
+        now=datetime(2026, 9, 15, 23, 0, tzinfo=timezone.utc),
+    )
+    assert report["health_status"] == "OK"
+    assert report["latest_trading_day"] == PENDING_DAY
+    assert report["pending_session"] is None
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_gap_window_drops_pending_session(manager):
+    """Full mode: the gap window excludes the not-yet-ended session."""
+    _seed_current(manager, ["AAPL"], days=ENDED_DAYS)
+    report = manager.check_daily_close_health(
+        tickers=["AAPL"],
+        include_gaps=True,
+        gap_days=4,
+        as_of=PENDING_DAY,
+        now=datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc),
+    )
+    assert report["health_status"] == "OK"
+    assert report["pending_session"] == PENDING_DAY
+    gaps = report["checks"]["gaps"]
+    assert gaps["expected_sessions"] == 4
+    assert gaps["window_start"] == ENDED_DAYS[0]
+    assert gaps["window_end"] == PRIOR_DAY
+    assert gaps["total_missing_days"] == 0
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_gap_window_includes_today_post_grace(manager):
+    """Full mode post-grace: today joins the window and is flagged."""
+    _seed_current(manager, ["AAPL"], days=ENDED_DAYS)
+    report = manager.check_daily_close_health(
+        tickers=["AAPL"],
+        include_gaps=True,
+        gap_days=4,
+        as_of=PENDING_DAY,
+        now=datetime(2026, 9, 15, 23, 0, tzinfo=timezone.utc),
+    )
+    assert report["health_status"] == "WARN"
+    assert report["pending_session"] is None
+    gaps = report["checks"]["gaps"]
+    assert gaps["expected_sessions"] == 4
+    assert gaps["window_end"] == PENDING_DAY
+    assert gaps["per_ticker"] == [
+        {"ticker": "AAPL", "missing_count": 1,
+         "missing_days": [PENDING_DAY]}
+    ]
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_naive_now_treated_as_utc(manager):
+    """A tz-naive ``now`` is interpreted as UTC."""
+    _seed_current(manager, ["AAPL"], days=ENDED_DAYS)
+    report = manager.check_daily_close_health(
+        tickers=["AAPL"],
+        as_of=PENDING_DAY,
+        now=datetime(2026, 9, 15, 12, 0),  # naive -> 12:00 UTC -> pre-open
+    )
+    assert report["health_status"] == "OK"
+    assert report["latest_trading_day"] == PRIOR_DAY
+    assert report["pending_session"] == PENDING_DAY
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_as_of_without_now_counts_as_of_session(manager):
+    """as_of alone preserves the original semantics: the whole as_of day
+    counts as elapsed, so a session on as_of is still expected."""
+    _seed_current(manager, ["AAPL"], days=ENDED_DAYS + [PENDING_DAY])
+    report = manager.check_daily_close_health(
+        tickers=["AAPL"], as_of=PENDING_DAY
+    )
+    assert report["health_status"] == "OK"
+    assert report["latest_trading_day"] == PENDING_DAY
+    assert report["pending_session"] is None
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_now_without_as_of_bounds_calendar(manager):
+    """``now`` alone pins the calendar to now's date, so injected clocks
+    can exercise historical sessions."""
+    _seed_current(manager, ["AAPL"], days=ENDED_DAYS)
+    report = manager.check_daily_close_health(
+        tickers=["AAPL"],
+        now=datetime(2026, 9, 15, 23, 0, tzinfo=timezone.utc),
+    )
+    assert report["as_of"] == PENDING_DAY
+    assert report["latest_trading_day"] == PENDING_DAY
+    assert report["health_status"] == "WARN"
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_injected_trading_days_bypass_pending(manager):
+    """Injected ``trading_days``: every listed session is expected and
+    nothing is pending, regardless of ``now``."""
+    _seed_current(manager, ["AAPL"], days=HEALTH_DAYS)
+    report = manager.check_daily_close_health(
+        tickers=["AAPL"],
+        trading_days=HEALTH_DAYS,
+        # A now far before any real close must not filter the injected
+        # calendar.
+        now=datetime(2020, 1, 1, tzinfo=timezone.utc),
+    )
+    assert report["health_status"] == "OK"
+    assert report["latest_trading_day"] == "2026-01-08"
+    assert report["pending_session"] is None
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_health_weekend_as_of_has_no_pending(manager):
+    """A non-session as_of (Sunday) leaves nothing pending."""
+    _seed_current(manager, ["AAPL"], days=ENDED_DAYS[:3])
+    report = manager.check_daily_close_health(
+        tickers=["AAPL"],
+        as_of="2026-09-13",
+        now=datetime(2026, 9, 13, 12, 0, tzinfo=timezone.utc),
+    )
+    # Sunday: the schedule stops at Friday 2026-09-11 — already ended.
+    assert report["latest_trading_day"] == "2026-09-11"
+    assert report["pending_session"] is None
+    assert report["health_status"] == "OK"
