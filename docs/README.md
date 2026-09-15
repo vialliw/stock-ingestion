@@ -208,6 +208,8 @@ stock-ingestion/
 │   ├── daily_load_once.py      # Windows Task one-shot runner (Flight-first routing, catch-up mode, exit codes)
 │   ├── data_health.bat         # Double-click wrapper for data_health_report.py
 │   ├── data_health_report.py   # On-demand daily_close health report via the data_health Flight action
+│   ├── data_health_verify.bat  # Double-click wrapper for data_health_verify.py
+│   ├── data_health_verify.py   # Probes flagged gaps vs yfinance: download_gap vs halt_or_suspension
 │   ├── poll_tasks.py           # Multi-agent task lifecycle manager
 │   ├── pre_commit_check_loops.py  # Pre-commit hook wrapper
 │   ├── register_daily_task.ps1 # schtasks registration (timezone conversion, idempotent)
