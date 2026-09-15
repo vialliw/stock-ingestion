@@ -289,7 +289,8 @@ stock-ingestion/
 ├── docs/
 │   ├── dev_plan/               # Phase 1 and Phase 2 development plans
 │   ├── tech_spec/              # Technical specifications
-│   └── workflow_idea/          # Multi-agent workflow documentation and role prompts
+│   ├── workflow_idea/          # Multi-agent workflow documentation and role prompts
+│   └── DATA_SERVICE_API.md     # Consumer-facing data-service contract (schema + Flight API)
 ├── AGENTS.md                   # Multi-agent blackboard protocol rules
 ├── requirements.txt
 └── README.md
@@ -468,6 +469,8 @@ This project replaces the legacy `projects\jobs\Pipe01.get.data.via.DuckDB.py` d
 - **Deliberate deviation** — the legacy job ran `CHECKPOINT`/`VACUUM` after each load; this project relies on DuckDB's automatic per-commit checkpointing. Run `VACUUM` manually while the service is stopped if the file ever needs compacting.
 
 ### Querying via Arrow Flight (do_get)
+
+> **For external consumers:** [`docs/DATA_SERVICE_API.md`](docs/DATA_SERVICE_API.md) is the complete consumer-facing contract — endpoint, query protocol, full schema reference, action payloads, price-basis caveats, and recipes. Other projects integrating with this service should start there.
 
 Connect to the Flight server and send a JSON ticket containing a `sql` field:
 
