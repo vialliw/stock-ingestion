@@ -21,6 +21,7 @@ A quantitative stock-data ingestion service that centralizes daily equity data f
   - [R2 Synchronization](#r2-synchronization)
   - [Interactive Report App (Streamlit)](#interactive-report-app-streamlit)
   - [Market Breadth Dashboard](#market-breadth-dashboard)
+  - [RRG Dashboard](#rrg-dashboard)
 - [Database Schema](#database-schema)
 - [Testing](#testing)
 - [Loop Checker](#loop-checker)
@@ -248,7 +249,8 @@ stock-ingestion/
 │   ├── test_poll_tasks.py
 │   ├── test_query_timeout.py
 │   ├── test_r2_sync.py
-│   ├── test_report_app.py     # Streamlit report app (SQL builders, fetch fallback, xlsx)
+│   ├── test_report_app.py     # Streamlit report app (SQL builders, fetch fallback, xlsx, RRG tab)
+│   ├── test_rrg_dashboard.py  # RRG dashboard (presets/SQL/RRG math/figure/LLM payload/CLI)
 │   ├── test_scheduler.py
 │   ├── test_store_csv.py
 │   └── test_weekly.py          # Weekly layer: Friday keys, OHLCV agg, indicators, bridge
@@ -270,8 +272,10 @@ stock-ingestion/
 │   ├── refresh_weekly.bat      # Double-click wrapper for refresh_weekly.py
 │   ├── refresh_weekly.py       # weekly_close + weekly_indicators rebuild via the weekly_refresh Flight action
 │   ├── register_flight_service.ps1  # AtStartup service task for the Flight server (restart-on-failure)
-│   ├── report_app.py           # Streamlit report app (2 daily + 3 weekly RVOL/regime tabs + Market Breadth)
+│   ├── report_app.py           # Streamlit report app (2 daily + 3 weekly RVOL/regime tabs + Market Breadth + RRG)
 │   ├── report_top25_active.py  # Top-25 active xlsx report — "Avg Trade Money ($M)" column (Flight-first, read-only DuckDB fallback)
+│   ├── rrg_dashboard.bat       # Double-click wrapper for rrg_dashboard.py
+│   ├── rrg_dashboard.py        # RRG HTML+JSON dashboards (port of legacy plot_rrg_chart_gemini10b.py, Flight-first)
 │   ├── run_flight_server.py    # cwd-safe wrapper launching src.main.main() for the service task
 │   └── workflow_phase2.py      # Dynamic Workflow orchestration script
 ├── .github/workflows/
@@ -317,6 +321,7 @@ pip install -r requirements.txt
 | `yfinance` | Equity data download |
 | `pandas` | Data manipulation |
 | `pandas-market-calendars` | NYSE market calendar |
+| `scipy` | RRG dashboard spline trails |
 | `pydantic` | Configuration validation |
 | `pyyaml` | YAML config loading |
 | `boto3` | Cloudflare R2 S3-compatible sync |
@@ -604,7 +609,7 @@ r2:
 
 ### Interactive Report App (Streamlit)
 
-`scripts/report_app.py` is a Streamlit app that renders the RVOL edge reports from `docs/report_idea/` plus the market-breadth dashboard as six interactive tabs — the three weekly reports first, then the two daily ones, then Market Breadth:
+`scripts/report_app.py` is a Streamlit app that renders the RVOL edge reports from `docs/report_idea/` plus the market-breadth and RRG dashboards as seven interactive tabs — the three weekly reports first, then the two daily ones, then Market Breadth, then Relative Rotation (RRG):
 
 - **Weekly — Combined Regimes** — the combined weekly report (`report_weekly_trends.md`): all four non-Normal weekly volume regimes among the top-K most-liquid names, ordered by regime priority (Strong Acceleration, Acceleration, Strong Deceleration, Deceleration — matching the spec's recommended reading order) then `rvol` descending.
 - **Weekly — Acceleration** — weekly acceleration candidates only (`report_weekly_trend_accelerating.md`), ordered by `rvol` descending.
@@ -612,10 +617,11 @@ r2:
 - **Daily — Top 25 by Dollar Volume** — top-N tickers ranked by latest-day dollar volume, enriched with RVOL, relative dollar volume, pct change, a `volume_regime` classification (Strong Acceleration / Acceleration / Normal / Deceleration / Strong Deceleration), and share of total average dollar volume.
 - **Daily — Acceleration Candidates** — keeps only `rvol >= threshold` names among the top-K most-liquid tickers by latest dollar volume, ordered by `rvol` descending.
 - **Market Breadth** — the 5-panel breadth dashboard ported verbatim (SQL / indicator math / figure / guide) from the legacy `breadth_builder02.py`: SPY candlestick + 50-day EMA, % of stocks above their 50-/200-day SMA, net advances & volume ratio, and new highs vs. new lows over a 252-day lookback. Rendered via `st.plotly_chart`; a "Years of history" widget (default `reports.market_breadth_years`, `0` = all data) applies a post-query trailing-years cutoff.
+- **Relative Rotation (RRG)** — the animated Relative Rotation Graph ported verbatim (presets / `weekly_close` query / RS-Ratio & RS-Momentum math / spline trails / quadrant annotations) from the legacy `plot_rrg_chart_gemini10b.py`. A preset selectbox picks one of six ticker universes; period, trail-length, lookback-years and benchmark widgets default to the preset's values. Rendered via `st.plotly_chart`, with a latest-positions stats table and the LLM analysis-prompt JSON in an expander plus a download button. Requires the persisted `weekly_close` table.
 
 The weekly tabs aggregate `daily_close` into weekly bars (`DATE_TRUNC('week', Date)`, first-Open/last-Close via `ARRAY_AGG`, summed volume and dollar volume, `LAG`-based weekly pct change) and average over the last N **weeks**. Note the weekly deceleration defaults differ from the daily ones: `strong_decel=0.50` / `decel=0.70` (daily uses 0.6 / 0.8).
 
-**Guides:** a top-level "About / How to read these reports" expander under the app title renders the generic sections of `report_basic.md` verbatim (purpose, recommended usage, methodology — the session-specific data tables are excluded), and each of the five tabs renders its own source spec's interpretation guide verbatim in an "Interpretation guide" expander.
+**Guides:** a top-level "About / How to read these reports" expander under the app title renders the generic sections of `report_basic.md` verbatim (purpose, recommended usage, methodology — the session-specific data tables are excluded), and each of the six report tabs renders its own source spec's interpretation guide verbatim in an "Interpretation guide" expander (the RRG tab instead shows its LLM analysis-prompt JSON in an expander).
 
 Launch it with:
 
@@ -640,6 +646,31 @@ python scripts/breadth_dashboard.py 0      # all history
 Or double-click `scripts/breadth_dashboard.bat` (optional years argument passes through).
 
 Output: **`Stock_Ingestion_Market_Breadth.html`** written to `reports.report_dir` (`C:\Intel\parquet` in the shipped config) — the filename is fixed, not derived from the database name. The file embeds plotly.js plus the full interpretation guide.
+
+### RRG Dashboard
+
+`scripts/rrg_dashboard.py` is the standalone (non-Streamlit) generator for the animated Relative Rotation Graph shown in the app's "Relative Rotation (RRG)" tab — a Flight-sourced port of the legacy `plot_rrg_chart_gemini10b.py`. It queries the persisted `weekly_close` table through the same Flight-first / read-only-DuckDB-fallback fetch path as the report app, computes the legacy RS-Ratio / RS-Momentum series verbatim, and writes a self-contained animated HTML file (spline trails + diamond heads, benchmark bars, stats and guide tables, per-date frames with a slider and play/pause, quadrant annotations) plus an LLM analysis-prompt JSON.
+
+Six presets mirror the legacy `__main__` configurations verbatim (all use `period=14`, `trail=3`):
+
+| Preset | Universe | Benchmark | Lookback | Output prefix |
+|--------|----------|-----------|----------|---------------|
+| `ETFs` | 85 thematic/sector ETFs | `SPY` | 1 year | `Relative_Rotation_Dashboard_ETFs` |
+| `sector1` | 17 sector ETFs | `SPY` | 3 years | `Relative_Rotation_Dashboard_sector1` |
+| `sector2` | 17 sector ETFs | `SGOV` | 3 years | `Relative_Rotation_Dashboard_sector2` |
+| `sector3` | 7 broad ETFs | `SPY` | 3 years | `Relative_Rotation_Dashboard_sector3` |
+| `Semi` | 35 semiconductor names | `SMH` | 3 years | `Relative_Rotation_Dashboard_Semi` |
+| `AI` | 41 AI-theme names | `XLK` | 3 years | `Relative_Rotation_Dashboard_AI` |
+
+```bash
+python scripts/rrg_dashboard.py                         # all six presets
+python scripts/rrg_dashboard.py --dashboard sector1     # one preset
+python scripts/rrg_dashboard.py --dashboard Semi --trail 5 --years 1 --benchmark SMH
+```
+
+Or double-click `scripts/rrg_dashboard.bat` (flags pass through). Per-preset failures are logged and the batch continues; the exit code is `1` only if every selected preset fails.
+
+Output per preset: **`<prefix>.html`** and **`<prefix>_analysis_prompt.json`** written to `reports.report_dir` (`C:\Intel\parquet` in the shipped config). The HTML loads plotly.js from a CDN (`include_plotlyjs='cdn'`); the JSON is the legacy `gen_ai_prompt` payload (per-ticker quadrant, velocity, persistence metrics for LLM analysis). Requires `weekly_close` (see [Weekly Layer](#weekly-layer)) and `scipy` (spline trails — lazy import).
 
 ---
 
@@ -760,7 +791,7 @@ python -m pytest tests/test_flight_server.py -q
 python -m pytest tests/ -v
 ```
 
-The test suite includes 742 tests covering:
+The test suite includes 786 tests covering:
 
 | Test File | Coverage |
 |-----------|----------|
@@ -781,7 +812,8 @@ The test suite includes 742 tests covering:
 | `test_poll_tasks.py` | Task lifecycle manager (claim/done/blocked/stale) |
 | `test_query_timeout.py` | Query timeout enforcement, no LIMIT injection |
 | `test_r2_sync.py` | R2 sync (mocked boto3), auto-sync, manual sync |
-| `test_report_app.py` | Streamlit report app: SQL builders, fetch fallback, xlsx, Market Breadth tab |
+| `test_report_app.py` | Streamlit report app: SQL builders, fetch fallback, xlsx, Market Breadth + RRG tabs |
+| `test_rrg_dashboard.py` | RRG dashboard: verbatim presets, weekly_close SQL, RRG math, figure, LLM payload, CLI |
 | `test_scheduler.py` | PipelineScheduler (mocked APScheduler) |
 | `test_store_csv.py` | CSV store (legacy) |
 | `test_weekly.py` | Weekly layer: Friday-dated weekly_close, weekly_indicators, refresh ordering, bridge |

@@ -2836,7 +2836,7 @@
     "title": "RRG dashboard port: rrg_dashboard.py module + report_app tab + html/json artifacts",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F12-T1"
     ],

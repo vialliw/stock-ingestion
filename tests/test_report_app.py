@@ -1193,3 +1193,95 @@ class TestMarketBreadthTab:
 
         st.error.assert_called_once()
         st.plotly_chart.assert_not_called()
+
+
+class TestRrgTab:
+    """The "Relative Rotation (RRG)" tab — 7th tab, after Market
+    Breadth (F13-T1).  The heavy lifting lives in
+    ``scripts/rrg_dashboard.py``; here we only check the tab is wired
+    into ``main()`` and that the render path drives the shared cached
+    fetch + ``st.plotly_chart``."""
+
+    def test_tab_label_in_main_tab_list(self):
+        import inspect
+
+        src = inspect.getsource(report_app.main)
+        assert '"Relative Rotation (RRG)"' in src
+        # Seventh and last tab — after Market Breadth.
+        assert src.index('"Market Breadth"') < src.index(
+            '"Relative Rotation (RRG)"'
+        )
+
+    @staticmethod
+    def _weekly_long_df(n: int = 60):
+        """Long-format weekly_close rows covering two sector3 members
+        (XLK, DIA) + the SPY benchmark."""
+        import numpy as np
+
+        dates = pd.date_range(
+            end=pd.Timestamp.today().normalize(), periods=n, freq="W-FRI"
+        )
+        i = np.arange(n)
+        closes = {
+            "XLK": 100.0 * (1.03 ** i),
+            "DIA": 100.0 * np.exp(0.01 * i + 0.001 * i * i),
+            "SPY": np.full(n, 100.0),
+        }
+        recs = [
+            {"Date": d, "Ticker": t, "Close": c}
+            for t, series in closes.items()
+            for d, c in zip(dates, series)
+        ]
+        return pd.DataFrame.from_records(recs)
+
+    def test_render_drives_fetch_and_plotly_chart(
+        self, tmp_path, monkeypatch
+    ):
+        pytest.importorskip("scipy")
+        pytest.importorskip("plotly")
+        df = self._weekly_long_df()
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: df,
+        )
+        st = MagicMock()
+        st.selectbox.return_value = "sector3"
+        # One MagicMock return feeds the period/trail/lookback inputs —
+        # 14 each leaves 60 - (2*14+4) = 28 clean rows > trail 14.
+        st.number_input.return_value = 14
+        st.text_input.return_value = "SPY"
+        st.button.return_value = False
+        st.columns.return_value = (MagicMock(), MagicMock())
+
+        report_app._render_rrg_tab(st, _config(tmp_path))
+
+        st.plotly_chart.assert_called_once()
+        st.error.assert_not_called()
+        # Latest-position stats table + JSON download button rendered.
+        st.dataframe.assert_called_once()
+        st.download_button.assert_called_once()
+        assert (
+            st.download_button.call_args.kwargs["file_name"]
+            == "Relative_Rotation_Dashboard_sector3_analysis_prompt.json"
+        )
+
+    def test_render_errors_when_fetch_returns_none(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: None,
+        )
+        st = MagicMock()
+        st.selectbox.return_value = "sector3"
+        st.number_input.return_value = 14
+        st.text_input.return_value = "SPY"
+        st.button.return_value = False
+        st.columns.return_value = (MagicMock(), MagicMock())
+
+        report_app._render_rrg_tab(st, _config(tmp_path))
+
+        st.error.assert_called_once()
+        st.plotly_chart.assert_not_called()

@@ -1,5 +1,6 @@
-"""Interactive Streamlit report app with six tabs — the three weekly
-reports first, then the two daily ones, then Market Breadth:
+"""Interactive Streamlit report app with seven tabs — the three weekly
+reports first, then the two daily ones, then Market Breadth, then
+Relative Rotation (RRG):
 
 * **"Weekly — Combined Regimes"**: the combined weekly report from
   ``docs/report_idea/report_weekly_trends.md`` — all four non-Normal
@@ -37,6 +38,15 @@ reports first, then the two daily ones, then Market Breadth:
   lazily inside the tab path so this module stays importable without
   it.  The trailing-years widget defaults to
   ``reports.market_breadth_years`` (0 = all data).
+* **"Relative Rotation (RRG)"**: the animated Relative Rotation Graph
+  dashboard ported from the legacy ``plot_rrg_chart_gemini10b.py``
+  (RRG presets, weekly_close query, RS-Ratio/RS-Momentum math, spline
+  trails and the LLM analysis-prompt JSON live verbatim in
+  ``scripts/rrg_dashboard.py``, lazily imported — it in turn
+  lazy-imports ``plotly``/``scipy``).  Reads the persisted
+  ``weekly_close`` table.  A preset ``st.selectbox`` picks one of the
+  six legacy configurations; period / trail / lookback-years /
+  benchmark widgets default to the preset's values.
 
 The weekly tabs aggregate ``daily_close`` into weekly bars
 (``DATE_TRUNC('week', Date)``, first-Open/last-Close via
@@ -1888,6 +1898,149 @@ def _render_market_breadth_tab(st, config: PipelineConfig) -> None:
             )
 
 
+def _render_rrg_tab(st, config: PipelineConfig) -> None:
+    """Relative Rotation (RRG) — the animated RRG dashboard ported
+    from the legacy ``plot_rrg_chart_gemini10b.py``.
+
+    All presets / SQL / RRG math / figure construction / LLM payload
+    building lives in ``scripts/rrg_dashboard.py`` (imported lazily —
+    it in turn lazy-imports ``plotly`` and ``scipy``, so this module
+    stays importable without them).  The query goes through
+    :func:`cached_fetch_dataframe` like every other tab and reads the
+    persisted ``weekly_close`` table.
+    """
+    import rrg_dashboard
+
+    with st.expander("Parameters", expanded=True):
+        preset_name = st.selectbox(
+            "RRG preset",
+            options=list(rrg_dashboard.RRG_PRESETS),
+            index=0,
+            key="rrg_preset",
+        )
+        preset = rrg_dashboard.RRG_PRESETS[preset_name]
+        col1, col2 = st.columns(2)
+        with col1:
+            period = st.number_input(
+                "RRG period",
+                min_value=1,
+                max_value=104,
+                value=int(preset["period"]),
+                step=1,
+                key="rrg_period",
+            )
+            trail = st.number_input(
+                "Trail length (weeks)",
+                min_value=1,
+                max_value=52,
+                value=int(preset["trail"]),
+                step=1,
+                key="rrg_trail",
+            )
+        with col2:
+            lookback_years = st.number_input(
+                "Lookback years",
+                min_value=1,
+                max_value=30,
+                value=int(preset["lookback_years"]),
+                step=1,
+                key="rrg_years",
+            )
+            benchmark = st.text_input(
+                "Benchmark ticker",
+                value=preset["benchmark"],
+                key="rrg_benchmark",
+            )
+        if st.button("Refresh data", key="rrg_refresh"):
+            _get_cached_fetch(st).clear()
+
+    tickers = preset["tickers"].split(",")
+    try:
+        sql = rrg_dashboard.build_rrg_sql(
+            tickers, benchmark, int(lookback_years)
+        )
+    except (TypeError, ValueError) as exc:
+        st.error(f"Invalid parameters: {exc}")
+        return
+
+    df = cached_fetch_dataframe(st, sql, config)
+    if df is None:
+        st.error(
+            "Could not fetch report data — the Flight server is "
+            "unreachable and the direct read-only DuckDB fallback "
+            "failed (the database write lock is probably held by "
+            "another process, or the database file is unavailable)."
+        )
+        return
+
+    st.caption(f"{len(df)} row(s)")
+    if df.empty:
+        st.error(
+            "No weekly_close data returned for this preset — check "
+            "the tickers/benchmark and that the weekly layer has been "
+            "built (weekly_refresh action or scripts/refresh_weekly.py)."
+        )
+        return
+
+    df_pivot = rrg_dashboard.pivot_closes(df)
+    try:
+        rrg = rrg_dashboard.compute_rrg(
+            df_pivot, tickers, benchmark, int(period)
+        )
+    except ValueError as exc:
+        st.error(str(exc))
+        return
+    if len(rrg["dates"]) <= int(trail):
+        st.error(
+            f"Only {len(rrg['dates'])} fully-valid weekly bar(s) "
+            f"survive the RRG warmup — the trail length "
+            f"({int(trail)}) plus the warmup need more history "
+            f"(increase lookback years or reduce period/trail)."
+        )
+        return
+
+    fig = rrg_dashboard.build_rrg_figure(
+        rrg["clean_ratio"],
+        rrg["clean_momo"],
+        df_pivot,
+        rrg["tickers"],
+        benchmark,
+        int(trail),
+    )
+    st.plotly_chart(fig, width="stretch")
+
+    # Latest-position stats — same table the figure's stats row shows
+    # (Ticker / Ratio / Momentum / Velocity, sorted by Ratio desc).
+    v_vec = (
+        (rrg["clean_ratio"].iloc[-1] - rrg["clean_ratio"].iloc[-2]) ** 2
+        + (rrg["clean_momo"].iloc[-1] - rrg["clean_momo"].iloc[-2]) ** 2
+    ) ** 0.5
+    stats = pd.DataFrame(
+        {
+            "Ticker": rrg["tickers"],
+            "RS-Ratio": rrg["clean_ratio"].iloc[-1].values,
+            "RS-Momentum": rrg["clean_momo"].iloc[-1].values,
+            "Velocity": v_vec.values,
+        }
+    ).sort_values("RS-Ratio", ascending=False)
+    st.dataframe(stats, width="stretch")
+
+    # LLM analysis-prompt payload — same JSON the standalone script
+    # writes to {prefix}_analysis_prompt.json.
+    payload = rrg_dashboard.gen_ai_prompt(
+        rrg["clean_ratio"], rrg["clean_momo"], benchmark
+    )
+    with st.expander("LLM analysis prompt (JSON payload)"):
+        st.json(payload)
+    st.download_button(
+        label="Download analysis prompt (JSON)",
+        data=payload,
+        file_name=f"{preset['prefix']}_analysis_prompt.json",
+        mime="application/json",
+        key="rrg_download",
+    )
+
+
 def main() -> None:
     """Streamlit entrypoint — run via ``streamlit run scripts/report_app.py``."""
     import streamlit as st
@@ -1910,6 +2063,7 @@ def main() -> None:
         tab_top25,
         tab_accel,
         tab_breadth,
+        tab_rrg,
     ) = st.tabs(
         [
             "Weekly — Combined Regimes",
@@ -1918,6 +2072,7 @@ def main() -> None:
             "Daily — Top 25 by Dollar Volume",
             "Daily — Acceleration Candidates",
             "Market Breadth",
+            "Relative Rotation (RRG)",
         ]
     )
     with tab_weekly_combined:
@@ -1932,6 +2087,8 @@ def main() -> None:
         _render_accel_tab(st, config)
     with tab_breadth:
         _render_market_breadth_tab(st, config)
+    with tab_rrg:
+        _render_rrg_tab(st, config)
 
 
 # ``streamlit run`` executes this file as __main__, while unit tests
