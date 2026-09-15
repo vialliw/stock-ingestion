@@ -204,6 +204,8 @@ stock-ingestion/
 │   ├── check_loops.py          # AST-based loop justification checker
 │   ├── ci_daily_load.py        # GitHub Actions one-shot daily load (R2 download/upload)
 │   ├── daily_load_once.py      # Windows Task one-shot runner (Flight-first routing, catch-up mode, exit codes)
+│   ├── data_health.bat         # Double-click wrapper for data_health_report.py
+│   ├── data_health_report.py   # On-demand daily_close health report via the data_health Flight action
 │   ├── poll_tasks.py           # Multi-agent task lifecycle manager
 │   ├── pre_commit_check_loops.py  # Pre-commit hook wrapper
 │   ├── register_daily_task.ps1 # schtasks registration (timezone conversion, idempotent)

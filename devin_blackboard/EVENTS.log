@@ -2212,3 +2212,4 @@ AC-BY-AC, VERIFIED MYSELF:
 CHALLENGER N1 CONFIRMED (cosmetic, non-blocking): test_xlsx_written_via_flight is a mock-table test — the mock supplies the new column name, so that header assert alone cannot distinguish old vs new SQL. Irrelevant in aggregate: the SQL-string test and seeded real-DuckDB fallback test are independent sensitive pins.
 
 No src/, tests/, scripts/, or docs files modified by Critic D — blackboard only.
+[2026-09-15T06:18:40.524898+00:00] [ORCHESTRATOR] Added scripts/data_health_report.py + scripts/data_health.bat (double-clickable on-demand data_health report; --gap-days N, --json flags; exit 0=OK 1=WARN/unreachable). Ops utility within orchestrator edit scope. Verified live vs running server. READMEs updated + byte-identical.
