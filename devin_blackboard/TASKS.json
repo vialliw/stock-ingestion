@@ -2802,7 +2802,7 @@
     "title": "weekly_close + weekly_indicators persisted tables (Friday-dated) + weekly_refresh action + load-path bridge",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [],
     "input_files": [
       "/src/db.py",
