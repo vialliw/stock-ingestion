@@ -2213,3 +2213,4 @@ CHALLENGER N1 CONFIRMED (cosmetic, non-blocking): test_xlsx_written_via_flight i
 
 No src/, tests/, scripts/, or docs files modified by Critic D — blackboard only.
 [2026-09-15T06:18:40.524898+00:00] [ORCHESTRATOR] Added scripts/data_health_report.py + scripts/data_health.bat (double-clickable on-demand data_health report; --gap-days N, --json flags; exit 0=OK 1=WARN/unreachable). Ops utility within orchestrator edit scope. Verified live vs running server. READMEs updated + byte-identical.
+[2026-09-15T06:26:00.979868+00:00] [ORCHESTRATOR] registered F9-T7 (health check expects data only for ended NYSE sessions — market_close + grace_minutes <= now; fixes pre-open/early-session false WARN seen live 2026-09-15) — user-requested.
