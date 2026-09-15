@@ -72,6 +72,10 @@ def _print_report(h: dict) -> None:
     print(f" daily_close DATA HEALTH — {status}  (mode: {mode})")
     print(f" as_of: {h.get('as_of')}   latest_trading_day: "
           f"{h.get('latest_trading_day')}")
+    pending = h.get("pending_session")
+    if pending:
+        print(f" pending session: {pending} — still open/within grace, "
+              f"not yet expected")
     print("=" * 62)
     if status == "CHECK_FAILED":
         print(f" The check itself failed: {h.get('error', 'unknown error')}")

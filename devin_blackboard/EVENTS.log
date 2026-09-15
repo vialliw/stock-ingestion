@@ -2263,3 +2263,4 @@ CHALLENGER NON-BLOCKERS CONFIRMED (all accurate, none blocking):
   N4 confirmed: time-bearing as_of -> now = as_of+1day-1us (slightly past midnight) — harmless; window still ends at as_of's date.
 
 No src/, tests/, scripts/, or docs files modified by Critic D — blackboard only.
+[2026-09-15T07:00:17.737858+00:00] [ORCHESTRATOR] F9-T7 deployed: service restarted, live data_health now OK with pending_session=2026-09-15 (was false-WARN 1210 stale). Also added pending_session display line to scripts/data_health_report.py (challenger N2) — orchestrator-scope ops script.
