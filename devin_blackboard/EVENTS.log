@@ -2287,3 +2287,5 @@ No src/, tests/, scripts/, or docs files modified by Critic D — blackboard onl
 [2026-09-15T19:01:15.772254+00:00] [CRITIC] F12-T1 verified PASS — all 7 ACs with file:line evidence; 742/742 tests; check_loops + --strict clean; READMEs byte-identical; independent functional smoke (2 tickers/2 weeks, both impls) Friday keys + indicators populated.
 [2026-09-15T19:01:15.772254+00:00] [ORCHESTRATOR] F12-T1 deployed — schtasks Flight Server restarted, schema_version 5 live. weekly_refresh action via scripts/refresh_weekly.py -> SUCCESS: weekly_close 578,364 rows / weekly_indicators 578,364 rows, 16,951 ms, full backfill 2016-09-16..2026-09-18. do_get verified: all keys dayofweek=5 (nominal Friday); Slow_K/Slow_D/Slow_D_80_20_Crossover populated. Cycle closed.
 [2026-09-15T19:43:33.383847+00:00] [ORCHESTRATOR] registered F13-T1 — RRG dashboard port (rrg_dashboard.py + report_app tab + html/json artifacts), assigned B, depends_on F12-T1
+
+[2026-09-15T19:45:10.289831+00:00] [EXECUTOR] claimed F13-T1
