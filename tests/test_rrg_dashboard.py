@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import duckdb
@@ -296,6 +296,36 @@ class TestPivotCloses:
         assert list(p.index) == [d0, d1, d2]
         assert p.loc[d1, "SPY"] == 100.0  # ffilled
         assert p.loc[d2, "SPY"] == 102.0
+
+    def test_flight_object_dtype_dates_normalized(self):
+        """Regression: Arrow Flight ``do_get().to_pandas()`` delivers
+        DATE columns as object-dtype ``datetime.date`` values, not
+        ``datetime64`` — ``pivot_closes`` must normalize so the pivot
+        index is a DatetimeIndex and downstream ``.date()`` calls in
+        ``gen_ai_prompt`` / ``export_rotation_summary`` work."""
+        long_df = _weekly_long_df(60)
+        long_df["Date"] = long_df["Date"].map(lambda ts: ts.date())
+        assert long_df["Date"].dtype == object
+        assert isinstance(long_df["Date"].iloc[0], date)
+        assert not isinstance(long_df["Date"].iloc[0], datetime)
+
+        df_pivot = rrg_dashboard.pivot_closes(long_df)
+        assert isinstance(df_pivot.index, pd.DatetimeIndex)
+
+        # The full pipeline must not raise — gen_ai_prompt calls
+        # latest_date.date() on the pivot index.
+        rrg = rrg_dashboard.compute_rrg(
+            df_pivot, ["XLK", "DIA", "AAA"], "SPY", 14
+        )
+        assert isinstance(rrg["clean_ratio"].index, pd.DatetimeIndex)
+        payload = json.loads(
+            rrg_dashboard.gen_ai_prompt(
+                rrg["clean_ratio"], rrg["clean_momo"], "SPY"
+            )
+        )
+        assert payload["market_snapshot"]["analysis_date"] == str(
+            rrg["clean_ratio"].index[-1].date()
+        )
 
 
 # ------------------------------------------------------------------

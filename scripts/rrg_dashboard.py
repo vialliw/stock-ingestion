@@ -216,7 +216,18 @@ def build_rrg_sql(
 
 def pivot_closes(df: pd.DataFrame) -> pd.DataFrame:
     """Wide close matrix — legacy verbatim:
-    ``pivot(index='Date', columns='Ticker', values='Close').ffill()``."""
+    ``pivot(index='Date', columns='Ticker', values='Close').ffill()``.
+
+    Data-source normalization (NOT a logic change): the legacy read via
+    duckdb ``.df()`` which converts DATE columns to ``datetime64``;
+    the Arrow Flight path delivers ``datetime.date`` objects (object
+    dtype).  Coerce ``Date`` to ``datetime64`` first so the pivot index
+    is a ``DatetimeIndex`` — downstream code (``gen_ai_prompt``,
+    ``export_rotation_summary``, frame names/slider labels, xaxis2
+    range) assumes ``Timestamp`` semantics such as ``.date()``.
+    """
+    df = df.copy()
+    df["Date"] = pd.to_datetime(df["Date"])
     return df.pivot(index="Date", columns="Ticker", values="Close").ffill()
 
 

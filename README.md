@@ -791,7 +791,7 @@ python -m pytest tests/test_flight_server.py -q
 python -m pytest tests/ -v
 ```
 
-The test suite includes 786 tests covering:
+The test suite includes 787 tests covering:
 
 | Test File | Coverage |
 |-----------|----------|
