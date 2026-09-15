@@ -97,11 +97,12 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 
 - **`do_get`** — read-only SQL queries returning Arrow record batches. SELECT/WITH statements only. Configurable query timeout (default 120s, no row limit).
 - **`do_put`** — accepts external Arrow record batches matching the `daily_close` schema (7 columns), validates schema, filters excluded tickers, and upserts in a single vectorized operation.
-- **`do_action`** — nine administrative actions:
+- **`do_action`** — ten administrative actions:
   - `initial_load` — run the initial historical load. Depth = `ingestion.initial_load_years` (default 6); an explicit `years` key in the action payload overrides it. `years` must be an integer in `[1, 30]` (bool/non-int rejected); invalid values raise `ValueError` in the engine and surface as a `FlightServerError` — never a silent empty download.
   - `daily_load` — run today's incremental load.
   - `on_request_load` — load a custom date range for specified tickers.
   - `metadata_load` — backfill `company_metadata` from `yf.Ticker(t).info` (see [Company Metadata](#company-metadata)). Payload: `tickers` (list of strings, optional — defaults to all configured tickers), `refresh` (bool, default `false` — `true` re-fetches even present tickers), `delay_s` (number ≥ 0, default 0.5 — pacing between `.info` calls), `max_tickers` (integer ≥ 1, optional cap). Returns `SUCCESS` (no failures), `PARTIAL` (some `tickers_failed`), or `ABORTED` (circuit breaker tripped).
+  - `weekly_refresh` — rebuild `weekly_close` and `weekly_indicators` from `daily_close` (see [Weekly Layer](#weekly-layer)). No payload required. Returns `SUCCESS` with row counts, or `FAILED` with an `error` field — the daily tables are unaffected.
   - `daily_report` — generate a top-20 dollar-volume report as JSON.
   - `health_check` — return server uptime, DB status, ticker count, row count, schema version.
   - `data_health` — run the full `daily_close` data-health report (see [Data Health Checks](#data-health-checks)).
@@ -189,6 +190,23 @@ python scripts/load_company_metadata.py --limit 5 --delay 1.0   # smoke test
 
 `scripts/load_company_metadata.bat` is the double-clickable Windows wrapper (flags pass through, e.g. `load_company_metadata.bat --refresh`).
 
+### Weekly Layer
+
+`weekly_close` and `weekly_indicators` persist the legacy weekly aggregation + indicator stack (ported verbatim from `libs/vw_pipe_data_duckdb.py`: `aggregate_to_weekly` and `update_weekly_indicators_01`) directly inside `stock_ingestion.duckdb`.
+
+- **Friday dating** — every weekly bar is keyed by the *nominal Friday* of its ISO week: `(date_trunc('week', Date)::DATE + 4)`. `date_trunc('week', ...)` yields the Monday; `+4` lands on Friday. Holiday weeks whose sessions end earlier still carry the Friday key, and the current partial week is always present once any daily row exists.
+- **`weekly_close`** — per `(week, ticker)`: `arg_min(Open, Date)` / `arg_max(Close, Date)` for first-open/last-close, `max(High)`, `min(Low)`, `sum(Volume)` (`Volume` is DOUBLE to match `daily_close`; legacy used BIGINT — same values). Rebuilt via `INSERT ... ON CONFLICT (Date, Ticker) DO UPDATE`, so re-runs are idempotent.
+- **`weekly_indicators`** — the `_01` column set under the base name: Slow Stochastic (`Slow_K`, `Slow_D`, `Stoch_Crossover`, `Slow_D_80_20_Crossover`), Bollinger Bands (`BB_Upper`/`BB_Central`/`BB_Lower`, `BB_Reversal_Signal`), PPO (`PPO`, `PPO_Signal`, `PPO_Hist_Crossover`, `PPO_Zero_Crossover`), Force Index (`Force_Index`, `Force_Zero_Crossover`) and log-close EMAs (`Log_Close_EMA18`, `Log_Close_EMA40`). Rebuilt via `INSERT OR REPLACE` over a single CTE chain reading `weekly_close`.
+- **Refresh** — `IngestionEngine.run_weekly_refresh()` calls `rebuild_weekly_close()` then `rebuild_weekly_indicators()` (order matters: indicators read `weekly_close`) and returns `{status, weekly_close_rows, weekly_indicators_rows, duration_ms}`. All work is pure SQL.
+- **Bridging** — completed `initial_load`, `daily_load`, and `on_request_load` runs (SUCCESS/PARTIAL; never `SKIPPED`) end with a best-effort weekly refresh merged under a `weekly` key on the load result, exactly like the `metadata` bridge. Any failure is logged as a warning and reported as `{"status": "FAILED", ...}` — it can never fail a completed load.
+- **On demand** — the `weekly_refresh` Flight action (empty payload) or the CLI:
+
+```bash
+python scripts/refresh_weekly.py
+```
+
+`scripts/refresh_weekly.bat` is the double-clickable Windows wrapper.
+
 ---
 
 ## Project Structure
@@ -232,7 +250,8 @@ stock-ingestion/
 │   ├── test_r2_sync.py
 │   ├── test_report_app.py     # Streamlit report app (SQL builders, fetch fallback, xlsx)
 │   ├── test_scheduler.py
-│   └── test_store_csv.py
+│   ├── test_store_csv.py
+│   └── test_weekly.py          # Weekly layer: Friday keys, OHLCV agg, indicators, bridge
 ├── scripts/
 │   ├── breadth_dashboard.bat   # Double-click wrapper for breadth_dashboard.py
 │   ├── breadth_dashboard.py    # Market breadth HTML dashboard (port of legacy breadth_builder02.py, Flight-first)
@@ -248,6 +267,8 @@ stock-ingestion/
 │   ├── poll_tasks.py           # Multi-agent task lifecycle manager
 │   ├── pre_commit_check_loops.py  # Pre-commit hook wrapper
 │   ├── register_daily_task.ps1 # schtasks registration (timezone conversion, idempotent)
+│   ├── refresh_weekly.bat      # Double-click wrapper for refresh_weekly.py
+│   ├── refresh_weekly.py       # weekly_close + weekly_indicators rebuild via the weekly_refresh Flight action
 │   ├── register_flight_service.ps1  # AtStartup service task for the Flight server (restart-on-failure)
 │   ├── report_app.py           # Streamlit report app (2 daily + 3 weekly RVOL/regime tabs + Market Breadth)
 │   ├── report_top25_active.py  # Top-25 active xlsx report — "Avg Trade Money ($M)" column (Flight-first, read-only DuckDB fallback)
@@ -498,6 +519,10 @@ results = list(client.do_action(action))
 action = flight.Action("metadata_load", b'{"refresh": false, "delay_s": 0.5}')
 results = list(client.do_action(action))
 
+# Weekly layer rebuild (weekly_close + weekly_indicators); empty payload
+action = flight.Action("weekly_refresh", b'{}')
+results = list(client.do_action(action))
+
 # Get ingestion run history
 action = flight.Action("get_run_history", b'{}')
 results = list(client.do_action(action))
@@ -620,7 +645,7 @@ Output: **`Stock_Ingestion_Market_Breadth.html`** written to `reports.report_dir
 
 ## Database Schema
 
-The DuckDB database contains five tables:
+The DuckDB database contains seven tables:
 
 ### `daily_close` (canonical OHLCV data)
 
@@ -672,6 +697,45 @@ Primary key: `(Date, Ticker)` — upsert semantics on conflict.
 
 Populated by the `metadata_load` Flight action (see [Company Metadata](#company-metadata)). Upsert semantics on `ticker`; a successful-but-empty `.info` writes a NULL-field row so the ticker stops counting as missing, while a fetch exception writes no row so it stays retriable.
 
+### `weekly_close` (Friday-dated weekly OHLCV)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `Date` | DATE | Nominal Friday of the ISO week — `(date_trunc('week', Date)::DATE + 4)` (primary key) |
+| `Ticker` | VARCHAR | Ticker symbol (primary key) |
+| `Open` | DOUBLE | First open of the week (`arg_min(Open, Date)`) |
+| `High` | DOUBLE | Week high (`max(High)`) |
+| `Low` | DOUBLE | Week low (`min(Low)`) |
+| `Close` | DOUBLE | Last close of the week (`arg_max(Close, Date)`) |
+| `Volume` | DOUBLE | Summed weekly volume (`sum(Volume)`) |
+
+Rebuilt from `daily_close` by `rebuild_weekly_close()` (`INSERT ... ON CONFLICT DO UPDATE` — idempotent). See [Weekly Layer](#weekly-layer).
+
+### `weekly_indicators` (weekly technical indicators)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `Date` | DATE | Nominal Friday of the ISO week (primary key) |
+| `Ticker` | VARCHAR | Ticker symbol (primary key) |
+| `Slow_K` | DOUBLE | Slow stochastic %K (3-week mean of 14-week fast %K) |
+| `Slow_D` | DOUBLE | Slow stochastic %D (3-week mean of Slow_K) |
+| `Stoch_Crossover` | INTEGER | Slow_K/Slow_D crossover: +1 up, -1 down, 0 none |
+| `Slow_D_80_20_Crossover` | INTEGER | Stochastic crossover gated on 80/20 threshold crossings |
+| `BB_Upper` | DOUBLE | Bollinger upper band (20-week mean + 2σ) |
+| `BB_Central` | DOUBLE | Bollinger central band (20-week mean) |
+| `BB_Lower` | DOUBLE | Bollinger lower band (20-week mean - 2σ) |
+| `BB_Reversal_Signal` | INTEGER | Close re-entering the bands: +1 from below, -1 from above |
+| `PPO` | DOUBLE | Percentage Price Oscillator (12/26-week) |
+| `PPO_Signal` | DOUBLE | 9-week signal line of PPO |
+| `PPO_Hist_Crossover` | INTEGER | PPO/signal crossover: +1 up, -1 down |
+| `PPO_Zero_Crossover` | INTEGER | PPO zero-line crossing: +1 up, -1 down |
+| `Force_Index` | DOUBLE | Force Index — `(Close - prev Close) * Volume` |
+| `Force_Zero_Crossover` | INTEGER | Force Index zero-line crossing: +1 up, -1 down |
+| `Log_Close_EMA18` | DOUBLE | `LN(Close / EMA18)` (18-week mean) |
+| `Log_Close_EMA40` | DOUBLE | `LN(Close / EMA40)` (40-week mean) |
+
+Rebuilt from `weekly_close` by `rebuild_weekly_indicators()` (`INSERT OR REPLACE` over the legacy `update_weekly_indicators_01` CTE chain — the `_01` column set under the base name).
+
 ### `schema_version` (migration tracking)
 
 | Column | Type | Description |
@@ -679,7 +743,7 @@ Populated by the `metadata_load` Flight action (see [Company Metadata](#company-
 | `version` | INTEGER | Schema version number |
 | `applied_at` | TIMESTAMP | When the migration was applied |
 
-Current schema version: 4. The database auto-migrates from v1 (legacy `daily_quotes` table) to v2 (rename to `daily_close`) to v3 (add `ingestion_runs` table) to v4 (add `company_metadata` table).
+Current schema version: 5. The database auto-migrates from v1 (legacy `daily_quotes` table) to v2 (rename to `daily_close`) to v3 (add `ingestion_runs` table) to v4 (add `company_metadata` table) to v5 (add `weekly_close` and `weekly_indicators` tables).
 
 ---
 
@@ -696,7 +760,7 @@ python -m pytest tests/test_flight_server.py -q
 python -m pytest tests/ -v
 ```
 
-The test suite includes 692 tests covering:
+The test suite includes 742 tests covering:
 
 | Test File | Coverage |
 |-----------|----------|
@@ -720,6 +784,7 @@ The test suite includes 692 tests covering:
 | `test_report_app.py` | Streamlit report app: SQL builders, fetch fallback, xlsx, Market Breadth tab |
 | `test_scheduler.py` | PipelineScheduler (mocked APScheduler) |
 | `test_store_csv.py` | CSV store (legacy) |
+| `test_weekly.py` | Weekly layer: Friday-dated weekly_close, weekly_indicators, refresh ordering, bridge |
 
 All external services (yfinance, boto3, APScheduler) are mocked in tests — no real network calls.
 

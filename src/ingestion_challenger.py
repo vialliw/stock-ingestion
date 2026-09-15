@@ -696,12 +696,58 @@ class _MetadataMixin:
             return {"status": "FAILED", "error": str(exc)}
 
 
+class _WeeklyMixin:
+    """Weekly-layer refresh (F12-T1) — rebuilds ``weekly_close`` then
+    ``weekly_indicators`` from the persisted ``daily_close``.
+
+    Pure SQL on the DB side (no yfinance calls); the bridge mirrors
+    ``_metadata_bridge`` semantics — best-effort, never raises.
+    """
+
+    def run_weekly_refresh(self) -> Dict[str, Any]:
+        """Rebuild ``weekly_close`` THEN ``weekly_indicators`` (order
+        matters — the indicators query reads ``weekly_close``).
+
+        Returns ``{status, weekly_close_rows, weekly_indicators_rows,
+        duration_ms}``.
+        """
+        start_time = datetime.now()
+        logger.info("Refreshing weekly_close + weekly_indicators...")
+        close_rows = self.db.rebuild_weekly_close()
+        indicator_rows = self.db.rebuild_weekly_indicators()
+        duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+        logger.info(
+            f"Weekly refresh complete. weekly_close rows: {close_rows}, "
+            f"weekly_indicators rows: {indicator_rows}."
+        )
+        return {
+            "status": "SUCCESS",
+            "weekly_close_rows": close_rows,
+            "weekly_indicators_rows": indicator_rows,
+            "duration_ms": duration_ms,
+        }
+
+    def _weekly_bridge(self) -> Dict[str, Any]:
+        """Best-effort weekly-layer refresh after a load; NEVER raises.
+
+        Mirrors ``_metadata_bridge``: merged under a ``'weekly'`` key on
+        the load result; any failure logs a warning and surfaces as
+        ``{'status': 'FAILED', 'error': ...}`` — it can never fail a
+        completed load.
+        """
+        try:
+            return self.run_weekly_refresh()
+        except Exception as exc:  # noqa: BLE001 — never fail the load
+            logger.warning(f"Weekly bridge failed (load unaffected): {exc}")
+            return {"status": "FAILED", "error": str(exc)}
+
+
 # =====================================================================
 # Main engine — composes the mixins
 # =====================================================================
 
 
-class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin, _MetadataMixin):
+class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin, _MetadataMixin, _WeeklyMixin):
     """Yfinance ingestion engine (challenger variant).
 
     Same public API as the spec reference implementation but structurally
@@ -909,6 +955,9 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin, _MetadataMix
         # F10-T1: best-effort company-metadata top-up — merged under
         # 'metadata'; never fails the load (mirrors the 'health' embed).
         result["metadata"] = self._metadata_bridge()
+        # F12-T1: best-effort weekly-layer refresh — merged under
+        # 'weekly'; never fails the load.
+        result["weekly"] = self._weekly_bridge()
         return result
 
     def run_daily_load(
@@ -1026,6 +1075,9 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin, _MetadataMix
         # 'metadata' on SUCCESS/PARTIAL only (the SKIPPED path above
         # returns early); never fails the load.
         result["metadata"] = self._metadata_bridge()
+        # F12-T1: best-effort weekly-layer refresh — merged under
+        # 'weekly' on SUCCESS/PARTIAL only; never fails the load.
+        result["weekly"] = self._weekly_bridge()
         return result
 
     def run_on_request_load(
@@ -1050,13 +1102,17 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin, _MetadataMix
                 failed,
             )
         logger.info("On-request load complete. Rows upserted: %d.", rows)
-        return {
+        result = {
             "rows_upserted": rows,
             "tickers_succeeded": succeeded,
             "tickers_failed": failed,
             "errors": errors if failed else {},
             "duration_ms": duration_ms,
         }
+        # F12-T1: best-effort weekly-layer refresh — merged under
+        # 'weekly'; never fails the load.
+        result["weekly"] = self._weekly_bridge()
+        return result
 
 
 __all__ = [

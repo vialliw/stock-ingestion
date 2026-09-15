@@ -410,6 +410,17 @@ class MarketDataFlightServer(flight.FlightServerBase):
         )
         return {"status": status, **result}
 
+    def _handle_weekly_refresh(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        # F12-T1: rebuild weekly_close + weekly_indicators from
+        # daily_close.  Payload is optional/empty.  A failed rebuild is
+        # reported as status=FAILED rather than raising — the daily
+        # tables are unaffected.
+        try:
+            return self.engine.run_weekly_refresh()
+        except Exception as e:
+            logger.error("weekly_refresh failed: %s", e)
+            return {"status": "FAILED", "error": str(e)}
+
     def _handle_data_health(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         # F9-T5: FULL daily_close health report (incl. NYSE gap
         # detection).  Payload may carry "gap_days" (int >= 1) to size
@@ -442,6 +453,7 @@ MarketDataFlightServer._ACTION_HANDLERS = {
     "daily_report": MarketDataFlightServer._handle_daily_report,
     "data_health": MarketDataFlightServer._handle_data_health,
     "metadata_load": MarketDataFlightServer._handle_metadata_load,
+    "weekly_refresh": MarketDataFlightServer._handle_weekly_refresh,
 }
 
 

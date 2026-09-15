@@ -800,6 +800,53 @@ class IngestionEngine:
             return {"status": "FAILED", "error": str(exc)}
 
     # ------------------------------------------------------------------
+    # Weekly layer refresh (F12-T1)
+    # ------------------------------------------------------------------
+
+    def run_weekly_refresh(self) -> Dict[str, Any]:
+        """Rebuild the weekly layer: ``weekly_close`` then
+        ``weekly_indicators``.
+
+        Order matters — the indicators query reads ``weekly_close``.
+        Both rebuilds are pure SQL on the DB side (no yfinance calls);
+        returns ``{status, weekly_close_rows, weekly_indicators_rows,
+        duration_ms}``.
+        """
+        start_time = datetime.now()
+        logger.info("Refreshing weekly_close + weekly_indicators...")
+        close_rows = self.db.rebuild_weekly_close()
+        indicator_rows = self.db.rebuild_weekly_indicators()
+        duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+        logger.info(
+            "Weekly refresh complete. weekly_close rows: %d, "
+            "weekly_indicators rows: %d.",
+            close_rows,
+            indicator_rows,
+        )
+        return {
+            "status": "SUCCESS",
+            "weekly_close_rows": close_rows,
+            "weekly_indicators_rows": indicator_rows,
+            "duration_ms": duration_ms,
+        }
+
+    def _weekly_bridge(self) -> Dict[str, Any]:
+        """Best-effort weekly-layer refresh after a load; NEVER raises.
+
+        Mirrors ``_metadata_bridge``: the outcome is merged under a
+        ``'weekly'`` key on the load result, and any failure is logged
+        as a warning and surfaced as ``{'status': 'FAILED', 'error':
+        ...}`` so it can never break a completed load.
+        """
+        try:
+            return self.run_weekly_refresh()
+        except Exception as exc:
+            logger.warning(
+                "Weekly bridge failed (load unaffected): %s", exc
+            )
+            return {"status": "FAILED", "error": str(exc)}
+
+    # ------------------------------------------------------------------
     # Entry points
     # ------------------------------------------------------------------
 
@@ -851,6 +898,9 @@ class IngestionEngine:
         # F10-T1: best-effort company-metadata top-up — merged under
         # 'metadata'; never fails the load (mirrors the 'health' embed).
         result["metadata"] = self._metadata_bridge()
+        # F12-T1: best-effort weekly-layer refresh — merged under
+        # 'weekly'; never fails the load.
+        result["weekly"] = self._weekly_bridge()
         if failed:
             logger.warning(
                 "Initial load finished with %d failed tickers: %s",
@@ -997,6 +1047,10 @@ class IngestionEngine:
         # returns early); never fails the load.
         result["metadata"] = self._metadata_bridge()
 
+        # F12-T1: best-effort weekly-layer refresh — merged under
+        # 'weekly' on SUCCESS/PARTIAL only; never fails the load.
+        result["weekly"] = self._weekly_bridge()
+
         if all_failed:
             logger.warning(
                 "Daily load finished with %d failed tickers: %s",
@@ -1037,6 +1091,9 @@ class IngestionEngine:
         self.db.record_ingestion_run(
             "on_request_load", result, started_at=start_time
         )
+        # F12-T1: best-effort weekly-layer refresh — merged under
+        # 'weekly'; never fails the load.
+        result["weekly"] = self._weekly_bridge()
         if failed:
             logger.warning(
                 "On-request load finished with %d failed tickers: %s",

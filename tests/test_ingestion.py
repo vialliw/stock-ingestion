@@ -1668,8 +1668,8 @@ def test_daily_load_skipped_has_no_metadata(
 def test_on_request_load_has_no_metadata(
     engine, db, cfg, module_name
 ):
-    """run_on_request_load never bridges — on-request is a client-driven
-    pricing fetch, not a maintenance load."""
+    """run_on_request_load never bridges metadata — on-request is a
+    client-driven pricing fetch, not a maintenance load."""
     engine.fetch_and_clean = MagicMock(
         return_value=(pd.DataFrame(), ["AAPL"], [], {})
     )
@@ -1682,3 +1682,170 @@ def test_on_request_load_has_no_metadata(
 
     assert "metadata" not in result
     mock_bridge.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# 18. F12-T1: weekly bridge at the end of all three load paths
+# ---------------------------------------------------------------------------
+
+
+def _weekly_result(**overrides):
+    result = {
+        "status": "SUCCESS",
+        "weekly_close_rows": 4,
+        "weekly_indicators_rows": 4,
+        "duration_ms": 7,
+    }
+    result.update(overrides)
+    return result
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_initial_load_bridges_weekly(engine, db, cfg, module_name):
+    """F12-T1: a completed initial load ends with a best-effort weekly
+    refresh, merged under the 'weekly' key."""
+    engine.fetch_and_clean = MagicMock(
+        return_value=(pd.DataFrame(), ["AAPL"], [], {})
+    )
+    engine.db.upsert_dataframe = MagicMock(return_value=0)
+    engine._record_historical_splits = MagicMock()
+    engine._metadata_bridge = MagicMock(return_value={"status": "NOT_NEEDED"})
+
+    with patch.object(
+        engine, "_weekly_bridge", return_value=_weekly_result()
+    ) as mock_bridge:
+        result = engine.run_initial_load()
+
+    mock_bridge.assert_called_once()
+    assert result["weekly"]["status"] == "SUCCESS"
+    assert result["weekly"]["weekly_close_rows"] == 4
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_daily_load_bridges_weekly(engine, db, cfg, module_name):
+    """F12-T1: a completed daily load merges the weekly refresh."""
+    engine._metadata_bridge = MagicMock(return_value={"status": "NOT_NEEDED"})
+    with patch(
+        f"{module_name}.mcal.get_calendar",
+        return_value=_open_market_calendar(),
+    ), \
+         patch.object(db, "detect_new_tickers", return_value=[]), \
+         patch.object(
+             engine, "fetch_and_clean",
+             return_value=(pd.DataFrame(), ["AAPL"], [], {}),
+         ), \
+         patch.object(db, "upsert_dataframe", return_value=0), \
+         patch.object(
+             engine, "_weekly_bridge", return_value=_weekly_result()
+         ) as mock_bridge:
+        result = engine.run_daily_load()
+
+    assert result.get("status") != "SKIPPED"
+    mock_bridge.assert_called_once()
+    assert "weekly" in result
+    assert result["weekly"]["status"] == "SUCCESS"
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_daily_load_partial_still_bridges_weekly(
+    engine, db, cfg, module_name
+):
+    """The weekly bridge runs on PARTIAL results too."""
+    engine._metadata_bridge = MagicMock(return_value={"status": "NOT_NEEDED"})
+    with patch(
+        f"{module_name}.mcal.get_calendar",
+        return_value=_open_market_calendar(),
+    ), \
+         patch.object(db, "detect_new_tickers", return_value=[]), \
+         patch.object(
+             engine, "fetch_and_clean",
+             return_value=(
+                 pd.DataFrame(),
+                 ["AAPL"],
+                 ["MSFT"],
+                 {"MSFT": "Empty dataset"},
+             ),
+         ), \
+         patch.object(db, "upsert_dataframe", return_value=0), \
+         patch.object(
+             engine, "_weekly_bridge", return_value=_weekly_result()
+         ) as mock_bridge:
+        result = engine.run_daily_load()
+
+    assert result["tickers_failed"] == ["MSFT"]
+    mock_bridge.assert_called_once()
+    assert result["weekly"]["status"] == "SUCCESS"
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_on_request_load_bridges_weekly(engine, db, cfg, module_name):
+    """run_on_request_load also ends with the weekly refresh (it is a
+    real write to daily_close, unlike SKIPPED)."""
+    engine.fetch_and_clean = MagicMock(
+        return_value=(pd.DataFrame(), ["AAPL"], [], {})
+    )
+    engine.db.upsert_dataframe = MagicMock(return_value=0)
+
+    with patch.object(
+        engine, "_weekly_bridge", return_value=_weekly_result()
+    ) as mock_bridge:
+        result = engine.run_on_request_load(
+            ["AAPL"], "2024-01-01", "2024-01-03"
+        )
+
+    mock_bridge.assert_called_once()
+    assert result["weekly"]["status"] == "SUCCESS"
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_daily_load_skipped_has_no_weekly(engine, db, cfg, module_name):
+    """A SKIPPED daily load (market closed) must NOT refresh — the
+    early return path carries no 'weekly' key."""
+    empty_sched = pd.DataFrame()
+    mock_calendar = MagicMock()
+    mock_calendar.schedule.return_value = empty_sched
+
+    with patch(
+        f"{module_name}.mcal.get_calendar", return_value=mock_calendar
+    ), patch.object(engine, "_weekly_bridge") as mock_bridge:
+        result = engine.run_daily_load()
+
+    assert result["status"] == "SKIPPED"
+    assert "weekly" not in result
+    mock_bridge.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "impl", IMPLEMENTATIONS
+)
+def test_weekly_bridge_failure_does_not_fail_load(
+    engine, db, cfg, module_name
+):
+    """A raising weekly refresh is logged + reported as FAILED — the
+    completed pricing load must survive intact."""
+    engine.fetch_and_clean = MagicMock(
+        return_value=(pd.DataFrame(), ["AAPL"], [], {})
+    )
+    engine.db.upsert_dataframe = MagicMock(return_value=0)
+    engine._record_historical_splits = MagicMock()
+    engine._metadata_bridge = MagicMock(return_value={"status": "NOT_NEEDED"})
+
+    with patch.object(
+        engine, "run_weekly_refresh",
+        side_effect=RuntimeError("weekly boom"),
+    ):
+        result = engine.run_initial_load()
+
+    assert result["weekly"]["status"] == "FAILED"
+    assert "weekly boom" in result["weekly"]["error"]
+    assert "rows_upserted" in result

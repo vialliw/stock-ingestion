@@ -906,3 +906,79 @@ class TestMetadataLoadAction:
         with pytest.raises(flight.FlightError):
             list(client.do_action(action))
         ingest_engine.run_metadata_load.assert_not_called()
+
+
+# =====================================================================
+# F12-T1: weekly_refresh action
+# =====================================================================
+
+
+def _weekly_refresh_result(**overrides):
+    result = {
+        "status": "SUCCESS",
+        "weekly_close_rows": 10,
+        "weekly_indicators_rows": 10,
+        "duration_ms": 15,
+    }
+    result.update(overrides)
+    return result
+
+
+class TestWeeklyRefreshAction:
+    """The ``weekly_refresh`` action routes to
+    engine.run_weekly_refresh (F12-T1).  Empty/absent payload OK."""
+
+    def test_weekly_refresh_success(self, module):
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_weekly_refresh.return_value = (
+            _weekly_refresh_result()
+        )
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("weekly_refresh"))
+        )
+        assert data["status"] == "SUCCESS"
+        assert data["weekly_close_rows"] == 10
+        assert data["weekly_indicators_rows"] == 10
+        ingest_engine.run_weekly_refresh.assert_called_once_with()
+
+    def test_weekly_refresh_empty_payload(self, module):
+        """An explicit empty JSON payload is accepted."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_weekly_refresh.return_value = (
+            _weekly_refresh_result(weekly_close_rows=0)
+        )
+        data = parse_result(
+            server.do_action(
+                MagicMock(), make_action("weekly_refresh", {})
+            )
+        )
+        assert data["status"] == "SUCCESS"
+        assert data["weekly_close_rows"] == 0
+        ingest_engine.run_weekly_refresh.assert_called_once_with()
+
+    def test_weekly_refresh_failure_returns_failed(self, module):
+        """A raising engine -> status FAILED with error, not a crash."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        ingest_engine.run_weekly_refresh.side_effect = RuntimeError(
+            "weekly boom"
+        )
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("weekly_refresh"))
+        )
+        assert data["status"] == "FAILED"
+        assert "weekly boom" in data["error"]
+
+    def test_weekly_refresh_over_wire(self, wire_server):
+        # Real gRPC: weekly_refresh must return one parseable JSON Result.
+        server, client, db_mgr, ingest_engine, cfg = wire_server
+        ingest_engine.run_weekly_refresh.return_value = (
+            _weekly_refresh_result(weekly_close_rows=7)
+        )
+        results = list(
+            client.do_action(flight.Action("weekly_refresh", b"{}"))
+        )
+        assert len(results) == 1
+        data = json.loads(results[0].body.to_pybytes().decode("utf-8"))
+        assert data["status"] == "SUCCESS"
+        assert data["weekly_close_rows"] == 7
+        ingest_engine.run_weekly_refresh.assert_called_once_with()

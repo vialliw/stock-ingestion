@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-15T12:57:23+00:00
+Last Updated: 2026-09-15T19:05:00+00:00
 Current Branch: main
 
 ## Active Blocker
@@ -310,3 +310,14 @@ Final: 213/213 tests pass, loop checker `--strict` clean, do_put schema/filter/u
 - LIVE smoke: `python scripts/breadth_dashboard.py` -> C:\Intel\parquet\Stock_Ingestion_Market_Breadth.html (4.9 MB) via Flight server 127.0.0.1:8815 — 2510 breadth rows / 2511 SPY rows, 3y cutoff 2023-09-14..2026-09-14; no query-timeout hit.
 
 - F11-T1 C/D cycle closed (2026-09-15): C APPROVED (3 non-blocking), D PASS all ACs. Live artifact verified.
+
+
+## F12-T1 — Weekly layer persisted tables — implemented by executor B (2026-09-15)
+- NEW TABLES both impls: `weekly_close` (nominal-Friday key `(date_trunc('week', Date)::DATE + 4)`, arg_min/arg_max OHLC, sum Volume — DOUBLE not legacy BIGINT) + `weekly_indicators` (_01 column set: Slow_K/Slow_D/Stoch_Crossover/Slow_D_80_20_Crossover, BB_*, PPO_*, Force_*, Log_Close_EMA18/40). SQL ported VERBATIM from libs/vw_pipe_data_duckdb.py aggregate_to_weekly (:753-800) and update_weekly_indicators_01 (:317-397).
+- SCHEMA_VERSION: src/db.py 4->5 (new `current_version < 5` block inserts version row); src/db_challenger.py 3->4 (single `WHERE NOT EXISTS` insert convention — bumping the constant suffices). CREATE IF NOT EXISTS covers existing DBs.
+- DB methods both impls: `rebuild_weekly_close()` / `rebuild_weekly_indicators()` return rows written.
+- Engine both impls: `run_weekly_refresh()` (close THEN indicators; {status, weekly_close_rows, weekly_indicators_rows, duration_ms}) + `_weekly_bridge()` (never-raises, {'status':'FAILED'} on error) merged under 'weekly' on run_initial_load / run_daily_load / run_on_request_load SUCCESS+PARTIAL — NOT on SKIPPED.
+- Flight: `weekly_refresh` action on both servers (executor if/elif; challenger `_handle_weekly_refresh` + `_ACTION_HANDLERS`); empty payload OK; engine exception -> {'status':'FAILED','error'} not a transport error.
+- Scripts: `scripts/refresh_weekly.py` (wait_for_available + FlightCallOptions(timeout=300), row counts, unreachable->exit 1) + `refresh_weekly.bat` (CRLF/ASCII/pause/%*).
+- Tests: NEW tests/test_weekly.py (17 x2 impls) + test_ingestion.py (+6 bridge tests x2) + test_flight_server.py (+4 action tests x2). 742/742 pytest (baseline 692, +50); check_loops --src-dir src + --strict clean (14 files); README.md == docs/README.md byte-identical (54,763 B).
+- DEPLOYMENT: live Flight server at 127.0.0.1:8815 runs OLD code — restart StockIngestion-FlightServer for the weekly_refresh action and the auto 'weekly' bridge on loads. Existing DBs auto-migrate to v5 on next open (CREATE IF NOT EXISTS).

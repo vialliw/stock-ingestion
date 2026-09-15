@@ -64,7 +64,7 @@ import pyarrow as pa
 
 logger = logging.getLogger("MarketDataPipeline")
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Maximum number of read cursors the pool will keep alive at once.
 # Additional concurrent readers block until a cursor is returned.
@@ -251,6 +251,128 @@ ON CONFLICT (Date, Ticker) DO UPDATE SET
     Volume = excluded.Volume;
 """
 
+# ---------------------------------------------------------------------------
+# Weekly layer (F12-T1) — verbatim ports of
+# libs/vw_pipe_data_duckdb.py::aggregate_to_weekly (:753-800, the live
+# Friday-dated variant) and ::update_weekly_indicators_01 (:317-397).
+# Volume is DOUBLE to match our daily_close (legacy used BIGINT; same values).
+# ---------------------------------------------------------------------------
+
+_WEEKLY_CLOSE_DDL = """
+CREATE TABLE IF NOT EXISTS weekly_close (
+    Date DATE,
+    Ticker VARCHAR,
+    Open DOUBLE,
+    High DOUBLE,
+    Low DOUBLE,
+    Close DOUBLE,
+    Volume DOUBLE,
+    PRIMARY KEY (Date, Ticker)
+);
+"""
+
+_WEEKLY_INDICATORS_DDL = """
+CREATE TABLE IF NOT EXISTS weekly_indicators (
+    Date DATE, Ticker VARCHAR, Slow_K DOUBLE, Slow_D DOUBLE,
+    Stoch_Crossover INTEGER, Slow_D_80_20_Crossover INTEGER,
+    BB_Upper DOUBLE, BB_Central DOUBLE, BB_Lower DOUBLE,
+    BB_Reversal_Signal INTEGER, PPO DOUBLE, PPO_Signal DOUBLE,
+    PPO_Hist_Crossover INTEGER, PPO_Zero_Crossover INTEGER,
+    Force_Index DOUBLE, Force_Zero_Crossover INTEGER,
+    Log_Close_EMA18 DOUBLE, Log_Close_EMA40 DOUBLE,
+    PRIMARY KEY (Date, Ticker)
+);
+"""
+
+# Nominal-Friday week key: date_trunc('week', Date) gives the ISO Monday;
+# +4 days gives the Friday.  arg_min/arg_max carry first-Open/last-Close.
+_WEEKLY_CLOSE_SQL = """
+INSERT INTO weekly_close
+SELECT
+    (date_trunc('week', Date)::DATE + 4) AS Date,
+    Ticker,
+    arg_min(Open, Date) AS Open,
+    max(High) AS High,
+    min(Low) AS Low,
+    arg_max(Close, Date) AS Close,
+    sum(Volume) AS Volume
+FROM daily_close
+GROUP BY 1, 2
+ON CONFLICT (Date, Ticker) DO UPDATE SET
+    Open = excluded.Open,
+    High = excluded.High,
+    Low = excluded.Low,
+    Close = excluded.Close,
+    Volume = excluded.Volume;
+"""
+
+# update_weekly_indicators_01 column set under the base weekly_indicators
+# name — INSERT OR REPLACE over the 7-stage CTE chain.
+_WEEKLY_INDICATORS_SQL = """
+INSERT OR REPLACE INTO weekly_indicators
+WITH raw_data AS (
+    SELECT *, LAG(Close) OVER (PARTITION BY Ticker ORDER BY Date) as prev_close FROM weekly_close
+),
+stoch_steps AS (
+    SELECT *,
+           ((Close - MIN(Low) OVER (PARTITION BY Ticker ORDER BY Date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW)) /
+           NULLIF(MAX(High) OVER (PARTITION BY Ticker ORDER BY Date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) -
+                  MIN(Low) OVER (PARTITION BY Ticker ORDER BY Date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW), 0)) * 100 as fast_k
+    FROM raw_data
+),
+stoch_slow_k AS (
+    SELECT *, AVG(fast_k) OVER (PARTITION BY Ticker ORDER BY Date ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) as slow_k FROM stoch_steps
+),
+moving_averages AS (
+    SELECT *,
+           AVG(slow_k) OVER (PARTITION BY Ticker ORDER BY Date ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) as slow_d,
+           AVG(Close) OVER (PARTITION BY Ticker ORDER BY Date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) as bb_mid,
+           STDDEV(Close) OVER (PARTITION BY Ticker ORDER BY Date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) as bb_std,
+           AVG(Close) OVER (PARTITION BY Ticker ORDER BY Date ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) as ema12,
+           AVG(Close) OVER (PARTITION BY Ticker ORDER BY Date ROWS BETWEEN 25 PRECEDING AND CURRENT ROW) as ema26,
+           AVG(Close) OVER (PARTITION BY Ticker ORDER BY Date ROWS BETWEEN 17 PRECEDING AND CURRENT ROW) as ema18,
+           AVG(Close) OVER (PARTITION BY Ticker ORDER BY Date ROWS BETWEEN 39 PRECEDING AND CURRENT ROW) as ema40
+    FROM stoch_slow_k
+),
+indicator_base AS (
+    SELECT *, ((ema12 - ema26) / NULLIF(ema26, 0)) * 100 as ppo, (Close - prev_close) * Volume as force_idx FROM moving_averages
+),
+signal_line_base AS (
+    SELECT *, AVG(ppo) OVER (PARTITION BY Ticker ORDER BY Date ROWS BETWEEN 8 PRECEDING AND CURRENT ROW) as ppo_signal,
+           LAG(ppo) OVER (PARTITION BY Ticker ORDER BY Date) as prev_ppo,
+           LAG(force_idx) OVER (PARTITION BY Ticker ORDER BY Date) as prev_force,
+           LAG(slow_k) OVER (PARTITION BY Ticker ORDER BY Date) as prev_slow_k,
+           LAG(slow_d) OVER (PARTITION BY Ticker ORDER BY Date) as prev_slow_d
+    FROM indicator_base
+),
+final_calculations AS (
+    SELECT Date, Ticker, slow_k, slow_d,
+        CASE WHEN slow_k > slow_d AND prev_slow_k <= prev_slow_d THEN 1
+             WHEN slow_k < slow_d AND prev_slow_k >= prev_slow_d THEN -1 ELSE 0 END as stoch_x,
+        CASE WHEN (slow_k < 20 AND prev_slow_k >= 20) OR (slow_k > 80 AND prev_slow_k <= 80) THEN
+             CASE WHEN slow_k > slow_d AND prev_slow_k <= prev_slow_d THEN 1
+                  WHEN slow_k < slow_d AND prev_slow_k >= prev_slow_d THEN -1 ELSE 0 END
+             ELSE 0 END as stoch_80_20_x,
+        bb_mid + (2 * bb_std) as bb_up, bb_mid as bb_central, bb_mid - (2 * bb_std) as bb_low,
+        ppo, ppo_signal, LAG(ppo_signal) OVER (PARTITION BY Ticker ORDER BY Date) as prev_ppo_signal,
+        force_idx, prev_force, prev_ppo, Close, prev_close,
+        LN(Close / NULLIF(ema18, 0)) as log_ema18, LN(Close / NULLIF(ema40, 0)) as log_ema40
+    FROM signal_line_base
+)
+SELECT Date, Ticker, slow_k, slow_d, stoch_x, stoch_80_20_x,
+    bb_up, bb_central, bb_low,
+    CASE WHEN prev_close < bb_low AND Close > bb_low THEN 1
+         WHEN prev_close > bb_up AND Close < bb_up THEN -1 ELSE 0 END as bb_rev,
+    ppo, ppo_signal,
+    CASE WHEN ppo > ppo_signal AND prev_ppo <= prev_ppo_signal THEN 1
+         WHEN ppo < ppo_signal AND prev_ppo >= prev_ppo_signal THEN -1 ELSE 0 END as ppo_x,
+    CASE WHEN ppo > 0 AND prev_ppo <= 0 THEN 1 WHEN ppo < 0 AND prev_ppo >= 0 THEN -1 ELSE 0 END as ppo_zero_x,
+    force_idx,
+    CASE WHEN force_idx > 0 AND prev_force <= 0 THEN 1 WHEN force_idx < 0 AND prev_force >= 0 THEN -1 ELSE 0 END as force_zero_x,
+    log_ema18, log_ema40
+FROM final_calculations;
+"""
+
 
 # ---------------------------------------------------------------------------
 # Data-health SQL (F9-T5) — module-level constants, mirroring the DDL
@@ -417,6 +539,10 @@ class DatabaseManager:
             conn.execute(_SPLITS_PROCESSED_DDL)
             conn.execute(_SCHEMA_VERSION_DDL)
             conn.execute(_COMPANY_METADATA_DDL)
+            # F12-T1: weekly layer (Friday-dated weekly_close + the
+            # weekly_indicators _01 column set).
+            conn.execute(_WEEKLY_CLOSE_DDL)
+            conn.execute(_WEEKLY_INDICATORS_DDL)
             conn.execute(
                 "INSERT INTO schema_version (version) "
                 "SELECT $version WHERE NOT EXISTS ("
@@ -543,6 +669,46 @@ class DatabaseManager:
             finally:
                 conn.unregister("staging_metadata")
         return len(rows)
+
+    # -- weekly layer (F12-T1) ------------------------------------------
+    # Verbatim SQL ports of libs/vw_pipe_data_duckdb.py
+    # aggregate_to_weekly (:753-800) and update_weekly_indicators_01
+    # (:317-397); module-level constants per this variant's convention.
+
+    def rebuild_weekly_close(self) -> int:
+        """Rebuild ``weekly_close`` from ``daily_close``; return row count.
+
+        Nominal-Friday week key ``(date_trunc('week', Date)::DATE + 4)``;
+        ``arg_min(Open, Date)`` / ``arg_max(Close, Date)`` /
+        ``max(High)`` / ``min(Low)`` / ``sum(Volume)``; idempotent via
+        ``ON CONFLICT (Date, Ticker) DO UPDATE``.
+        """
+        with self._write.connection() as conn:
+            conn.execute(_WEEKLY_CLOSE_DDL)
+            conn.execute(_WEEKLY_CLOSE_SQL)
+            count = conn.execute(
+                "SELECT COUNT(*) FROM weekly_close"
+            ).fetchone()[0]
+        logger.info(
+            f"Weekly aggregation complete. Total weekly records: {count}"
+        )
+        return int(count)
+
+    def rebuild_weekly_indicators(self) -> int:
+        """Rebuild ``weekly_indicators`` from ``weekly_close``; return row
+        count.  ``INSERT OR REPLACE`` over the _01 CTE chain (stochastic
+        incl. ``Slow_D_80_20_Crossover``, Bollinger, PPO, Force Index,
+        log-EMAs)."""
+        with self._write.connection() as conn:
+            conn.execute(_WEEKLY_INDICATORS_DDL)
+            conn.execute(_WEEKLY_INDICATORS_SQL)
+            count = conn.execute(
+                "SELECT COUNT(*) FROM weekly_indicators"
+            ).fetchone()[0]
+        logger.info(
+            f"Weekly indicators updated. Total indicator records: {count}"
+        )
+        return int(count)
 
     # -- data-health checks (F9-T5; report-only — never repairs) --------
 

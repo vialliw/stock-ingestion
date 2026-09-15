@@ -341,6 +341,18 @@ class MarketDataFlightServer(flight.FlightServerBase):
                 json.dumps({"status": status, **result}).encode("utf-8")
             )
 
+        elif action_type == "weekly_refresh":
+            # F12-T1: rebuild weekly_close + weekly_indicators from
+            # daily_close.  Payload is optional/empty.  A failed rebuild
+            # surfaces as status=FAILED rather than a transport error —
+            # the daily tables are unaffected.
+            try:
+                result = self.engine.run_weekly_refresh()
+            except Exception as e:
+                logger.error("weekly_refresh failed: %s", e)
+                result = {"status": "FAILED", "error": str(e)}
+            return _ActionResult(json.dumps(result).encode("utf-8"))
+
         elif action_type == "daily_report":
             start_time = datetime.now()
             target_date = payload.get("date")
