@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-15T19:05:00+00:00
+Last Updated: 2026-09-15T20:30:00+00:00
 Current Branch: main
 
 ## Active Blocker
@@ -159,13 +159,22 @@ Agent B/C/D spawns no longer depend on org quota: the DEFAULT workflow is local 
   - test_phase2_integration.py  (Phase 2 end-to-end integration tests — F7-T7)
   - test_scheduler.py  (critic tests for PipelineScheduler/APScheduler/DuckDB lock retry — F7-T5; + F7-T15 force-bypass gate tests)
   - test_lookback_days.py  (critic tests for daily_lookback_days config default/validation, run_daily_load window + rejection, scheduler/CI=1, flight_server forwarding — F7-T8c)
-  - test_report_app.py  (executor tests for report_app SQL builders, fetch fallback, xlsx bytes — 18 tests — F7-T22; +threshold-inversion + st.cache_data key-derivation tests — 30 tests — F7-T23; +weekly builders/seeded-DuckDB/guide-verbatim tests — 44 tests — F7-T24)
+  - test_report_app.py  (executor tests for report_app SQL builders, fetch fallback, xlsx bytes — 18 tests — F7-T22; +threshold-inversion + st.cache_data key-derivation tests — 30 tests — F7-T23; +weekly builders/seeded-DuckDB/guide-verbatim tests — 44 tests — F7-T24; +Market Breadth tab — F11-T1; +RRG tab — F13-T1)
+  - test_breadth_dashboard.py  (executor tests for the market-breadth dashboard port — F11-T1)
+  - test_rrg_dashboard.py  (executor tests for the RRG dashboard port: presets/SQL/RRG math/figure/LLM payload/CLI — F13-T1)
+  - test_weekly.py  (weekly_close + weekly_indicators tests x2 impls — F12-T1)
 - /scripts/
   - run_flight_server.py  (cwd-safe wrapper -> src.main.main() for the StockIngestion-FlightServer task — F7-T16)
   - register_flight_service.ps1  (registers AtStartup service task via ScheduledTasks cmdlets — F7-T16)
   - daily_load_once.py  (one-shot daily load; Flight-action first, direct fallback; chains top-25 report on success — F7-T13/T15/T16/T20)
   - report_top25_active.py  (Report_Top_25_Active.xlsx via Flight do_get, read-only DuckDB fallback, auto-width openpyxl — F7-T20)
-  - report_app.py  (Streamlit app, 5 tabs: daily top-25 dollar volume + daily acceleration candidates + weekly combined regimes + weekly acceleration + weekly deceleration; SQL builders + Flight-first fetch, xlsx download — F7-T22; +st.cache_data query caching w/ TTL+Refresh + inverted-threshold st.warning via find_threshold_inversions — F7-T23; +weekly DATE_TRUNC bars, verbatim interpretation guides — F7-T24)
+  - report_app.py  (Streamlit app, 7 tabs: weekly combined/acceleration/deceleration + daily top-25 dollar volume + daily acceleration candidates + Market Breadth + Relative Rotation (RRG); SQL builders + Flight-first fetch, xlsx download — F7-T22; +st.cache_data query caching w/ TTL+Refresh + inverted-threshold st.warning via find_threshold_inversions — F7-T23; +weekly DATE_TRUNC bars, verbatim interpretation guides — F7-T24; +Market Breadth tab — F11-T1; +RRG tab — F13-T1)
+  - breadth_dashboard.py  (market-breadth HTML dashboard, verbatim port of legacy breadth_builder02.py — F11-T1)
+  - breadth_dashboard.bat  (CRLF/ASCII/pause/%* wrapper — F11-T1)
+  - refresh_weekly.py  (weekly_close + weekly_indicators rebuild via the weekly_refresh Flight action — F12-T1)
+  - refresh_weekly.bat  (CRLF/ASCII/pause/%* wrapper — F12-T1)
+  - rrg_dashboard.py  (RRG animated HTML + analysis-prompt JSON per preset, verbatim port of legacy plot_rrg_chart_gemini10b.py reading weekly_close — F13-T1)
+  - rrg_dashboard.bat  (CRLF/ASCII/pause/%* wrapper — F13-T1)
 
 ## Decisions Made (do NOT change without PM approval)
 - [2026-09-06T18:10:00Z] Cycle 1 started: Config + Scaffold (F1-T1..F1-T4 per docs/dev_plan/phase1_dev_plan.md)
@@ -323,3 +332,11 @@ Final: 213/213 tests pass, loop checker `--strict` clean, do_put schema/filter/u
 - DEPLOYMENT: live Flight server at 127.0.0.1:8815 runs OLD code — restart StockIngestion-FlightServer for the weekly_refresh action and the auto 'weekly' bridge on loads. Existing DBs auto-migrate to v5 on next open (CREATE IF NOT EXISTS).
 
 - F12-T1 C/D cycle closed + DEPLOYED (2026-09-15): C APPROVED (5 non-blocking: stale weekly rows for purged tickers — ON CONFLICT never deletes and delete_ticker_data/purge_ticker don't touch weekly tables; double rebuild on empty-DB daily path; R2 sync precedes weekly bridge so synced copy lags one run; on_request_load triggers full rebuild; 300s vs 120s sibling timeout). D PASS all 7 ACs. Service restarted (schtasks "Flight Server") — schema_version 5 live. `python scripts/refresh_weekly.py` -> SUCCESS: weekly_close 578,364 rows + weekly_indicators 578,364 rows in 16,951 ms (full 10y backfill 2016-09-16..2026-09-18). do_get verified: 100% keys dayofweek=5 (nominal Friday), indicators populated (Slow_K/Slow_D/Slow_D_80_20_Crossover).
+
+
+## F13-T1 — RRG Dashboard port — implemented by executor B (2026-09-15)
+- NEW `scripts/rrg_dashboard.py` — verbatim port of legacy `plot_rrg_chart_gemini10b.py` reading the persisted `weekly_close` table via `report_app.fetch_dataframe` (Flight do_get first, read-only DuckDB fallback; never a writable connection). `RRG_PRESETS` verified verbatim vs legacy `__main__` configs (ETFs 85/SPY/1y, sector1 17/SPY/3y, sector2 17/SGOV/3y, sector3 7/SPY/3y, Semi 35/SMH/3y, AI 41/XLK/3y; all period=14 trail=3; prefixes `Relative_Rotation_Dashboard_*`). `build_rrg_sql` emits legacy semantics with safe quoted ticker join (regex-validated `^[A-Z0-9.\-]+$`, no tuple repr); `pivot_closes` (pivot+ffill), `compute_rrg` (rs/rs_ratio/rs_momentum/valid_mask/dynamic-limit math verbatim; missing tickers dropped-with-warning, missing benchmark -> ValueError), `get_spline` (lazy scipy, <3-point passthrough), `build_rrg_figure` (4-row 1500x1500 animated figure: 13-color cycle, spline trails + diamond heads, benchmark bars, stats + guide tables, per-date frames + slider + play/pause, quadrant rects/annotations), `gen_ai_prompt` verbatim JSON, `export_rotation_summary` ported but NOT invoked (legacy parity). `generate_rrg_dashboard(config, preset_name, ...)` writes `{report_dir}/{prefix}.html` (include_plotlyjs='cdn') + `{prefix}_analysis_prompt.json`, returns paths; fetch-None -> RuntimeError. `main()` CLI `--dashboard/--period/--trail/--years/--benchmark`; no --dashboard runs ALL 6 presets; per-preset failure logged + batch continues; exit 1 only if every selected preset fails.
+- `scripts/report_app.py`: 7th tab "Relative Rotation (RRG)" after Market Breadth — `_render_rrg_tab(st, config)` with preset selectbox + period/trail/lookback-years/benchmark widgets defaulting to preset values, lazy rrg_dashboard import, cached_fetch_dataframe, `st.plotly_chart(fig, width="stretch")`, latest-position stats df, LLM-prompt JSON in expander + st.download_button, fetch-None -> st.error; module docstring updated.
+- `scripts/rrg_dashboard.bat` — CRLF + ASCII verified (pause, `%*` passthrough, `cd /d "%~dp0\.."`). requirements.txt + `scipy>=1.10`.
+- Tests: NEW tests/test_rrg_dashboard.py (41: seeded weekly_close read-only SQL exec, constant-RS->100, rising-RS->100+, valid_mask warmup drop, missing-ticker drop, missing-benchmark ValueError, spline passthrough, 2n+4 traces / len(dates)-trail frames, quadrant shapes, JSON payload + quadrant labels, html+json filenames to tmp report_dir, monkeypatched fetch, RuntimeError both-paths-fail, main() exit codes) + test_report_app.py (+3: tab label/order in main() source, _render_rrg_tab drives cached fetch + plotly_chart, fetch-None -> st.error).
+- VERIFY: `python -m pytest tests/ -q` -> 786 passed exit 0 (baseline 742, +44); `check_loops --src-dir src` + `--strict` clean (14 files); README.md == docs/README.md byte-identical; `--verify F13-T1` -> prose AC exit 0. No live-DB run, no Flight restart. Commits: claim 1f5de0a, done 2d756c0.
