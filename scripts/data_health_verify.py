@@ -195,16 +195,23 @@ def main() -> int:
                     for d in days
                 },
             }
-        n_gap = sum(
-            1 for v in (verdicts[t].get("days") or {}).values()
-            if v == "download_gap"
-        ) or (len(returned) if verdicts[t].get(
-            "classification") == "download_gap" else 0)
-        n_halt = sum(
-            1 for v in (verdicts[t].get("days") or {}).values()
-            if v == "halt_or_suspension"
-        ) or (0 if verdicts[t].get(
-            "classification") == "download_gap" else 1)
+        days_v = verdicts[t].get("days")
+        if days_v is not None:
+            n_gap = sum(1 for v in days_v.values() if v == "download_gap")
+            n_halt = sum(
+                1 for v in days_v.values() if v == "halt_or_suspension"
+            )
+        else:
+            n_gap = (
+                len(returned)
+                if verdicts[t]["classification"] == "download_gap"
+                else 0
+            )
+            n_halt = (
+                1
+                if verdicts[t]["classification"] == "halt_or_suspension"
+                else 0
+            )
         print(f"  {t}: {verdicts[t]['classification']} "
               f"({n_gap} recoverable day(s), {n_halt} halt/suspension)")
 
