@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-16T21:00:00+00:00
+Last Updated: 2026-09-16T22:30:00+00:00
 Current Branch: main
 
 ## Active Blocker
@@ -159,7 +159,7 @@ Agent B/C/D spawns no longer depend on org quota: the DEFAULT workflow is local 
   - test_phase2_integration.py  (Phase 2 end-to-end integration tests — F7-T7)
   - test_scheduler.py  (critic tests for PipelineScheduler/APScheduler/DuckDB lock retry — F7-T5; + F7-T15 force-bypass gate tests)
   - test_lookback_days.py  (critic tests for daily_lookback_days config default/validation, run_daily_load window + rejection, scheduler/CI=1, flight_server forwarding — F7-T8c)
-  - test_report_app.py  (executor tests for report_app SQL builders, fetch fallback, xlsx bytes — 18 tests — F7-T22; +threshold-inversion + st.cache_data key-derivation tests — 30 tests — F7-T23; +weekly builders/seeded-DuckDB/guide-verbatim tests — 44 tests — F7-T24; +Market Breadth tab — F11-T1; +RRG tab — F13-T1)
+  - test_report_app.py  (executor tests for report_app SQL builders, fetch fallback, xlsx bytes — 18 tests — F7-T22; +threshold-inversion + st.cache_data key-derivation tests — 30 tests — F7-T23; +weekly builders/seeded-DuckDB/guide-verbatim tests — 44 tests — F7-T24; +Market Breadth tab — F11-T1; +RRG tab — F13-T1; +RRG Custom ad-hoc option — F15-T1)
   - test_breadth_dashboard.py  (executor tests for the market-breadth dashboard port — F11-T1)
   - test_rrg_dashboard.py  (executor tests for the RRG dashboard port: presets/SQL/RRG math/figure/LLM payload/CLI — F13-T1)
   - test_weekly.py  (weekly_close + weekly_indicators tests x2 impls — F12-T1)
@@ -168,7 +168,7 @@ Agent B/C/D spawns no longer depend on org quota: the DEFAULT workflow is local 
   - register_flight_service.ps1  (registers AtStartup service task via ScheduledTasks cmdlets — F7-T16)
   - daily_load_once.py  (one-shot daily load; Flight-action first, direct fallback; chains top-25 report on success — F7-T13/T15/T16/T20)
   - report_top25_active.py  (Report_Top_25_Active.xlsx via Flight do_get, read-only DuckDB fallback, auto-width openpyxl — F7-T20)
-  - report_app.py  (Streamlit app, 7 tabs: weekly combined/acceleration/deceleration + daily top-25 dollar volume + daily acceleration candidates + Market Breadth + Relative Rotation (RRG); SQL builders + Flight-first fetch, xlsx download — F7-T22; +st.cache_data query caching w/ TTL+Refresh + inverted-threshold st.warning via find_threshold_inversions — F7-T23; +weekly DATE_TRUNC bars, verbatim interpretation guides — F7-T24; +Market Breadth tab — F11-T1; +RRG tab — F13-T1)
+  - report_app.py  (Streamlit app, 7 tabs: weekly combined/acceleration/deceleration + daily top-25 dollar volume + daily acceleration candidates + Market Breadth + Relative Rotation (RRG); SQL builders + Flight-first fetch, xlsx download — F7-T22; +st.cache_data query caching w/ TTL+Refresh + inverted-threshold st.warning via find_threshold_inversions — F7-T23; +weekly DATE_TRUNC bars, verbatim interpretation guides — F7-T24; +Market Breadth tab — F11-T1; +RRG tab — F13-T1; +RRG Custom ad-hoc ticker option — F15-T1)
   - breadth_dashboard.py  (market-breadth HTML dashboard, verbatim port of legacy breadth_builder02.py — F11-T1)
   - breadth_dashboard.bat  (CRLF/ASCII/pause/%* wrapper — F11-T1)
   - refresh_weekly.py  (weekly_close + weekly_indicators rebuild via the weekly_refresh Flight action — F12-T1)
@@ -353,3 +353,10 @@ Final: 213/213 tests pass, loop checker `--strict` clean, do_put schema/filter/u
 - PROCESS NOTE: TASKS.json registered F14-T1 with status `pending` (claim expects `todo`); executor normalized to `todo` then claimed. Orchestrator later amended output_files (+scripts/rrg_dashboard.bat, +scripts/report_app.py) so challenger-flagged stale comments could be fixed in-scope (commit 55bf2ff).
 
 - F14-T1 C/D cycle closed + DEPLOYED (2026-09-16): C APPROVED (2 non-blocking doc nits — stale "six presets" in .bat comment + report_app docstring — fixed in-scope after output_files amendment). D PASS all 4 ACs incl. additive-only diff check + SQL sanity. LIVE: `python scripts/rrg_dashboard.py --dashboard Mag7` via running Flight server -> C:\Intel\parquet\Relative_Rotation_Dashboard_Mag7.html (1.7 MB) + _analysis_prompt.json; JSON payload verified — all 7 tickers, 2026-09-18 week: MSFT/META LEADING, AAPL/NVDA WEAKENING, GOOGL/AMZN/TSLA LAGGING vs SPY.
+
+## F15-T1 — Custom ad-hoc RRG option in report_app RRG tab — implemented by executor B (2026-09-16)
+- `scripts/report_app.py` `_render_rrg_tab`: selectbox options `list(RRG_PRESETS) + ["Custom"]` (Custom LAST so presets keep order); `preset = RRG_PRESETS.get(preset_name)` — None means Custom → widget defaults period=14 / trail=3 / lookback_years=3 / benchmark="SPY" via a `defaults` dict (all existing widget `key`s unchanged: rrg_period/rrg_trail/rrg_years/rrg_benchmark). Custom only: `st.text_input("Tickers (comma-separated)", key="rrg_custom_tickers", placeholder="AAPL,MSFT,NVDA", help=...)`. Parse: split(",") → strip → upper → drop empties → dedupe preserving first-seen order (`dict.fromkeys`); empty after parsing → `st.error` + return BEFORE any fetch. Presets keep `preset["tickers"].split(",")`. `build_rrg_sql` regex-validates every symbol (`^[A-Z0-9.\-]+$`) → ValueError → existing `st.error` path, no fetch. After `compute_rrg`: `dropped = [t for t in tickers if t not in rrg["tickers"]]` → `st.warning` naming them (surfaces the library's print-warning in the UI). Download filename `{preset['prefix']}_analysis_prompt.json` for presets / `"RRG_Custom_analysis_prompt.json"` for Custom. "for this preset" → "for this selection". `_render_rrg_tab` docstring + module docstring RRG bullet updated.
+- `tests/test_report_app.py` `TestRrgTab` +4 tests (59→63 in file): `test_render_custom_normalizes_tickers_into_sql` ("XLK, dia ,xlf" → captured SQL contains `'XLK','DIA','XLF'`, benchmark SPY appended, plotly_chart called, no warning, Custom filename), `test_render_custom_empty_input_errors` ("   , ," → st.error once, fetch not called), `test_render_custom_invalid_symbol_errors` ("X;DROP TABLE" → st.error via build_rrg_sql ValueError, fetch not called), `test_render_custom_dropped_ticker_warns` (fetch df lacks XLF → st.warning names XLF, survivors still render). `_weekly_long_df` parameterized with a `tickers` arg; NEW `_keyed_text_input` helper dispatches benchmark vs `rrg_custom_tickers` on the widget `key` (text_input is called twice in Custom mode).
+- `README.md` + `docs/README.md`: RRG tab bullet documents the Custom option (free-text comma-separated tickers + benchmark, defaults 14/3/3y/SPY, regex-validated, missing symbols warned+dropped). Byte-identical (58,158 B both).
+- VERIFY: `python -m pytest tests/ -q` → 793 passed exit 0 (baseline 789, +4); `check_loops --src-dir src` + `--strict` clean (14 files); `--verify F15-T1` → prose AC exit 0. No live-DB run, no Flight restart — read-only consumer. Commits: claim 55c88bc, done b26b3ec.
+- PROCESS NOTE: TASKS.json registered F15-T1 with status `pending` (claim expects `todo`); executor normalized to `todo` then claimed — same as F14-T1.
