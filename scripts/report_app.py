@@ -45,8 +45,9 @@ Relative Rotation (RRG):
   ``scripts/rrg_dashboard.py``, lazily imported — it in turn
   lazy-imports ``plotly``/``scipy``).  Reads the persisted
   ``weekly_close`` table.  A preset ``st.selectbox`` picks one of the
-  six legacy configurations; period / trail / lookback-years /
-  benchmark widgets default to the preset's values.
+  seven configurations (six legacy + the ``Mag7`` project addition);
+  period / trail / lookback-years / benchmark widgets default to the
+  preset's values.
 
 The weekly tabs aggregate ``daily_close`` into weekly bars
 (``DATE_TRUNC('week', Date)``, first-Open/last-Close via

@@ -8,7 +8,7 @@ rem (built by weekly_refresh / scripts\refresh_weekly.py).
 rem
 rem Optional flags pass straight through, e.g.
 rem   rrg_dashboard.bat --dashboard sector1 --years 5
-rem With no --dashboard flag ALL six presets are generated.
+rem With no --dashboard flag ALL seven presets are generated.
 
 cd /d "%~dp0\.."
 python scripts\rrg_dashboard.py %*
