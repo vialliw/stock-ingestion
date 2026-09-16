@@ -620,7 +620,7 @@ r2:
 - **Daily — Top 25 by Dollar Volume** — top-N tickers ranked by latest-day dollar volume, enriched with RVOL, relative dollar volume, pct change, a `volume_regime` classification (Strong Acceleration / Acceleration / Normal / Deceleration / Strong Deceleration), and share of total average dollar volume.
 - **Daily — Acceleration Candidates** — keeps only `rvol >= threshold` names among the top-K most-liquid tickers by latest dollar volume, ordered by `rvol` descending.
 - **Market Breadth** — the 5-panel breadth dashboard ported verbatim (SQL / indicator math / figure / guide) from the legacy `breadth_builder02.py`: SPY candlestick + 50-day EMA, % of stocks above their 50-/200-day SMA, net advances & volume ratio, and new highs vs. new lows over a 252-day lookback. Rendered via `st.plotly_chart`; a "Years of history" widget (default `reports.market_breadth_years`, `0` = all data) applies a post-query trailing-years cutoff.
-- **Relative Rotation (RRG)** — the animated Relative Rotation Graph ported verbatim (presets / `weekly_close` query / RS-Ratio & RS-Momentum math / spline trails / quadrant annotations) from the legacy `plot_rrg_chart_gemini10b.py`. A preset selectbox picks one of six ticker universes; period, trail-length, lookback-years and benchmark widgets default to the preset's values. Rendered via `st.plotly_chart`, with a latest-positions stats table and the LLM analysis-prompt JSON in an expander plus a download button. Requires the persisted `weekly_close` table.
+- **Relative Rotation (RRG)** — the animated Relative Rotation Graph ported verbatim (presets / `weekly_close` query / RS-Ratio & RS-Momentum math / spline trails / quadrant annotations) from the legacy `plot_rrg_chart_gemini10b.py`. A preset selectbox picks one of seven ticker universes; period, trail-length, lookback-years and benchmark widgets default to the preset's values. Rendered via `st.plotly_chart`, with a latest-positions stats table and the LLM analysis-prompt JSON in an expander plus a download button. Requires the persisted `weekly_close` table.
 
 The weekly tabs aggregate `daily_close` into weekly bars (`DATE_TRUNC('week', Date)`, first-Open/last-Close via `ARRAY_AGG`, summed volume and dollar volume, `LAG`-based weekly pct change) and average over the last N **weeks**. Note the weekly deceleration defaults differ from the daily ones: `strong_decel=0.50` / `decel=0.70` (daily uses 0.6 / 0.8).
 
@@ -654,7 +654,7 @@ Output: **`Stock_Ingestion_Market_Breadth.html`** written to `reports.report_dir
 
 `scripts/rrg_dashboard.py` is the standalone (non-Streamlit) generator for the animated Relative Rotation Graph shown in the app's "Relative Rotation (RRG)" tab — a Flight-sourced port of the legacy `plot_rrg_chart_gemini10b.py`. It queries the persisted `weekly_close` table through the same Flight-first / read-only-DuckDB-fallback fetch path as the report app, computes the legacy RS-Ratio / RS-Momentum series verbatim, and writes a self-contained animated HTML file (spline trails + diamond heads, benchmark bars, stats and guide tables, per-date frames with a slider and play/pause, quadrant annotations) plus an LLM analysis-prompt JSON.
 
-Six presets mirror the legacy `__main__` configurations verbatim (all use `period=14`, `trail=3`):
+Six presets mirror the legacy `__main__` configurations verbatim; a seventh, `Mag7`, is a project addition (all use `period=14`, `trail=3`):
 
 | Preset | Universe | Benchmark | Lookback | Output prefix |
 |--------|----------|-----------|----------|---------------|
@@ -664,9 +664,10 @@ Six presets mirror the legacy `__main__` configurations verbatim (all use `perio
 | `sector3` | 7 broad ETFs | `SPY` | 3 years | `Relative_Rotation_Dashboard_sector3` |
 | `Semi` | 35 semiconductor names | `SMH` | 3 years | `Relative_Rotation_Dashboard_Semi` |
 | `AI` | 41 AI-theme names | `XLK` | 3 years | `Relative_Rotation_Dashboard_AI` |
+| `Mag7` | 7 Magnificent-7 mega-caps (AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA) | `SPY` | 3 years | `Relative_Rotation_Dashboard_Mag7` |
 
 ```bash
-python scripts/rrg_dashboard.py                         # all six presets
+python scripts/rrg_dashboard.py                         # all seven presets
 python scripts/rrg_dashboard.py --dashboard sector1     # one preset
 python scripts/rrg_dashboard.py --dashboard Semi --trail 5 --years 1 --benchmark SMH
 ```

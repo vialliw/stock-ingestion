@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-15T20:30:00+00:00
+Last Updated: 2026-09-16T21:00:00+00:00
 Current Branch: main
 
 ## Active Blocker
@@ -344,3 +344,10 @@ Final: 213/213 tests pass, loop checker `--strict` clean, do_put schema/filter/u
 - LIVE-SMOKE FIX (commit 4838578): Flight `do_get().read_all().to_pandas()` delivers DATE as object-dtype `datetime.date` (legacy duckdb `.df()` gave datetime64) — `gen_ai_prompt`'s `index[-1].date()` crashed. Fix: `pivot_closes` coerces `pd.to_datetime(df["Date"])` before pivot (data-source normalization, not logic change). +1 regression test (object-dtype dates) -> 787 passed.
 
 - F13-T1 C/D cycle closed + DEPLOYED (2026-09-15): C APPROVED (3 non-blocking: top-level report_app import double-instance under streamlit run — same as breadth precedent; all-6 batch lives in main() not generate(); tab adds len(dates)<=trail guard — improvement). D PASS all 6 ACs incl. independent smoke via real read-only fallback; flagged missing [CHALLENGER] EVENTS entry (backfilled by orchestrator). LIVE: `python scripts/rrg_dashboard.py` generated ALL 6 dashboards via running Flight server — 12 artifacts in C:\Intel\parquet: Relative_Rotation_Dashboard_{ETFs,sector1,sector2,sector3,Semi,AI}.html (1.7-4.5 MB, cdn plotly) + matching _analysis_prompt.json. No service restart needed (read-only consumer).
+
+## F14-T1 — Mag7 RRG preset — implemented by executor B (2026-09-16)
+- `scripts/rrg_dashboard.py`: appended `"Mag7"` key to `RRG_PRESETS` after `"AI"` — tickers `"AAPL,MSFT,GOOGL,AMZN,NVDA,META,TSLA"` (GOOGL class A; GOOG is NOT in the configured universe), benchmark `"SPY"`, lookback_years 3, period 14, trail 3, prefix `"Relative_Rotation_Dashboard_Mag7"`. Presets comment + module docstring + `main()` help updated to note the six legacy presets are verbatim and Mag7 is a project addition. Nothing else needed — the tab selectbox, `build_rrg_sql`, and `main()` batch all iterate `RRG_PRESETS` generically.
+- `tests/test_rrg_dashboard.py`: `test_presets_order_and_legacy_verbatim` (was `test_six_presets_verbatim`) now expects the 7-key order ending in `Mag7`; NEW `test_mag7_preset` (key exists, exact 7-ticker list, GOOGL present / GOOG absent, SPY benchmark, 3y/14/3, prefix) + NEW `test_mag7_sql_emits_all_eight_symbols` (`build_rrg_sql` emits `Ticker IN ('AAPL','MSFT','GOOGL','AMZN','NVDA','META','TSLA','SPY')`). Stale "all six" naming/comments in TestMain updated.
+- `README.md` + `docs/README.md`: preset table gains the `Mag7` row (7 mega-caps, SPY, 3y, `Relative_Rotation_Dashboard_Mag7`); "six presets" wording updated to "seven" in the RRG section + report-app tab bullet. Byte-identical (57,950 B, md5 d345adc83f2c387d311d9a1d20c360eb).
+- VERIFY: `python -m pytest tests/ -q` -> 789 passed exit 0 (baseline 787, +2); `check_loops --src-dir src` + `--strict` clean (14 files); `--verify F14-T1` -> prose AC exit 0. No live-DB run, no Flight restart — orchestrator does the live smoke.
+- PROCESS NOTE: TASKS.json registered F14-T1 with status `pending` (claim expects `todo`); executor normalized to `todo` then claimed.

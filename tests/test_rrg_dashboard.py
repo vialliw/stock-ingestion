@@ -122,12 +122,13 @@ def _seed_weekly_close(db_path: str, rows: list) -> None:
 
 
 # ------------------------------------------------------------------
-# RRG_PRESETS — the six legacy __main__ configs verbatim
+# RRG_PRESETS — the six legacy __main__ configs verbatim, plus the
+# Mag7 project addition
 # ------------------------------------------------------------------
 
 
 class TestPresets:
-    def test_six_presets_verbatim(self):
+    def test_presets_order_and_legacy_verbatim(self):
         presets = rrg_dashboard.RRG_PRESETS
         assert list(presets) == [
             "ETFs",
@@ -136,6 +137,7 @@ class TestPresets:
             "sector3",
             "Semi",
             "AI",
+            "Mag7",
         ]
         # (benchmark, lookback_years, prefix, ticker count) — the
         # counts are the true sizes of the verbatim legacy ticker
@@ -185,6 +187,44 @@ class TestPresets:
         assert presets["AI"]["tickers"].endswith(",HUT,CLSK")
         assert presets["ETFs"]["tickers"].startswith("AMLP,ARKK,AWAY,")
         assert presets["ETFs"]["tickers"].endswith(",XSW,XTN")
+
+    def test_mag7_preset(self):
+        """``Mag7`` is a project addition (not part of the legacy
+        ``__main__`` set): the seven Magnificent-7 mega-caps vs SPY.
+        GOOGL (class A) is the configured ticker — GOOG is NOT in the
+        universe."""
+        p = rrg_dashboard.RRG_PRESETS["Mag7"]
+        tickers = p["tickers"].split(",")
+        assert tickers == [
+            "AAPL",
+            "MSFT",
+            "GOOGL",
+            "AMZN",
+            "NVDA",
+            "META",
+            "TSLA",
+        ]
+        assert len(tickers) == 7
+        assert "GOOGL" in tickers
+        assert "GOOG" not in tickers
+        assert p["benchmark"] == "SPY"
+        assert p["lookback_years"] == 3
+        assert p["period"] == 14
+        assert p["trail"] == 3
+        assert p["prefix"] == "Relative_Rotation_Dashboard_Mag7"
+
+    def test_mag7_sql_emits_all_eight_symbols(self):
+        """``build_rrg_sql`` for the Mag7 preset lists all 7 tickers
+        plus the SPY benchmark in the IN list (8 symbols)."""
+        p = rrg_dashboard.RRG_PRESETS["Mag7"]
+        sql = rrg_dashboard.build_rrg_sql(
+            p["tickers"].split(","), p["benchmark"], p["lookback_years"]
+        )
+        expected = (
+            "'AAPL','MSFT','GOOGL','AMZN','NVDA','META','TSLA','SPY'"
+        )
+        assert f"Ticker IN ({expected})" in sql
+        assert "ORDER BY Date ASC" in sql
 
 
 # ------------------------------------------------------------------
@@ -715,7 +755,7 @@ class TestMain:
         )
         return calls
 
-    def test_no_dashboard_runs_all_six(self, _patched):
+    def test_no_dashboard_runs_all_presets(self, _patched):
         calls = _patched
         assert rrg_dashboard.main([]) == 0
         assert [c[0] for c in calls] == list(rrg_dashboard.RRG_PRESETS)
@@ -764,7 +804,7 @@ class TestMain:
             rrg_dashboard, "generate_rrg_dashboard", flaky
         )
         assert rrg_dashboard.main([]) == 0
-        # All six attempted despite the sector1 failure.
+        # All presets attempted despite the sector1 failure.
         assert calls == list(rrg_dashboard.RRG_PRESETS)
 
     def test_all_fail_returns_1(self, _patched, monkeypatch):

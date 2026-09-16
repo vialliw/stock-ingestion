@@ -32,13 +32,14 @@ the ``weekly_refresh`` Flight action, the automatic weekly bridge on
 loads, or ``scripts/refresh_weekly.py``).
 
 Six presets mirror the legacy ``__main__`` block verbatim (``ETFs``,
-``sector1``, ``sector2``, ``sector3``, ``Semi``, ``AI`` — all
-``period=14``, ``trail=3``) and write
+``sector1``, ``sector2``, ``sector3``, ``Semi``, ``AI``); a seventh,
+``Mag7`` (the Magnificent-7 mega-caps vs SPY), is a project
+addition.  All use ``period=14``, ``trail=3`` and write
 ``{report_dir}/{prefix}.html`` plus
 ``{prefix}_analysis_prompt.json``.
 
 Usage:
-    python scripts/rrg_dashboard.py                    # all 6 presets
+    python scripts/rrg_dashboard.py                    # all 7 presets
     python scripts/rrg_dashboard.py --dashboard sector1
     python scripts/rrg_dashboard.py --dashboard Semi --trail 5 --years 1
 
@@ -90,7 +91,10 @@ _TICKER_RE = re.compile(r"^[A-Z0-9.\-]+$")
 # The six legacy __main__ configurations, verbatim: same ticker
 # strings (comma-separated, exactly as the legacy ``ticker_list``
 # arguments), benchmarks, lookback depths, period=14, trail=3 and
-# output prefixes.
+# output prefixes.  ``Mag7`` is a project addition (not part of the
+# legacy set): the Magnificent-7 mega-caps vs SPY.  GOOGL (class A)
+# is used because only GOOGL is in the configured universe — GOOG
+# (class C) is not.
 RRG_PRESETS: Dict[str, dict] = {
     "ETFs": {
         "tickers": (
@@ -162,6 +166,14 @@ RRG_PRESETS: Dict[str, dict] = {
         "period": 14,
         "trail": 3,
         "prefix": "Relative_Rotation_Dashboard_AI",
+    },
+    "Mag7": {
+        "tickers": "AAPL,MSFT,GOOGL,AMZN,NVDA,META,TSLA",
+        "benchmark": "SPY",
+        "lookback_years": 3,
+        "period": 14,
+        "trail": 3,
+        "prefix": "Relative_Rotation_Dashboard_Mag7",
     },
 }
 
@@ -762,7 +774,7 @@ def generate_rrg_dashboard(
 # MAIN EXECUTION (when run directly)
 # ============================================================================
 def main(argv: Optional[list] = None) -> int:
-    """CLI entrypoint — generates one preset or ALL six.
+    """CLI entrypoint — generates one preset or ALL presets.
 
     ``--dashboard NAME`` selects a single preset; when absent every
     preset in :data:`RRG_PRESETS` runs.  ``--period``, ``--trail``,
@@ -782,7 +794,7 @@ def main(argv: Optional[list] = None) -> int:
         metavar="NAME",
         default=None,
         help=(
-            "RRG preset to run (default: all six). One of: "
+            "RRG preset to run (default: all presets). One of: "
             + ", ".join(RRG_PRESETS)
         ),
     )

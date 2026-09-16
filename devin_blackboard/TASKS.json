@@ -2864,7 +2864,7 @@
     "title": "Mag7 RRG preset (AAPL,MSFT,GOOGL,AMZN,NVDA,META,TSLA vs SPY)",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F13-T1"
     ],
