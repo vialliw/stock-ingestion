@@ -45,9 +45,11 @@ Relative Rotation (RRG):
   ``scripts/rrg_dashboard.py``, lazily imported — it in turn
   lazy-imports ``plotly``/``scipy``).  Reads the persisted
   ``weekly_close`` table.  A preset ``st.selectbox`` picks one of the
-  seven configurations (six legacy + the ``Mag7`` project addition);
-  period / trail / lookback-years / benchmark widgets default to the
-  preset's values.
+  seven configurations (six legacy + the ``Mag7`` project addition)
+  or a ``Custom`` ad-hoc ticker list (free-text comma-separated
+  symbols, regex-validated before they reach the query); period /
+  trail / lookback-years / benchmark widgets default to the preset's
+  values (period=14 / trail=3 / 3 years / SPY for Custom).
 
 The weekly tabs aggregate ``daily_close`` into weekly bars
 (``DATE_TRUNC('week', Date)``, first-Open/last-Close via
@@ -1909,24 +1911,42 @@ def _render_rrg_tab(st, config: PipelineConfig) -> None:
     stays importable without them).  The query goes through
     :func:`cached_fetch_dataframe` like every other tab and reads the
     persisted ``weekly_close`` table.
+
+    The preset selectbox offers the seven configured universes plus a
+    ``Custom`` ad-hoc option (free-text comma-separated tickers; the
+    widgets fall back to period=14 / trail=3 / lookback=3y /
+    benchmark=SPY defaults).  Every symbol — preset, custom or
+    benchmark — is regex-validated inside ``build_rrg_sql`` before it
+    reaches the query text, and requested tickers absent from the
+    fetched data are dropped with an ``st.warning``.
     """
     import rrg_dashboard
 
     with st.expander("Parameters", expanded=True):
         preset_name = st.selectbox(
             "RRG preset",
-            options=list(rrg_dashboard.RRG_PRESETS),
+            # "Custom" is LAST so the presets keep their order.
+            options=list(rrg_dashboard.RRG_PRESETS) + ["Custom"],
             index=0,
             key="rrg_preset",
         )
-        preset = rrg_dashboard.RRG_PRESETS[preset_name]
+        # ``None`` means the ad-hoc "Custom" selection — the widgets
+        # fall back to the shared defaults and a free-text input
+        # supplies the ticker list.
+        preset = rrg_dashboard.RRG_PRESETS.get(preset_name)
+        defaults = preset or {
+            "period": 14,
+            "trail": 3,
+            "lookback_years": 3,
+            "benchmark": "SPY",
+        }
         col1, col2 = st.columns(2)
         with col1:
             period = st.number_input(
                 "RRG period",
                 min_value=1,
                 max_value=104,
-                value=int(preset["period"]),
+                value=int(defaults["period"]),
                 step=1,
                 key="rrg_period",
             )
@@ -1934,7 +1954,7 @@ def _render_rrg_tab(st, config: PipelineConfig) -> None:
                 "Trail length (weeks)",
                 min_value=1,
                 max_value=52,
-                value=int(preset["trail"]),
+                value=int(defaults["trail"]),
                 step=1,
                 key="rrg_trail",
             )
@@ -1943,19 +1963,51 @@ def _render_rrg_tab(st, config: PipelineConfig) -> None:
                 "Lookback years",
                 min_value=1,
                 max_value=30,
-                value=int(preset["lookback_years"]),
+                value=int(defaults["lookback_years"]),
                 step=1,
                 key="rrg_years",
             )
             benchmark = st.text_input(
                 "Benchmark ticker",
-                value=preset["benchmark"],
+                value=defaults["benchmark"],
                 key="rrg_benchmark",
+            )
+        custom_raw = ""
+        if preset is None:
+            custom_raw = st.text_input(
+                "Tickers (comma-separated)",
+                placeholder="AAPL,MSFT,NVDA",
+                key="rrg_custom_tickers",
+                help=(
+                    "Free-text ad-hoc universe — symbols are "
+                    "uppercased, deduplicated and regex-validated "
+                    "(letters, digits, '.' and '-' only) before they "
+                    "reach the query."
+                ),
             )
         if st.button("Refresh data", key="rrg_refresh"):
             _get_cached_fetch(st).clear()
 
-    tickers = preset["tickers"].split(",")
+    if preset is not None:
+        tickers = preset["tickers"].split(",")
+    else:
+        # Custom: split on commas -> strip -> uppercase -> drop
+        # empties -> dedupe preserving first-seen order
+        # (dict.fromkeys keeps insertion order).
+        tickers = list(
+            dict.fromkeys(
+                t
+                for t in (s.strip().upper() for s in custom_raw.split(","))
+                if t
+            )
+        )
+        if not tickers:
+            st.error(
+                "Enter at least one ticker (comma-separated, e.g. "
+                "AAPL,MSFT,NVDA) to run a Custom RRG."
+            )
+            return
+
     try:
         sql = rrg_dashboard.build_rrg_sql(
             tickers, benchmark, int(lookback_years)
@@ -1977,7 +2029,7 @@ def _render_rrg_tab(st, config: PipelineConfig) -> None:
     st.caption(f"{len(df)} row(s)")
     if df.empty:
         st.error(
-            "No weekly_close data returned for this preset — check "
+            "No weekly_close data returned for this selection — check "
             "the tickers/benchmark and that the weekly layer has been "
             "built (weekly_refresh action or scripts/refresh_weekly.py)."
         )
@@ -1991,6 +2043,15 @@ def _render_rrg_tab(st, config: PipelineConfig) -> None:
     except ValueError as exc:
         st.error(str(exc))
         return
+    # Surface the library's printed drop-warning in the UI: requested
+    # tickers absent from the fetched data do not survive compute_rrg.
+    dropped = [t for t in tickers if t not in rrg["tickers"]]
+    if dropped:
+        st.warning(
+            f"{len(dropped)} requested ticker(s) absent from the "
+            f"fetched weekly_close data — dropped: "
+            f"{', '.join(dropped)}"
+        )
     if len(rrg["dates"]) <= int(trail):
         st.error(
             f"Only {len(rrg['dates'])} fully-valid weekly bar(s) "
@@ -2036,7 +2097,11 @@ def _render_rrg_tab(st, config: PipelineConfig) -> None:
     st.download_button(
         label="Download analysis prompt (JSON)",
         data=payload,
-        file_name=f"{preset['prefix']}_analysis_prompt.json",
+        file_name=(
+            f"{preset['prefix']}_analysis_prompt.json"
+            if preset is not None
+            else "RRG_Custom_analysis_prompt.json"
+        ),
         mime="application/json",
         key="rrg_download",
     )

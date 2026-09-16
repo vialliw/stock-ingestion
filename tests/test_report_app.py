@@ -1213,9 +1213,9 @@ class TestRrgTab:
         )
 
     @staticmethod
-    def _weekly_long_df(n: int = 60):
-        """Long-format weekly_close rows covering two sector3 members
-        (XLK, DIA) + the SPY benchmark."""
+    def _weekly_long_df(n: int = 60, tickers=("XLK", "DIA")):
+        """Long-format weekly_close rows covering ``tickers`` + the
+        SPY benchmark."""
         import numpy as np
 
         dates = pd.date_range(
@@ -1223,16 +1223,29 @@ class TestRrgTab:
         )
         i = np.arange(n)
         closes = {
-            "XLK": 100.0 * (1.03 ** i),
-            "DIA": 100.0 * np.exp(0.01 * i + 0.001 * i * i),
-            "SPY": np.full(n, 100.0),
+            t: 100.0 * (1.03 + 0.02 * k) ** i
+            for k, t in enumerate(tickers)
         }
+        closes["SPY"] = np.full(n, 100.0)
         recs = [
             {"Date": d, "Ticker": t, "Close": c}
             for t, series in closes.items()
             for d, c in zip(dates, series)
         ]
         return pd.DataFrame.from_records(recs)
+
+    @staticmethod
+    def _keyed_text_input(custom_value):
+        """``st.text_input`` side_effect — the benchmark widget and the
+        Custom tickers widget share one MagicMock; dispatch on the
+        widget ``key``."""
+
+        def fake_text_input(label, *args, **kwargs):
+            if kwargs.get("key") == "rrg_custom_tickers":
+                return custom_value
+            return "SPY"
+
+        return fake_text_input
 
     def test_render_drives_fetch_and_plotly_chart(
         self, tmp_path, monkeypatch
@@ -1285,3 +1298,117 @@ class TestRrgTab:
 
         st.error.assert_called_once()
         st.plotly_chart.assert_not_called()
+
+    def test_render_custom_normalizes_tickers_into_sql(
+        self, tmp_path, monkeypatch
+    ):
+        """Custom mode: "XLK, dia ,xlf" is stripped / uppercased /
+        deduped into the SQL IN-list and the render completes."""
+        pytest.importorskip("scipy")
+        pytest.importorskip("plotly")
+        df = self._weekly_long_df(tickers=("XLK", "DIA", "XLF"))
+        seen_sql = []
+
+        def fake_fetch(st, sql, config):
+            seen_sql.append(sql)
+            return df
+
+        monkeypatch.setattr(
+            report_app, "cached_fetch_dataframe", fake_fetch
+        )
+        st = MagicMock()
+        st.selectbox.return_value = "Custom"
+        st.number_input.return_value = 14
+        st.text_input.side_effect = self._keyed_text_input(
+            "XLK, dia ,xlf"
+        )
+        st.button.return_value = False
+        st.columns.return_value = (MagicMock(), MagicMock())
+
+        report_app._render_rrg_tab(st, _config(tmp_path))
+
+        # Normalized + benchmark appended: IN ('XLK','DIA','XLF','SPY').
+        assert len(seen_sql) == 1
+        assert "'XLK','DIA','XLF'" in seen_sql[0]
+        st.plotly_chart.assert_called_once()
+        st.error.assert_not_called()
+        # All requested tickers present in the data -> no drop warning.
+        st.warning.assert_not_called()
+        # Custom has no preset prefix — fixed ad-hoc filename.
+        assert (
+            st.download_button.call_args.kwargs["file_name"]
+            == "RRG_Custom_analysis_prompt.json"
+        )
+
+    def test_render_custom_empty_input_errors(
+        self, tmp_path, monkeypatch
+    ):
+        """Whitespace-only Custom input errors out before any fetch."""
+        fetch = MagicMock()
+        monkeypatch.setattr(
+            report_app, "cached_fetch_dataframe", fetch
+        )
+        st = MagicMock()
+        st.selectbox.return_value = "Custom"
+        st.number_input.return_value = 14
+        st.text_input.side_effect = self._keyed_text_input("   , ,")
+        st.button.return_value = False
+        st.columns.return_value = (MagicMock(), MagicMock())
+
+        report_app._render_rrg_tab(st, _config(tmp_path))
+
+        st.error.assert_called_once()
+        fetch.assert_not_called()
+        st.plotly_chart.assert_not_called()
+
+    def test_render_custom_invalid_symbol_errors(
+        self, tmp_path, monkeypatch
+    ):
+        """A symbol that fails build_rrg_sql's regex surfaces as
+        st.error and never reaches the fetch."""
+        fetch = MagicMock()
+        monkeypatch.setattr(
+            report_app, "cached_fetch_dataframe", fetch
+        )
+        st = MagicMock()
+        st.selectbox.return_value = "Custom"
+        st.number_input.return_value = 14
+        st.text_input.side_effect = self._keyed_text_input(
+            "X;DROP TABLE"
+        )
+        st.button.return_value = False
+        st.columns.return_value = (MagicMock(), MagicMock())
+
+        report_app._render_rrg_tab(st, _config(tmp_path))
+
+        st.error.assert_called_once()
+        fetch.assert_not_called()
+        st.plotly_chart.assert_not_called()
+
+    def test_render_custom_dropped_ticker_warns(
+        self, tmp_path, monkeypatch
+    ):
+        """Fetch returning a subset (XLF absent) -> st.warning names
+        the dropped symbol while the survivors still render."""
+        pytest.importorskip("scipy")
+        pytest.importorskip("plotly")
+        df = self._weekly_long_df(tickers=("XLK", "DIA"))  # no XLF
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: df,
+        )
+        st = MagicMock()
+        st.selectbox.return_value = "Custom"
+        st.number_input.return_value = 14
+        st.text_input.side_effect = self._keyed_text_input(
+            "XLK,DIA,XLF"
+        )
+        st.button.return_value = False
+        st.columns.return_value = (MagicMock(), MagicMock())
+
+        report_app._render_rrg_tab(st, _config(tmp_path))
+
+        st.warning.assert_called_once()
+        assert "XLF" in str(st.warning.call_args)
+        st.plotly_chart.assert_called_once()

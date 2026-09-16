@@ -2887,7 +2887,7 @@
     "title": "Generic custom-ticker RRG option in report_app tab",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F14-T1"
     ],
