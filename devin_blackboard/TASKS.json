@@ -2881,5 +2881,27 @@
   ],
   "acceptance_criteria": "Add a Magnificent-7 preset to the RRG dashboard. (1) scripts/rrg_dashboard.py: append \"Mag7\" key to RRG_PRESETS \u2014 tickers \"AAPL,MSFT,GOOGL,AMZN,NVDA,META,TSLA\" (GOOGL not GOOG \u2014 only GOOGL is in the configured universe), benchmark \"SPY\", lookback_years 3, period 14, trail 3, prefix \"Relative_Rotation_Dashboard_Mag7\"; update the presets comment to note Mag7 is a non-legacy addition. (2) tests/test_rrg_dashboard.py: extend preset coverage \u2014 Mag7 key exists, 7 tickers, SPY benchmark, build_rrg_sql emits all 8 symbols (7 + SPY). (3) README.md + docs/README.md byte-identical \u2014 preset table gains Mag7 row + artifact filename. (4) python -m pytest tests/ -q green (baseline 787); check_loops --src-dir src + --strict clean.",
   "assigned_to": "B"
+ },
+ {
+  "id": "F15-T1",
+  "title": "Generic custom-ticker RRG option in report_app tab",
+  "role": "executor",
+  "model": "swe",
+  "status": "pending",
+  "depends_on": [
+   "F14-T1"
+  ],
+  "input_files": [
+   "/scripts/report_app.py",
+   "/scripts/rrg_dashboard.py"
+  ],
+  "output_files": [
+   "/scripts/report_app.py",
+   "/tests/test_report_app.py",
+   "/README.md",
+   "/docs/README.md"
+  ],
+  "acceptance_criteria": "Generic custom-ticker RRG in the existing report_app RRG tab. (1) scripts/report_app.py _render_rrg_tab: selectbox options become list(RRG_PRESETS)+[\"Custom\"]; preset = RRG_PRESETS.get(preset_name) \u2014 Custom uses defaults period=14/trail=3/lookback_years=3/benchmark SPY and shows a st.text_input for comma-separated tickers; ticker parsing split/strip/upper/dedupe/drop-empty; empty -> st.error before fetch; build_rrg_sql ValueError -> st.error (existing); after compute_rrg compare requested vs rrg[\"tickers\"] and st.warning dropped symbols; Custom download filename RRG_Custom_analysis_prompt.json; docstrings updated. (2) tests/test_report_app.py: Custom path normalizes tickers into SQL (e.g. \"XLK, dia ,xlf\" -> 'XLK','DIA','XLF'), empty input -> st.error no fetch, invalid symbol -> st.error no fetch, dropped-ticker -> st.warning. (3) READMEs byte-identical with Custom option documented. (4) pytest green (baseline 789); check_loops clean.",
+  "assigned_to": "B"
  }
 ]
