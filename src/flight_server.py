@@ -129,16 +129,61 @@ class MarketDataFlightServer(flight.FlightServerBase):
     # Embedded data-health check (F9-T5) — report-only
     # ------------------------------------------------------------------
 
+    # F17-T1: severity ordering for the composite worst-status rollup.
+    # DISABLED sections are excluded; an unrecognized status is treated
+    # as CHECK_FAILED so a malformed section can never silently pass.
+    _HEALTH_STATUS_SEVERITY = {"OK": 0, "WARN": 1, "CHECK_FAILED": 2}
+
+    # Composite section names -> DatabaseManager check methods (F17-T1).
+    _HEALTH_SECTION_METHODS = {
+        "fear_greed": "check_fear_greed_health",
+        "weekly": "check_weekly_health",
+        "company_metadata": "check_metadata_health",
+    }
+
+    def _health_section(self, name: str, kwargs: dict) -> dict:
+        """Run one health-check method, isolating its failure (F17-T1).
+
+        A raising check — or one returning a non-dict — yields
+        ``health_status == 'CHECK_FAILED'`` for that section only; the
+        sibling sections still run and the composite never raises.
+        """
+        try:
+            section = getattr(
+                self.db, self._HEALTH_SECTION_METHODS[name]
+            )(**kwargs)
+            if not isinstance(section, dict):
+                raise TypeError(
+                    f"{self._HEALTH_SECTION_METHODS[name]} returned "
+                    f"{type(section).__name__}, expected dict"
+                )
+            return section
+        except Exception as exc:
+            return {
+                "health_status": "CHECK_FAILED",
+                "section": name,
+                "error": str(exc),
+            }
+
     def _health_report(
         self, include_gaps: bool = False, gap_days=None
     ) -> dict:
-        """Run the ``daily_close`` health checks; NEVER raises.
+        """Run the composite data-health checks; NEVER raises.
 
-        Returns the report dict.  Any failure — including a non-dict
-        return from the check itself — yields
-        ``health_status == 'CHECK_FAILED'`` so a broken check can never
-        mask or crash a completed load.  Logs a WARNING whenever the
-        status is not 'OK'.
+        Returns the report dict.  F17-T1: the report is a composite —
+        all existing ``daily_close`` keys stay at the top level (the
+        daily report IS the base dict), plus three sub-reports under
+        ``fear_greed``, ``weekly`` and ``company_metadata`` — each with
+        its own ``health_status`` — and a ``daily_close`` key mirroring
+        the daily report with its own status preserved.  The top-level
+        ``health_status`` is the worst across all sections
+        (``OK < WARN < CHECK_FAILED``; ``DISABLED`` is excluded).
+
+        Any failure — including a non-dict return from a check —
+        yields ``health_status == 'CHECK_FAILED'`` (per-section, or the
+        whole report if the daily section/config resolution itself
+        fails) so a broken check can never mask or crash a completed
+        load.  Logs a WARNING whenever the status is not 'OK'.
         """
         try:
             ingestion_cfg = getattr(self.cfg, "ingestion", None)
@@ -150,18 +195,59 @@ class MarketDataFlightServer(flight.FlightServerBase):
             kwargs = {"tickers": configured, "include_gaps": include_gaps}
             if gap_days is not None:
                 kwargs["gap_days"] = gap_days
-            report = self.db.check_daily_close_health(**kwargs)
-            if not isinstance(report, dict):
-                raise TypeError(
-                    "check_daily_close_health returned "
-                    f"{type(report).__name__}, expected dict"
-                )
+            # The daily check is a section too: isolate its failure so
+            # the other sections still run and only it reports
+            # CHECK_FAILED.
+            try:
+                report = self.db.check_daily_close_health(**kwargs)
+                if not isinstance(report, dict):
+                    raise TypeError(
+                        "check_daily_close_health returned "
+                        f"{type(report).__name__}, expected dict"
+                    )
+            except Exception as exc:
+                report = {
+                    "health_status": "CHECK_FAILED",
+                    "error": str(exc),
+                }
+            # Snapshot the daily report under its own section key before
+            # the top-level health_status becomes the composite worst.
+            # Composite keys are filtered out so a caller reusing the
+            # same dict (e.g. a stubbed check) cannot nest sections.
+            section_keys = set(self._HEALTH_SECTION_METHODS) | {
+                "daily_close"
+            }
+            report["daily_close"] = {
+                k: v for k, v in report.items() if k not in section_keys
+            }
+            fg_cfg = getattr(self.cfg, "fear_greed", None)
+            fg_enabled = bool(getattr(fg_cfg, "enabled", True))
+            report["fear_greed"] = self._health_section(
+                "fear_greed", {"enabled": fg_enabled}
+            )
+            report["weekly"] = self._health_section("weekly", {})
+            report["company_metadata"] = self._health_section(
+                "company_metadata", {"tickers": configured}
+            )
+            # Worst-status rollup across the four sections; DISABLED is
+            # excluded (the feature is simply off).
+            ranked = [
+                report[name].get("health_status")
+                for name in self._HEALTH_SECTION_METHODS
+            ]
+            ranked.append(report["daily_close"].get("health_status"))
+            ranked = [s for s in ranked if s not in (None, "DISABLED")]
+            report["health_status"] = max(
+                ranked,
+                key=lambda s: self._HEALTH_STATUS_SEVERITY.get(s, 2),
+                default="OK",
+            )
         except Exception as exc:
             report = {"health_status": "CHECK_FAILED", "error": str(exc)}
         status = report.get("health_status")
         if status != "OK":
             logger.warning(
-                "daily_close health check reported health_status=%s",
+                "data-health composite reported health_status=%s",
                 status,
             )
         return report

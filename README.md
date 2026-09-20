@@ -166,6 +166,16 @@ The report dict carries `health_status` in `{OK, WARN, CHECK_FAILED}` plus per-c
 - **Embedded in loads** — completed `daily_load` and `initial_load` results include a `health` key with the light report (staleness + coverage + integrity + duplicates, no gaps). `SKIPPED` results and `on_request_load` carry no health block. The server logs a `WARNING` whenever `health_status != OK`.
 - **`daily_load_once.py`** — logs a `WARNING` naming the health status when a Flight-routed load reports `health_status != OK`; the exit code is unchanged.
 
+#### Composite report (new-table checks)
+
+The health report is a **composite, backward-compatible** payload: every `daily_close` key stays at the top level (the daily report is the base dict), and three sub-reports are added under `fear_greed`, `weekly`, and `company_metadata` — each with its own `health_status` and evidence fields — plus a `daily_close` key mirroring the daily report with its own status preserved. The top-level `health_status` is the **worst across the four sections** (`OK < WARN < CHECK_FAILED`; `DISABLED` is excluded). Each section is isolated — a section failure marks only that section `CHECK_FAILED` — and the wrapper never raises. All three checks are SQL-driven, injectable (`as_of`/`trading_days`/`now`/`grace_minutes`), and bound every list to `max_items`:
+
+- **`check_fear_greed_health`** (`fear_greed_history`) — presence (empty → WARN), staleness of `MAX(date)` vs the latest ended NYSE session (`stale` + `latest_date`/`expected_date`/`days_behind` + `pending_session`), integrity (`fg_score` outside [0, 100], `fg_rating` outside `{extreme fear, fear, neutral, greed, extreme greed}` — NULL allowed — and NULL `fg_score` counts, each with bounded samples), and fully-NULL sub-indicator columns → `missing_series`. `fear_greed.enabled: false` returns `health_status: DISABLED`.
+- **`check_weekly_health`** (`weekly_close` + `weekly_indicators`) — staleness of `MAX(weekly_close.Date)` vs the expected nominal-Friday key `date_trunc('week', latest_ended_session)::DATE + 4`; row-count parity plus the count (and bounded sample) of `(Date, Ticker)` keys in `weekly_close` missing from `weekly_indicators`; stale tickers present in `weekly_close` but absent from `daily_close`; NULL OHLC / `Volume < 0` counts.
+- **`check_metadata_health`** (`company_metadata`) — configured-minus-`exclude_tickers` tickers absent from the table → WARN (bounded `missing_tickers`); rows where all four value columns are NULL are legitimate unknown-symbol placeholders — informational `null_field_rows` count only.
+
+`scripts/data_health_report.py` prints all four sections; `data_health_verify.py` and `daily_load_once.py` read only the top-level daily keys / worst status and need no change.
+
 ### Company Metadata
 
 `company_metadata` stores per-ticker reference data fetched from `yf.Ticker(t).info` — `company_name` (from `longName`), `sector`, `industry`, and `quote_type` (from `quoteType`), keyed by `ticker`. It is populated by `IngestionEngine.run_metadata_load`, reachable only through the Flight `metadata_load` action so the server stays the single DuckDB writer.

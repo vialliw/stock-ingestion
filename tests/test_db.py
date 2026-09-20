@@ -777,3 +777,529 @@ def test_health_weekend_as_of_has_no_pending(manager):
     assert report["latest_trading_day"] == "2026-09-11"
     assert report["pending_session"] is None
     assert report["health_status"] == "OK"
+
+
+# ---------------------------------------------------------------------------
+# 14. F17-T1: check_fear_greed_health / check_weekly_health /
+#     check_metadata_health — report-only checks for the new tables
+# ---------------------------------------------------------------------------
+
+from src.db import FEAR_GREED_SUB_INDICATORS  # noqa: E402
+
+
+def _fg_sql_literal(v):
+    """Render a Python scalar as a SQL literal (None -> NULL)."""
+    if v is None:
+        return "NULL"
+    if isinstance(v, str):
+        return "'" + v.replace("'", "''") + "'"
+    return repr(float(v))
+
+
+def _seed_fear_greed(manager, rows, series_value=42.0):
+    """Seed fear_greed_history; each row is ``(date, fg_score, fg_rating)``.
+
+    All nine sub-indicator value columns get ``series_value`` and every
+    ``<key>_rating`` gets 'neutral' so the series check passes; pass
+    ``series_value=None`` to leave every series NULL (missing_series).
+    """
+    series_cols = ", ".join(
+        f"{k}, {k}_rating" for k in FEAR_GREED_SUB_INDICATORS
+    )
+    if series_value is None:
+        series_vals = ", ".join(
+            "NULL, NULL" for _ in FEAR_GREED_SUB_INDICATORS
+        )
+    else:
+        series_vals = ", ".join(
+            f"{series_value}, 'neutral'" for _ in FEAR_GREED_SUB_INDICATORS
+        )
+    for date, score, rating in rows:
+        _raw_write(
+            manager,
+            "INSERT INTO fear_greed_history "
+            f"(date, fg_score, fg_rating, {series_cols}) VALUES "
+            f"('{date}', {_fg_sql_literal(score)}, "
+            f"{_fg_sql_literal(rating)}, {series_vals})",
+        )
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_fg_health_ok(manager):
+    """Current, well-formed fear_greed_history -> OK."""
+    _seed_fear_greed(manager, [(d, 25.0, "fear") for d in HEALTH_DAYS])
+    report = manager.check_fear_greed_health(trading_days=HEALTH_DAYS)
+    assert report["health_status"] == "OK"
+    assert report["row_count"] == len(HEALTH_DAYS)
+    assert report["latest_trading_day"] == "2026-01-08"
+    assert report["pending_session"] is None
+    checks = report["checks"]
+    assert checks["presence"]["empty"] is False
+    assert checks["staleness"]["stale"] is False
+    assert checks["staleness"]["latest_date"] == "2026-01-08"
+    assert checks["staleness"]["expected_date"] == "2026-01-08"
+    assert checks["staleness"]["days_behind"] == 0
+    assert checks["integrity"]["null_fg_score_count"] == 0
+    assert checks["integrity"]["out_of_range_count"] == 0
+    assert checks["integrity"]["invalid_rating_count"] == 0
+    assert checks["series"]["missing_series"] == []
+    assert checks["series"]["tracked"] == 9
+    json.dumps(report)
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_fg_health_empty_table_warns(manager):
+    """An empty fear_greed_history -> WARN (presence), stale=True."""
+    report = manager.check_fear_greed_health(trading_days=HEALTH_DAYS)
+    assert report["health_status"] == "WARN"
+    assert report["row_count"] == 0
+    assert report["checks"]["presence"]["empty"] is True
+    st = report["checks"]["staleness"]
+    assert st["stale"] is True
+    assert st["latest_date"] is None
+    assert st["expected_date"] == "2026-01-08"
+    json.dumps(report)
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_fg_health_stale_warns(manager):
+    """MAX(date) behind the latest ended session -> WARN + evidence."""
+    _seed_fear_greed(
+        manager, [(d, 50.0, "neutral") for d in HEALTH_DAYS[:2]]
+    )
+    report = manager.check_fear_greed_health(trading_days=HEALTH_DAYS)
+    assert report["health_status"] == "WARN"
+    st = report["checks"]["staleness"]
+    assert st["stale"] is True
+    assert st["latest_date"] == "2026-01-06"
+    assert st["expected_date"] == "2026-01-08"
+    assert st["days_behind"] == 2
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_fg_health_pending_session_grace(manager):
+    """Pre-close ``now``: today's session is pending, not expected.
+
+    Same boundary as the daily check — the pending session is reported
+    but does not count toward staleness until close + grace_minutes.
+    """
+    _seed_fear_greed(
+        manager, [(d, 55.0, "greed") for d in ENDED_DAYS]
+    )
+    report = manager.check_fear_greed_health(
+        as_of=PENDING_DAY,
+        now=datetime(2026, 9, 15, 21, 0, tzinfo=timezone.utc),
+    )
+    assert report["health_status"] == "OK"
+    assert report["latest_trading_day"] == PRIOR_DAY
+    assert report["pending_session"] == PENDING_DAY
+    assert report["checks"]["staleness"]["stale"] is False
+
+    # Post-grace the same session IS expected -> stale.
+    report = manager.check_fear_greed_health(
+        as_of=PENDING_DAY,
+        now=datetime(2026, 9, 15, 23, 0, tzinfo=timezone.utc),
+    )
+    assert report["health_status"] == "WARN"
+    assert report["pending_session"] is None
+    assert report["checks"]["staleness"]["expected_date"] == PENDING_DAY
+    assert report["checks"]["staleness"]["stale"] is True
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_fg_health_integrity_violations(manager):
+    """Out-of-range fg_score, invalid fg_rating, NULL fg_score -> WARN."""
+    _seed_fear_greed(manager, [(d, 50.0, "neutral") for d in HEALTH_DAYS])
+    # Bad rows on extra (off-window) dates so MAX(date) stays current.
+    _raw_write(
+        manager,
+        "INSERT INTO fear_greed_history (date, fg_score, fg_rating) VALUES "
+        "('2026-01-02', -5, 'neutral'),"      # fg_score < 0
+        "('2026-01-03', 150, 'greed'),"       # fg_score > 100
+        "('2026-01-04', 50, 'bogus'),"        # invalid rating
+        "('2026-01-10', NULL, NULL)",         # NULL fg_score
+    )
+    report = manager.check_fear_greed_health(trading_days=HEALTH_DAYS)
+    assert report["health_status"] == "WARN"
+    integ = report["checks"]["integrity"]
+    assert integ["out_of_range_count"] == 2
+    assert integ["invalid_rating_count"] == 1
+    assert integ["null_fg_score_count"] == 1
+    oor = {(s["date"], s["fg_score"]) for s in integ["out_of_range_samples"]}
+    assert ("2026-01-02", -5.0) in oor
+    assert ("2026-01-03", 150.0) in oor
+    assert integ["invalid_rating_samples"] == [
+        {"date": "2026-01-04", "fg_rating": "bogus"}
+    ]
+    # NULL rating is allowed — the NULL-score row must NOT also count as
+    # an invalid rating.
+    assert integ["invalid_rating_count"] == 1
+    json.dumps(report)
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_fg_health_fully_null_series(manager):
+    """All-NULL sub-indicator columns -> missing_series lists them."""
+    _seed_fear_greed(
+        manager,
+        [(d, 50.0, "neutral") for d in HEALTH_DAYS],
+        series_value=None,
+    )
+    report = manager.check_fear_greed_health(trading_days=HEALTH_DAYS)
+    assert report["health_status"] == "WARN"
+    assert report["checks"]["series"]["missing_series"] == list(
+        FEAR_GREED_SUB_INDICATORS
+    )
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_fg_health_disabled(manager):
+    """enabled=False -> DISABLED immediately (no staleness/integrity)."""
+    report = manager.check_fear_greed_health(
+        enabled=False, trading_days=HEALTH_DAYS
+    )
+    assert report["health_status"] == "DISABLED"
+    assert "reason" in report
+    json.dumps(report)
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_fg_health_check_failed_on_missing_table(manager):
+    """A missing table -> CHECK_FAILED, never raises."""
+    _raw_write(manager, "DROP TABLE fear_greed_history")
+    report = manager.check_fear_greed_health(trading_days=HEALTH_DAYS)
+    assert report["health_status"] == "CHECK_FAILED"
+    assert "error" in report
+    json.dumps(report)
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_fg_health_samples_bounded(manager):
+    """Bounded samples: counts stay exact while lists cap at max_items."""
+    _seed_fear_greed(manager, [(d, 50.0, "neutral") for d in HEALTH_DAYS])
+    # 60 out-of-range rows on distinct off-window dates.
+    values = ", ".join(
+        f"('2025-06-{d:02d}', 200, 'greed')" for d in range(1, 31)
+    ) + ", " + ", ".join(
+        f"('2025-07-{d:02d}', 200, 'greed')" for d in range(1, 31)
+    )
+    _raw_write(
+        manager,
+        "INSERT INTO fear_greed_history (date, fg_score, fg_rating) "
+        f"VALUES {values}",
+    )
+    report = manager.check_fear_greed_health(
+        trading_days=HEALTH_DAYS, max_items=5
+    )
+    integ = report["checks"]["integrity"]
+    assert integ["out_of_range_count"] == 60
+    assert len(integ["out_of_range_samples"]) == 5
+
+
+# -- weekly ------------------------------------------------------------
+
+# HEALTH_DAYS is Mon 2026-01-05 .. Thu 2026-01-08; the nominal-Friday key
+# of that ISO week is 2026-01-09.
+EXPECTED_WEEK = "2026-01-09"
+PRIOR_WEEK = "2026-01-02"
+
+
+def _seed_weekly(manager, ticker_weeks, indicators=True):
+    """Seed weekly_close (and weekly_indicators for the same keys).
+
+    ``ticker_weeks`` maps ticker -> [week-friday dates]; rows get clean
+    OHLCV values.  ``indicators=False`` skips the indicators insert so
+    the parity check sees missing keys.
+    """
+    for ticker, weeks in ticker_weeks.items():
+        for w in weeks:
+            _raw_write(
+                manager,
+                "INSERT INTO weekly_close VALUES "
+                f"('{w}', '{ticker}', 100, 105, 95, 102, 1000)",
+            )
+            if indicators:
+                _raw_write(
+                    manager,
+                    "INSERT INTO weekly_indicators (Date, Ticker) VALUES "
+                    f"('{w}', '{ticker}')",
+                )
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_weekly_health_ok(manager):
+    """weekly_close + weekly_indicators current and in parity -> OK."""
+    _seed_current(manager, ["AAPL", "MSFT"])
+    _seed_weekly(
+        manager, {"AAPL": [EXPECTED_WEEK], "MSFT": [EXPECTED_WEEK]}
+    )
+    report = manager.check_weekly_health(trading_days=HEALTH_DAYS)
+    assert report["health_status"] == "OK"
+    checks = report["checks"]
+    assert checks["staleness"]["stale"] is False
+    assert checks["staleness"]["latest_week"] == EXPECTED_WEEK
+    assert checks["staleness"]["expected_week"] == EXPECTED_WEEK
+    assert checks["parity"]["row_count_match"] is True
+    assert checks["parity"]["missing_indicator_keys"] == 0
+    assert checks["stale_tickers"]["count"] == 0
+    assert checks["integrity"]["null_ohlc_count"] == 0
+    assert checks["integrity"]["negative_volume_count"] == 0
+    json.dumps(report)
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_weekly_health_stale_warns(manager):
+    """MAX(weekly_close.Date) < expected Friday key -> WARN."""
+    _seed_current(manager, ["AAPL"])
+    _seed_weekly(manager, {"AAPL": [PRIOR_WEEK]})
+    report = manager.check_weekly_health(trading_days=HEALTH_DAYS)
+    assert report["health_status"] == "WARN"
+    st = report["checks"]["staleness"]
+    assert st["stale"] is True
+    assert st["latest_week"] == PRIOR_WEEK
+    assert st["expected_week"] == EXPECTED_WEEK
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_weekly_health_empty_warns(manager):
+    """An empty weekly layer -> WARN (latest_week is NULL -> stale)."""
+    report = manager.check_weekly_health(trading_days=HEALTH_DAYS)
+    assert report["health_status"] == "WARN"
+    st = report["checks"]["staleness"]
+    assert st["stale"] is True
+    assert st["latest_week"] is None
+    assert st["expected_week"] == EXPECTED_WEEK
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_weekly_health_parity_missing_keys(manager):
+    """weekly_close keys absent from weekly_indicators -> WARN."""
+    _seed_current(manager, ["AAPL", "MSFT"])
+    _seed_weekly(
+        manager,
+        {"AAPL": [EXPECTED_WEEK], "MSFT": [EXPECTED_WEEK]},
+        indicators=False,
+    )
+    # Backfill indicators for AAPL only -> MSFT key missing.
+    _raw_write(
+        manager,
+        "INSERT INTO weekly_indicators (Date, Ticker) VALUES "
+        f"('{EXPECTED_WEEK}', 'AAPL')",
+    )
+    report = manager.check_weekly_health(trading_days=HEALTH_DAYS)
+    assert report["health_status"] == "WARN"
+    par = report["checks"]["parity"]
+    assert par["weekly_close_rows"] == 2
+    assert par["weekly_indicators_rows"] == 1
+    assert par["row_count_match"] is False
+    assert par["missing_indicator_keys"] == 1
+    assert par["missing_keys"] == [
+        {"date": EXPECTED_WEEK, "ticker": "MSFT"}
+    ]
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_weekly_health_stale_ticker(manager):
+    """A ticker in weekly_close absent from daily_close -> WARN."""
+    _seed_current(manager, ["AAPL"])
+    _seed_weekly(
+        manager,
+        {"AAPL": [EXPECTED_WEEK], "GONE": [EXPECTED_WEEK]},
+    )
+    report = manager.check_weekly_health(trading_days=HEALTH_DAYS)
+    assert report["health_status"] == "WARN"
+    assert report["checks"]["stale_tickers"]["count"] == 1
+    assert report["checks"]["stale_tickers"]["tickers"] == ["GONE"]
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_weekly_health_integrity_violations(manager):
+    """NULL OHLC and Volume < 0 rows on weekly_close -> WARN."""
+    _seed_current(manager, ["AAPL"])
+    _seed_weekly(manager, {"AAPL": [EXPECTED_WEEK]})
+    _raw_write(
+        manager,
+        "INSERT INTO weekly_close VALUES "
+        f"('{PRIOR_WEEK}', 'AAPL', NULL, 105, 95, 102, 1000),"
+        f"('{PRIOR_WEEK}', 'MSFT', 100, 105, 95, 102, -5)",
+    )
+    report = manager.check_weekly_health(trading_days=HEALTH_DAYS)
+    assert report["health_status"] == "WARN"
+    integ = report["checks"]["integrity"]
+    assert integ["null_ohlc_count"] == 1
+    assert integ["negative_volume_count"] == 1
+    # MSFT's prior-week row is also a missing indicators key / stale
+    # week / stale ticker — the WARN reason count doesn't matter, the
+    # integrity counts do.
+    json.dumps(report)
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_weekly_health_pending_session_week_boundary(manager):
+    """Pending-session grace moves expected_week across a week boundary.
+
+    2026-09-14 is a Monday session.  Pre-close ``now`` -> latest ended
+    session is Friday 2026-09-11 -> expected_week is the *prior* week's
+    Friday (2026-09-11).  Post-grace -> 2026-09-14 ended -> expected_week
+    jumps to this week's Friday (2026-09-18) and the same table is stale.
+    """
+    monday = "2026-09-14"
+    _seed_current(manager, ["AAPL"], days=["2026-09-11"])
+    _seed_weekly(manager, {"AAPL": ["2026-09-11"]})
+    report = manager.check_weekly_health(
+        as_of=monday,
+        now=datetime(2026, 9, 14, 21, 0, tzinfo=timezone.utc),
+    )
+    assert report["health_status"] == "OK"
+    assert report["latest_trading_day"] == "2026-09-11"
+    assert report["pending_session"] == monday
+    assert report["checks"]["staleness"]["expected_week"] == "2026-09-11"
+    assert report["checks"]["staleness"]["stale"] is False
+
+    report = manager.check_weekly_health(
+        as_of=monday,
+        now=datetime(2026, 9, 14, 23, 0, tzinfo=timezone.utc),
+    )
+    assert report["health_status"] == "WARN"
+    assert report["pending_session"] is None
+    st = report["checks"]["staleness"]
+    assert st["expected_week"] == "2026-09-18"
+    assert st["latest_week"] == "2026-09-11"
+    assert st["stale"] is True
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_weekly_health_check_failed_on_missing_table(manager):
+    """A missing weekly table -> CHECK_FAILED, never raises."""
+    _raw_write(manager, "DROP TABLE weekly_indicators")
+    report = manager.check_weekly_health(trading_days=HEALTH_DAYS)
+    assert report["health_status"] == "CHECK_FAILED"
+    assert "error" in report
+    json.dumps(report)
+
+
+# -- company_metadata ---------------------------------------------------
+
+
+def _seed_metadata(manager, rows):
+    """Seed company_metadata; each row is a dict for upsert_company_metadata."""
+    manager.upsert_company_metadata(rows)
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_metadata_health_ok(manager):
+    """All configured tickers present with real fields -> OK."""
+    _seed_metadata(
+        manager,
+        [
+            {
+                "ticker": "AAPL",
+                "company_name": "Apple Inc.",
+                "sector": "Technology",
+                "industry": "Consumer Electronics",
+                "quote_type": "EQUITY",
+            },
+            {
+                "ticker": "MSFT",
+                "company_name": "Microsoft",
+                "sector": "Technology",
+                "industry": "Software",
+                "quote_type": "EQUITY",
+            },
+        ],
+    )
+    report = manager.check_metadata_health(tickers=["AAPL", "MSFT"])
+    assert report["health_status"] == "OK"
+    cov = report["checks"]["coverage"]
+    assert cov["configured_count"] == 2
+    assert cov["missing_count"] == 0
+    assert cov["missing_tickers"] == []
+    nf = report["checks"]["null_fields"]
+    assert nf["row_count"] == 2
+    assert nf["null_field_rows"] == 0
+    json.dumps(report)
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_metadata_health_missing_ticker_warns(manager):
+    """Configured ticker absent from company_metadata -> WARN."""
+    _seed_metadata(
+        manager,
+        [
+            {
+                "ticker": "AAPL",
+                "company_name": "Apple Inc.",
+                "sector": "Technology",
+                "industry": "Consumer Electronics",
+                "quote_type": "EQUITY",
+            }
+        ],
+    )
+    report = manager.check_metadata_health(
+        tickers=["AAPL", "MSFT", "NVDA"]
+    )
+    assert report["health_status"] == "WARN"
+    cov = report["checks"]["coverage"]
+    assert cov["configured_count"] == 3
+    assert cov["missing_count"] == 2
+    assert cov["missing_tickers"] == ["MSFT", "NVDA"]
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_metadata_health_null_rows_informational(manager):
+    """All-NULL field rows are legitimate placeholders -> not a WARN."""
+    _seed_metadata(
+        manager,
+        [
+            {
+                "ticker": "AAPL",
+                "company_name": "Apple Inc.",
+                "sector": "Technology",
+                "industry": "Consumer Electronics",
+                "quote_type": "EQUITY",
+            },
+            {
+                "ticker": "ZZZZ",
+                "company_name": None,
+                "sector": None,
+                "industry": None,
+                "quote_type": None,
+            },
+        ],
+    )
+    report = manager.check_metadata_health(tickers=["AAPL", "ZZZZ"])
+    assert report["health_status"] == "OK"
+    nf = report["checks"]["null_fields"]
+    assert nf["row_count"] == 2
+    assert nf["null_field_rows"] == 1
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_metadata_health_no_tickers_skips_coverage(manager):
+    """tickers=None -> coverage skipped; only informational counts."""
+    report = manager.check_metadata_health(tickers=None)
+    assert report["health_status"] == "OK"
+    cov = report["checks"]["coverage"]
+    assert cov["configured_count"] == 0
+    assert cov["missing_count"] == 0
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_metadata_health_missing_bounded(manager):
+    """missing_tickers is bounded by max_items; counts stay exact."""
+    tickers = [f"T{i:02d}" for i in range(60)]
+    report = manager.check_metadata_health(tickers=tickers, max_items=5)
+    cov = report["checks"]["coverage"]
+    assert report["health_status"] == "WARN"
+    assert cov["missing_count"] == 60
+    assert len(cov["missing_tickers"]) == 5
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_metadata_health_check_failed_on_missing_table(manager):
+    """A missing company_metadata table -> CHECK_FAILED, never raises."""
+    _raw_write(manager, "DROP TABLE company_metadata")
+    report = manager.check_metadata_health(tickers=["AAPL"])
+    assert report["health_status"] == "CHECK_FAILED"
+    assert "error" in report
+    json.dumps(report)

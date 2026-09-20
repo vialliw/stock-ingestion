@@ -1,10 +1,13 @@
-"""On-demand daily_close data-health report via the Flight server.
+"""On-demand composite data-health report via the Flight server.
 
 Sends the ``data_health`` Flight action to the running server and
-prints a formatted report covering five checks: staleness vs the
-latest NYSE trading day, coverage vs the configured ticker list,
-OHLC integrity, duplicate (Ticker, Date) keys, and per-ticker
-missing trading sessions inside a trailing window.
+prints a formatted report covering the daily_close checks (staleness
+vs the latest NYSE trading day, coverage vs the configured ticker
+list, OHLC integrity, duplicate (Ticker, Date) keys, and per-ticker
+missing trading sessions inside a trailing window) plus the F17-T1
+sections: fear_greed_history (presence/staleness/integrity/series),
+the weekly layer (staleness/parity/stale tickers/integrity) and
+company_metadata (coverage/NULL-field rows).
 
 Usage::
 
@@ -64,23 +67,122 @@ def _fmt_tickers(items, key="ticker", extra=None) -> str:
     return ", ".join(parts)
 
 
+def _print_fear_greed(fg) -> None:
+    """Print the ``fear_greed_history`` section (F17-T1)."""
+    if not isinstance(fg, dict):
+        return
+    status = fg.get("health_status", "?")
+    print(f"\n[fear_greed] health_status={status}   "
+          f"rows={fg.get('row_count', '?')}")
+    if status == "DISABLED":
+        print(f"    {fg.get('reason', 'disabled')}")
+        return
+    if status == "CHECK_FAILED":
+        print(f"    check failed: {fg.get('error', 'unknown error')}")
+        return
+    checks = fg.get("checks", {})
+    st = checks.get("staleness", {})
+    print(f"    staleness: latest_date={st.get('latest_date')} "
+          f"expected={st.get('expected_date')} "
+          f"stale={st.get('stale')} "
+          f"days_behind={st.get('days_behind')}")
+    integ = checks.get("integrity", {})
+    print(f"    integrity: null_fg_score="
+          f"{integ.get('null_fg_score_count', 0)} "
+          f"out_of_range={integ.get('out_of_range_count', 0)} "
+          f"invalid_rating={integ.get('invalid_rating_count', 0)}")
+    for s in integ.get("out_of_range_samples", []):
+        print(f"        out_of_range {s}")
+    for s in integ.get("invalid_rating_samples", []):
+        print(f"        invalid_rating {s}")
+    ser = checks.get("series", {})
+    print(f"    series: {_fmt_tickers(ser.get('missing_series', []))} "
+          f"missing of {ser.get('tracked', '?')} tracked")
+
+
+def _print_weekly(wk) -> None:
+    """Print the weekly_close/weekly_indicators section (F17-T1)."""
+    if not isinstance(wk, dict):
+        return
+    status = wk.get("health_status", "?")
+    print(f"\n[weekly]     health_status={status}")
+    if status == "CHECK_FAILED":
+        print(f"    check failed: {wk.get('error', 'unknown error')}")
+        return
+    checks = wk.get("checks", {})
+    st = checks.get("staleness", {})
+    print(f"    staleness: latest_week={st.get('latest_week')} "
+          f"expected_week={st.get('expected_week')} "
+          f"stale={st.get('stale')}")
+    par = checks.get("parity", {})
+    print(f"    parity: weekly_close={par.get('weekly_close_rows', '?')} "
+          f"weekly_indicators={par.get('weekly_indicators_rows', '?')} "
+          f"missing_indicator_keys="
+          f"{par.get('missing_indicator_keys', 0)}")
+    for k in par.get("missing_keys", []):
+        print(f"        missing {k}")
+    stale = checks.get("stale_tickers", {})
+    print(f"    stale tickers (in weekly, absent daily): "
+          f"{_fmt_tickers(stale.get('tickers', []))} "
+          f"({stale.get('count', 0)} total)")
+    integ = checks.get("integrity", {})
+    print(f"    integrity: null_ohlc={integ.get('null_ohlc_count', 0)} "
+          f"negative_volume={integ.get('negative_volume_count', 0)}")
+
+
+def _print_metadata(md) -> None:
+    """Print the ``company_metadata`` section (F17-T1)."""
+    if not isinstance(md, dict):
+        return
+    status = md.get("health_status", "?")
+    print(f"\n[metadata]   health_status={status}")
+    if status == "CHECK_FAILED":
+        print(f"    check failed: {md.get('error', 'unknown error')}")
+        return
+    checks = md.get("checks", {})
+    cov = checks.get("coverage", {})
+    print(f"    coverage: {cov.get('missing_count', 0)} of "
+          f"{cov.get('configured_count', '?')} configured tickers absent")
+    for t in cov.get("missing_tickers", []):
+        print(f"        {t}")
+    nf = checks.get("null_fields", {})
+    print(f"    null-field rows (informational): "
+          f"{nf.get('null_field_rows', 0)} of "
+          f"{nf.get('row_count', '?')}")
+
+
 def _print_report(h: dict) -> None:
-    """Human-readable rendering of the data_health report."""
+    """Human-readable rendering of the composite data_health report."""
     status = h.get("health_status", "?")
-    mode = h.get("mode", "?")
+    # The daily section mirrors the daily report with its own status
+    # (F17-T1); fall back to the top level for pre-F17 servers.
+    daily = h.get("daily_close")
+    if not isinstance(daily, dict):
+        daily = h
+    dstatus = daily.get("health_status", status)
+    mode = daily.get("mode", h.get("mode", "?"))
     print("=" * 62)
-    print(f" daily_close DATA HEALTH — {status}  (mode: {mode})")
-    print(f" as_of: {h.get('as_of')}   latest_trading_day: "
-          f"{h.get('latest_trading_day')}")
-    pending = h.get("pending_session")
+    print(f" DATA HEALTH — {status}  (daily_close mode: {mode})")
+    print(f" as_of: {daily.get('as_of')}   latest_trading_day: "
+          f"{daily.get('latest_trading_day')}")
+    pending = daily.get("pending_session")
     if pending:
         print(f" pending session: {pending} — still open/within grace, "
               f"not yet expected")
     print("=" * 62)
-    if status == "CHECK_FAILED":
-        print(f" The check itself failed: {h.get('error', 'unknown error')}")
-        return
+    if dstatus == "CHECK_FAILED":
+        print(f" The daily_close check itself failed: "
+              f"{daily.get('error', 'unknown error')}")
+    else:
+        _print_daily_checks(daily)
+    _print_fear_greed(h.get("fear_greed"))
+    _print_weekly(h.get("weekly"))
+    _print_metadata(h.get("company_metadata"))
+    print()
 
+
+def _print_daily_checks(h: dict) -> None:
+    """Print the daily_close check detail lines."""
     checks = h.get("checks", {})
 
     st = checks.get("staleness", {})
@@ -121,12 +223,11 @@ def _print_report(h: dict) -> None:
             days = ", ".join(t.get("missing_days", []))
             print(f"    {t.get('ticker')}: "
                   f"{t.get('missing_count')} missing — {days}")
-    print()
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="On-demand daily_close data-health report "
+        description="On-demand composite data-health report "
                     "via the running Flight server."
     )
     parser.add_argument(

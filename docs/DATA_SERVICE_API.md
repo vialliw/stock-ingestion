@@ -179,7 +179,7 @@ result rows. Payloads are optional JSON objects unless noted.
 | Action | Payload | Returns | Purpose |
 |---|---|---|---|
 | `health_check` | — | `{status, db_connected, db_path, ticker_count, daily_close_count, schema_version, uptime_seconds, last_run}` | Service/DB liveness |
-| `data_health` | `{gap_days?: int≥1}` | `{status, health:{health_status: OK\|WARN\|CHECK_FAILED, staleness, coverage, integrity, duplicates, gaps, pending_session}}` | Full `daily_close` data-quality report |
+| `data_health` | `{gap_days?: int≥1}` | `{status, health:{health_status: OK\|WARN\|CHECK_FAILED, mode, as_of, latest_trading_day, pending_session, checks:{staleness, coverage, integrity, duplicates, gaps}, daily_close:{…own status…}, fear_greed:{health_status: OK\|WARN\|CHECK_FAILED\|DISABLED, …}, weekly:{health_status, …}, company_metadata:{health_status, …}}}` | Full composite data-quality report (see note below) |
 | `daily_load` | `{force?: bool}` | `{status: SUCCESS\|PARTIAL\|SKIPPED, tickers_*, rows_upserted, health, metadata, weekly}` | Today's incremental load (write) |
 | `initial_load` | `{years?: int 1–30}` | like `daily_load` | Full-history load (write) |
 | `on_request_load` | `{tickers: [str], start_date, end_date}` — **required** | like `daily_load` | Custom-range backfill (write) |
@@ -195,6 +195,34 @@ Notes:
 - Load results embed `health`, `metadata`, `weekly`, and `fear_greed`
   sub-blocks — every completed OHLCV load already refreshes the
   derived layers.
+- `health` is a **composite, additive** report (F17-T1): all existing
+  `daily_close` keys stay at the top level of `health` (unchanged for
+  pre-F17 consumers), and three sub-reports are added under
+  `health.fear_greed`, `health.weekly`, and `health.company_metadata`,
+  each with its own `health_status` and evidence fields; a
+  `health.daily_close` key mirrors the daily report with its own
+  status. The top-level `health.health_status` is the worst across the
+  four sections (`OK < WARN < CHECK_FAILED`; a `DISABLED` section —
+  e.g. `fear_greed.enabled: false` — is excluded from the rollup). A
+  section that fails reports `CHECK_FAILED` + `error` in that section
+  only; the report never raises and never changes a load's status.
+  - `fear_greed`: presence (empty → WARN), `MAX(date)` staleness vs
+    the latest ended NYSE session (`stale`, `latest_date`,
+    `expected_date`, `days_behind`, `pending_session`), integrity
+    (`fg_score` outside [0,100] / `fg_rating` outside the valid
+    vocabulary / NULL `fg_score` counts + bounded samples), and
+    fully-NULL sub-indicator series → `missing_series`.
+  - `weekly`: `MAX(weekly_close.Date)` vs the expected nominal-Friday
+    key (`latest_week`/`expected_week`), `weekly_close` vs
+    `weekly_indicators` row-count parity + missing `(Date,Ticker)`
+    keys (bounded `missing_keys`), `stale_tickers` absent from
+    `daily_close`, NULL OHLC / `Volume < 0` counts.
+  - `company_metadata`: configured-minus-excluded tickers missing from
+    the table → WARN (`missing_tickers`, bounded); all-NULL field rows
+    are informational (`null_field_rows`), never a finding.
+  - The same composite is embedded under `health` on completed
+    `initial_load`/`daily_load` results (light mode — no gap section);
+    `SKIPPED` results and `on_request_load` carry no `health` block.
 - Invalid payload fields raise `FlightServerError` (fail-fast, never
   silently coerced).
 

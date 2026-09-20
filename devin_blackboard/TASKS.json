@@ -2952,7 +2952,7 @@
     "title": "Health checks for fear_greed_history, weekly tables, company_metadata",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F16-T1"
     ],

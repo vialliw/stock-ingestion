@@ -52,6 +52,16 @@ FEAR_GREED_UPSERT_COLUMNS: Tuple[str, ...] = (
     )
 )
 
+# F17-T1: valid fg_rating vocabulary (CNN lowercase labels).  NULL is
+# allowed — this list is only used to flag non-NULL outliers.
+FEAR_GREED_VALID_RATINGS: Tuple[str, ...] = (
+    "extreme fear",
+    "fear",
+    "neutral",
+    "greed",
+    "extreme greed",
+)
+
 
 class DatabaseManager:
     """Thread-safe DuckDB manager: single write conn + read-only read conns."""
@@ -1264,6 +1274,465 @@ class DatabaseManager:
                 ],
             }
         return report
+
+    # ------------------------------------------------------------------
+    # New-table health checks (F17-T1) — report-only, never repair.
+    # Staleness reuses the same "latest ended NYSE session" machinery as
+    # check_daily_close_health (F9-T5/F9-T7).
+    # ------------------------------------------------------------------
+
+    def _ended_sessions(
+        self,
+        as_of: Optional[str],
+        trading_days: Optional[List[str]],
+        now: Optional[datetime],
+        grace_minutes: float,
+    ) -> Tuple[List[str], Optional[str], str]:
+        """Resolve ``(sessions, pending_session, as_of)`` for a check.
+
+        Identical resolution rules to ``check_daily_close_health``: an
+        injected ``trading_days`` list bypasses the calendar (nothing
+        pending); otherwise the bundled NYSE calendar over the trailing
+        30 days is filtered to sessions whose ``market_close +
+        grace_minutes <= now``.  A naive ``now`` is treated as UTC; an
+        explicit ``as_of`` without ``now`` counts the whole as_of day as
+        elapsed.
+        """
+        if now is None:
+            if as_of is None:
+                now_utc = pd.Timestamp.now(tz="UTC")
+            else:
+                now_utc = (
+                    pd.Timestamp(as_of).tz_localize("UTC")
+                    + pd.Timedelta(days=1)
+                    - pd.Timedelta(microseconds=1)
+                )
+        else:
+            now_utc = pd.Timestamp(now)
+            now_utc = (
+                now_utc.tz_localize("UTC")
+                if now_utc.tzinfo is None
+                else now_utc.tz_convert("UTC")
+            )
+        if as_of is None:
+            as_of = now_utc.strftime("%Y-%m-%d")
+        if trading_days is not None:
+            # Injected calendar: every listed session is expected — no
+            # ended-session filtering, nothing pending.
+            sessions = sorted({str(d)[:10] for d in trading_days})
+            pending_session = None
+        else:
+            start = (
+                pd.Timestamp(as_of) - pd.Timedelta(days=30)
+            ).strftime("%Y-%m-%d")
+            sessions, pending_session = self._nyse_sessions(
+                start, as_of, now=now_utc, grace_minutes=grace_minutes
+            )
+        return sessions, pending_session, as_of
+
+    def check_fear_greed_health(
+        self,
+        enabled: bool = True,
+        as_of: Optional[str] = None,
+        trading_days: Optional[List[str]] = None,
+        max_items: int = _HEALTH_MAX_ITEMS,
+        grace_minutes: float = 120,
+        now: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Run report-only health checks against ``fear_greed_history``.
+
+        SQL-driven like ``check_daily_close_health``; never raises —
+        any failure returns ``health_status == 'CHECK_FAILED'`` with an
+        ``error`` field.  ``enabled=False`` (``cfg.fear_greed.enabled``)
+        returns ``health_status == 'DISABLED'`` immediately, which the
+        composite rollup excludes.
+
+        Checks:
+
+        * **presence** — an empty table -> WARN.
+        * **staleness** — ``MAX(date)`` vs the latest *ended* NYSE
+          session (``stale`` flag + ``latest_date``/``expected_date``/
+          ``days_behind`` + ``pending_session``).
+        * **integrity** — ``fg_score`` outside [0, 100], ``fg_rating``
+          outside the valid vocabulary (NULL allowed), and NULL
+          ``fg_score`` counts, each with bounded samples.
+        * **series** — sub-indicator value columns that are fully NULL
+          -> ``missing_series``.
+        """
+        try:
+            if not enabled:
+                return {
+                    "health_status": "DISABLED",
+                    "as_of": as_of,
+                    "reason": "fear_greed.enabled is false",
+                }
+            sessions, pending_session, as_of = self._ended_sessions(
+                as_of, trading_days, now, grace_minutes
+            )
+            latest_trading_day = sessions[-1] if sessions else None
+            if latest_trading_day is None:
+                return {
+                    "health_status": "CHECK_FAILED",
+                    "as_of": as_of,
+                    "error": (
+                        "could not determine the latest NYSE trading day "
+                        f"as of {as_of}"
+                    ),
+                }
+
+            ratings = ", ".join(f"'{r}'" for r in FEAR_GREED_VALID_RATINGS)
+            conn = self._read_only_conn()
+            try:
+                summary = conn.execute(
+                    """
+                    SELECT COUNT(*) AS n,
+                           CAST(MAX(date) AS VARCHAR) AS latest_date
+                    FROM fear_greed_history
+                    """
+                ).fetchone()
+                integrity = conn.execute(
+                    f"""
+                    SELECT
+                        COUNT(*) FILTER (fg_score IS NULL) AS null_score,
+                        COUNT(*) FILTER (
+                            fg_score < 0 OR fg_score > 100
+                        ) AS out_of_range,
+                        COUNT(*) FILTER (
+                            fg_rating IS NOT NULL
+                            AND fg_rating NOT IN ({ratings})
+                        ) AS bad_rating
+                    FROM fear_greed_history
+                    """
+                ).fetchone()
+                oor_samples = conn.execute(
+                    """
+                    SELECT CAST(date AS VARCHAR) AS d, fg_score
+                    FROM fear_greed_history
+                    WHERE fg_score < 0 OR fg_score > 100
+                    ORDER BY d
+                    LIMIT ?
+                    """,
+                    [max_items],
+                ).fetchall()
+                rating_samples = conn.execute(
+                    f"""
+                    SELECT CAST(date AS VARCHAR) AS d, fg_rating
+                    FROM fear_greed_history
+                    WHERE fg_rating IS NOT NULL
+                      AND fg_rating NOT IN ({ratings})
+                    ORDER BY d
+                    LIMIT ?
+                    """,
+                    [max_items],
+                ).fetchall()
+                # Fully-NULL series: COUNT(<key>) counts non-NULL cells;
+                # 0 means the column never carried a value.  The column
+                # list comes from the FEAR_GREED_SUB_INDICATORS constant,
+                # never caller input.
+                series_counts = conn.execute(
+                    "SELECT "
+                    + ", ".join(
+                        f"COUNT({k})" for k in FEAR_GREED_SUB_INDICATORS
+                    )
+                    + " FROM fear_greed_history"
+                ).fetchone()
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.error("fear_greed health check failed: %s", exc)
+            return {
+                "health_status": "CHECK_FAILED",
+                "as_of": as_of,
+                "error": str(exc),
+            }
+
+        row_count = int(summary[0]) if summary else 0
+        latest_date = summary[1] if summary else None
+        stale = latest_date is None or latest_date < latest_trading_day
+        days_behind = (
+            (pd.Timestamp(latest_trading_day) - pd.Timestamp(latest_date)).days
+            if latest_date is not None
+            else None
+        )
+        null_score = int(integrity[0]) if integrity else 0
+        out_of_range = int(integrity[1]) if integrity else 0
+        bad_rating = int(integrity[2]) if integrity else 0
+        missing_series = [
+            key
+            for key, cnt in zip(FEAR_GREED_SUB_INDICATORS, series_counts)
+            if int(cnt) == 0
+        ]
+        findings = (
+            (1 if row_count == 0 else 0)
+            + (1 if stale else 0)
+            + null_score
+            + out_of_range
+            + bad_rating
+            + len(missing_series)
+        )
+        return {
+            "health_status": "WARN" if findings else "OK",
+            "as_of": as_of,
+            "latest_trading_day": latest_trading_day,
+            "pending_session": pending_session,
+            "row_count": row_count,
+            "checks": {
+                "presence": {
+                    "row_count": row_count,
+                    "empty": row_count == 0,
+                },
+                "staleness": {
+                    "stale": stale,
+                    "latest_date": latest_date,
+                    "expected_date": latest_trading_day,
+                    "days_behind": days_behind,
+                },
+                "integrity": {
+                    "null_fg_score_count": null_score,
+                    "out_of_range_count": out_of_range,
+                    "out_of_range_samples": [
+                        {"date": r[0], "fg_score": r[1]}
+                        for r in oor_samples
+                    ],
+                    "invalid_rating_count": bad_rating,
+                    "invalid_rating_samples": [
+                        {"date": r[0], "fg_rating": r[1]}
+                        for r in rating_samples
+                    ],
+                },
+                "series": {
+                    "tracked": len(FEAR_GREED_SUB_INDICATORS),
+                    "missing_series": missing_series,
+                },
+            },
+        }
+
+    def check_weekly_health(
+        self,
+        as_of: Optional[str] = None,
+        trading_days: Optional[List[str]] = None,
+        max_items: int = _HEALTH_MAX_ITEMS,
+        grace_minutes: float = 120,
+        now: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Run report-only health checks against the weekly layer.
+
+        SQL-driven like ``check_daily_close_health``; never raises.
+        Checks:
+
+        * **staleness** — ``MAX(weekly_close.Date)`` vs the expected
+          nominal-Friday key
+          ``date_trunc('week', latest_ended_session)::DATE + 4`` (F12
+          week keying); ``latest_week``/``expected_week``/
+          ``pending_session`` evidence fields.
+        * **parity** — ``weekly_close`` vs ``weekly_indicators`` row
+          counts plus the count (and bounded sample) of
+          ``(Date, Ticker)`` keys in ``weekly_close`` missing from
+          ``weekly_indicators``.
+        * **stale tickers** — tickers present in ``weekly_close`` but
+          absent from ``daily_close`` (bounded list).
+        * **integrity** — NULL OHLC / ``Volume < 0`` counts on
+          ``weekly_close``.
+        """
+        try:
+            sessions, pending_session, as_of = self._ended_sessions(
+                as_of, trading_days, now, grace_minutes
+            )
+            latest_trading_day = sessions[-1] if sessions else None
+            if latest_trading_day is None:
+                return {
+                    "health_status": "CHECK_FAILED",
+                    "as_of": as_of,
+                    "error": (
+                        "could not determine the latest NYSE trading day "
+                        f"as of {as_of}"
+                    ),
+                }
+
+            conn = self._read_only_conn()
+            try:
+                summary = conn.execute(
+                    """
+                    SELECT
+                        CAST((SELECT MAX(Date) FROM weekly_close)
+                             AS VARCHAR) AS latest_week,
+                        CAST(date_trunc('week', CAST(? AS DATE))::DATE + 4
+                             AS VARCHAR) AS expected_week,
+                        (SELECT COUNT(*) FROM weekly_close) AS close_rows,
+                        (SELECT COUNT(*) FROM weekly_indicators)
+                            AS indicator_rows
+                    """,
+                    [latest_trading_day],
+                ).fetchone()
+                missing_key_count = conn.execute(
+                    """
+                    SELECT COUNT(*) FROM weekly_close w
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM weekly_indicators i
+                        WHERE i.Date = w.Date AND i.Ticker = w.Ticker
+                    )
+                    """
+                ).fetchone()
+                missing_key_samples = conn.execute(
+                    """
+                    SELECT CAST(w.Date AS VARCHAR) AS d, w.Ticker
+                    FROM weekly_close w
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM weekly_indicators i
+                        WHERE i.Date = w.Date AND i.Ticker = w.Ticker
+                    )
+                    ORDER BY d, w.Ticker
+                    LIMIT ?
+                    """,
+                    [max_items],
+                ).fetchall()
+                stale_ticker_rows = conn.execute(
+                    """
+                    SELECT DISTINCT Ticker FROM weekly_close
+                    WHERE Ticker NOT IN (SELECT Ticker FROM daily_close)
+                    ORDER BY Ticker
+                    """
+                ).fetchall()
+                integrity = conn.execute(
+                    """
+                    SELECT
+                        COUNT(*) FILTER (
+                            Open IS NULL OR High IS NULL OR
+                            Low IS NULL OR Close IS NULL
+                        ) AS null_ohlc,
+                        COUNT(*) FILTER (Volume < 0) AS negative_volume
+                    FROM weekly_close
+                    """
+                ).fetchone()
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.error("weekly health check failed: %s", exc)
+            return {
+                "health_status": "CHECK_FAILED",
+                "as_of": as_of,
+                "error": str(exc),
+            }
+
+        latest_week = summary[0] if summary else None
+        expected_week = summary[1] if summary else None
+        close_rows = int(summary[2]) if summary else 0
+        indicator_rows = int(summary[3]) if summary else 0
+        stale = latest_week is None or latest_week < expected_week
+        missing_keys = int(missing_key_count[0]) if missing_key_count else 0
+        null_ohlc = int(integrity[0]) if integrity else 0
+        negative_volume = int(integrity[1]) if integrity else 0
+        findings = (
+            (1 if stale else 0)
+            + (1 if close_rows != indicator_rows else 0)
+            + missing_keys
+            + len(stale_ticker_rows)
+            + null_ohlc
+            + negative_volume
+        )
+        return {
+            "health_status": "WARN" if findings else "OK",
+            "as_of": as_of,
+            "latest_trading_day": latest_trading_day,
+            "pending_session": pending_session,
+            "checks": {
+                "staleness": {
+                    "stale": stale,
+                    "latest_week": latest_week,
+                    "expected_week": expected_week,
+                },
+                "parity": {
+                    "weekly_close_rows": close_rows,
+                    "weekly_indicators_rows": indicator_rows,
+                    "row_count_match": close_rows == indicator_rows,
+                    "missing_indicator_keys": missing_keys,
+                    "missing_keys": [
+                        {"date": r[0], "ticker": r[1]}
+                        for r in missing_key_samples
+                    ],
+                },
+                "stale_tickers": {
+                    "count": len(stale_ticker_rows),
+                    "tickers": [
+                        r[0] for r in stale_ticker_rows[:max_items]
+                    ],
+                },
+                "integrity": {
+                    "null_ohlc_count": null_ohlc,
+                    "negative_volume_count": negative_volume,
+                },
+            },
+        }
+
+    def check_metadata_health(
+        self,
+        tickers: Optional[List[str]] = None,
+        max_items: int = _HEALTH_MAX_ITEMS,
+    ) -> Dict[str, Any]:
+        """Run report-only health checks against ``company_metadata``.
+
+        SQL-driven; never raises.  Checks:
+
+        * **coverage** — configured-minus-excluded ``tickers`` absent
+          from ``company_metadata`` -> WARN (bounded list).  Skipped
+          when ``tickers`` is None.
+        * **null fields** — rows where all four value columns
+          (``company_name``/``sector``/``industry``/``quote_type``) are
+          NULL.  These are legitimate placeholders for unknown symbols
+          (F10-T1) — informational count only, never a finding.
+        """
+        try:
+            conn = self._read_only_conn()
+            try:
+                summary = conn.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS n,
+                        COUNT(*) FILTER (
+                            company_name IS NULL AND sector IS NULL AND
+                            industry IS NULL AND quote_type IS NULL
+                        ) AS null_field_rows
+                    FROM company_metadata
+                    """
+                ).fetchone()
+                if tickers is not None:
+                    missing_rows = conn.execute(
+                        """
+                        SELECT c.ticker
+                        FROM (SELECT unnest(?) AS ticker) AS c
+                        WHERE c.ticker NOT IN (
+                            SELECT ticker FROM company_metadata
+                        )
+                        ORDER BY c.ticker
+                        """,
+                        [list(tickers)],
+                    ).fetchall()
+                else:
+                    missing_rows = []
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.error("company_metadata health check failed: %s", exc)
+            return {"health_status": "CHECK_FAILED", "error": str(exc)}
+
+        return {
+            "health_status": "WARN" if missing_rows else "OK",
+            "checks": {
+                "coverage": {
+                    "configured_count": (
+                        len(tickers) if tickers is not None else 0
+                    ),
+                    "missing_count": len(missing_rows),
+                    "missing_tickers": [
+                        r[0] for r in missing_rows[:max_items]
+                    ],
+                },
+                "null_fields": {
+                    "row_count": int(summary[0]) if summary else 0,
+                    "null_field_rows": int(summary[1]) if summary else 0,
+                },
+            },
+        }
 
     # ------------------------------------------------------------------
     # Shutdown

@@ -1,18 +1,31 @@
 """Tests for the health_check, get_run_history and data_health Flight
-actions (F7-T2, F9-T5)."""
+actions (F7-T2, F9-T5) plus the F17-T1 composite health report."""
 
 from __future__ import annotations
 
 import json
+import os
 import socket
+import sys
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.flight as flight
 import pytest
+
+# Add scripts dir to path so data_health_report can be imported (same
+# pattern as tests/test_scheduler.py); its module header chdirs to the
+# repo root, so restore the session cwd afterwards.
+_SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+_cwd_before_dhr_import = os.getcwd()
+import data_health_report  # noqa: E402
+os.chdir(_cwd_before_dhr_import)
 
 from src.db import DatabaseManager, SCHEMA_VERSION
 from src.db_challenger import DatabaseManager as ChallengerDatabaseManager
@@ -512,3 +525,285 @@ def test_daily_load_health_embed_over_wire(impls, tmp_path):
     finally:
         harness.close()
         db.close()
+
+
+# =====================================================================
+# F17-T1: composite health report over the wire (BOTH impls)
+# =====================================================================
+#
+# The composite keeps every daily_close key at the top level and adds
+# ``daily_close``/``fear_greed``/``weekly``/``company_metadata``
+# sub-reports, each with its own health_status; the top-level
+# health_status is the worst across sections (DISABLED excluded).
+
+
+def _raw_write(db, sql):
+    """Run a write statement through the manager's write connection."""
+    if hasattr(db, "conn"):
+        db.conn.execute(sql)
+    else:
+        with db._write.connection() as conn:
+            conn.execute(sql)
+
+
+def _seed_fear_greed_current(db):
+    """Seed fear_greed_history with rows through today (UTC) so the
+    staleness check is as current as the bundled calendar allows."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    series_cols = ", ".join(
+        f"{k}, {k}_rating" for k in (
+            "stock_price_strength", "stock_price_breadth",
+            "market_momentum_sp500", "market_momentum_sp125",
+            "market_volatility_vix", "market_volatility_vix_50",
+            "put_call_options", "junk_bond_demand", "safe_haven_demand",
+        )
+    )
+    series_vals = ", ".join(["42.0, 'neutral'"] * 9)
+    _raw_write(
+        db,
+        "INSERT INTO fear_greed_history "
+        f"(date, fg_score, fg_rating, {series_cols}) VALUES "
+        f"('{today}', 42.0, 'neutral', {series_vals})",
+    )
+
+
+@pytest.mark.parametrize("impls", _DATA_HEALTH_IMPLS)
+def test_data_health_composite_over_wire(impls, tmp_path):
+    """data_health returns the composite: daily keys top-level plus the
+    three new sub-reports, each with its own health_status."""
+    db_cls, server_cls = impls
+    db = db_cls(str(tmp_path / "comp.duckdb"))
+    _seed_daily_close(db, {"AAPL": ["2026-01-05", "2026-01-06"]})
+    _seed_fear_greed_current(db)
+
+    cfg = MagicMock()
+    cfg.db_path = str(tmp_path / "comp.duckdb")
+    cfg.ingestion.tickers = ["AAPL"]
+    cfg.ingestion.exclude_tickers = []
+    cfg.fear_greed.enabled = True
+
+    harness = _WireHarness(server_cls, db, cfg)
+    try:
+        data = harness.action("data_health")
+        assert data["status"] == "SUCCESS"
+        health = data["health"]
+        # Backward-compatible: daily keys still top-level.
+        assert health["mode"] == "full"
+        assert health["latest_trading_day"] is not None
+        assert "staleness" in health["checks"]
+        assert "coverage" in health["checks"]
+        # Composite sections each carry their own status.
+        for section in ("daily_close", "fear_greed", "weekly",
+                        "company_metadata"):
+            assert section in health, section
+            assert health[section]["health_status"] in (
+                "OK", "WARN", "CHECK_FAILED",
+            )
+        # daily_close mirror preserves the daily report's own status.
+        assert health["daily_close"]["mode"] == "full"
+        # Metadata coverage: AAPL configured but never metadata-loaded.
+        assert health["company_metadata"]["health_status"] == "WARN"
+        assert health["company_metadata"]["checks"]["coverage"][
+            "missing_tickers"
+        ] == ["AAPL"]
+        # Top-level is the worst across sections (WARN at minimum here).
+        assert health["health_status"] in ("WARN", "CHECK_FAILED")
+        json.dumps(health)
+    finally:
+        harness.close()
+        db.close()
+
+
+@pytest.mark.parametrize("impls", _DATA_HEALTH_IMPLS)
+def test_data_health_composite_disabled_and_isolation(impls, tmp_path):
+    """fear_greed DISABLED is excluded from the rollup; a broken weekly
+    check yields per-section CHECK_FAILED without masking the rest."""
+    db_cls, server_cls = impls
+    db = db_cls(str(tmp_path / "comp2.duckdb"))
+    _seed_daily_close(db, {"AAPL": ["2026-01-06"]})
+    _raw_write(db, "DROP TABLE weekly_indicators")
+
+    cfg = MagicMock()
+    cfg.db_path = str(tmp_path / "comp2.duckdb")
+    cfg.ingestion.tickers = ["AAPL"]
+    cfg.ingestion.exclude_tickers = []
+    cfg.fear_greed.enabled = False
+
+    harness = _WireHarness(server_cls, db, cfg)
+    try:
+        data = harness.action("data_health")
+        health = data["health"]
+        # DISABLED: fear_greed never queried, section reports DISABLED.
+        assert health["fear_greed"]["health_status"] == "DISABLED"
+        # Isolation: weekly broke, daily + metadata still ran.
+        assert health["weekly"]["health_status"] == "CHECK_FAILED"
+        assert "error" in health["weekly"]
+        assert health["daily_close"]["health_status"] in ("OK", "WARN")
+        assert health["company_metadata"]["health_status"] in (
+            "OK", "WARN",
+        )
+        # CHECK_FAILED is the worst — top-level reflects it.
+        assert health["health_status"] == "CHECK_FAILED"
+        json.dumps(health)
+    finally:
+        harness.close()
+        db.close()
+
+
+@pytest.mark.parametrize("impls", _DATA_HEALTH_IMPLS)
+def test_daily_load_embed_carries_composite(impls, tmp_path):
+    """The load embed carries the composite sections unchanged."""
+    db_cls, server_cls = impls
+    db = db_cls(str(tmp_path / "comp3.duckdb"))
+    _seed_daily_close(db, {"AAPL": ["2026-01-06"]})
+
+    cfg = MagicMock()
+    cfg.db_path = str(tmp_path / "comp3.duckdb")
+    cfg.ingestion.tickers = ["AAPL"]
+    cfg.ingestion.exclude_tickers = []
+    cfg.ingestion.daily_lookback_days = 4
+    cfg.fear_greed.enabled = False
+
+    engine = MagicMock()
+    engine.run_daily_load.return_value = {
+        "status": "SUCCESS",
+        "rows_upserted": 4,
+        "tickers_succeeded": ["AAPL"],
+        "tickers_failed": [],
+        "errors": {},
+        "duration_ms": 12,
+    }
+    harness = _WireHarness(server_cls, db, cfg, engine=engine)
+    try:
+        data = harness.action("daily_load")
+        health = data["health"]
+        assert health["mode"] == "light"
+        assert "gaps" not in health["checks"]
+        assert health["fear_greed"]["health_status"] == "DISABLED"
+        assert health["weekly"]["health_status"] in ("OK", "WARN")
+        assert health["company_metadata"]["health_status"] in (
+            "OK", "WARN",
+        )
+    finally:
+        harness.close()
+        db.close()
+
+
+# =====================================================================
+# F17-T1: data_health_report.py rendering of the composite sections
+# =====================================================================
+
+
+def _composite_report(**overrides):
+    """A minimal composite report dict as the wire action returns it."""
+    report = {
+        "health_status": "WARN",
+        "mode": "full",
+        "as_of": "2026-01-08",
+        "latest_trading_day": "2026-01-08",
+        "pending_session": None,
+        "checks": {
+            "staleness": {"stale_count": 0, "stale_tickers": []},
+            "coverage": {"configured_count": 1, "missing_count": 0,
+                         "missing_tickers": []},
+            "integrity": {"violation_count": 0, "reason_counts": {},
+                          "violations": []},
+            "duplicates": {"duplicate_count": 0, "duplicates": []},
+        },
+        "daily_close": {
+            "health_status": "OK",
+            "mode": "full",
+            "as_of": "2026-01-08",
+            "latest_trading_day": "2026-01-08",
+            "checks": {
+                "staleness": {"stale_count": 0, "stale_tickers": []},
+                "coverage": {"configured_count": 1, "missing_count": 0,
+                             "missing_tickers": []},
+                "integrity": {"violation_count": 0, "reason_counts": {},
+                              "violations": []},
+                "duplicates": {"duplicate_count": 0, "duplicates": []},
+            },
+        },
+        "fear_greed": {
+            "health_status": "WARN",
+            "row_count": 10,
+            "checks": {
+                "staleness": {"stale": True, "latest_date": "2026-01-06",
+                              "expected_date": "2026-01-08",
+                              "days_behind": 2},
+                "integrity": {"null_fg_score_count": 0,
+                              "out_of_range_count": 0,
+                              "out_of_range_samples": [],
+                              "invalid_rating_count": 0,
+                              "invalid_rating_samples": []},
+                "series": {"tracked": 9, "missing_series": []},
+            },
+        },
+        "weekly": {
+            "health_status": "OK",
+            "checks": {
+                "staleness": {"stale": False, "latest_week": "2026-01-09",
+                              "expected_week": "2026-01-09"},
+                "parity": {"weekly_close_rows": 5,
+                           "weekly_indicators_rows": 5,
+                           "row_count_match": True,
+                           "missing_indicator_keys": 0,
+                           "missing_keys": []},
+                "stale_tickers": {"count": 0, "tickers": []},
+                "integrity": {"null_ohlc_count": 0,
+                              "negative_volume_count": 0},
+            },
+        },
+        "company_metadata": {
+            "health_status": "WARN",
+            "checks": {
+                "coverage": {"configured_count": 3, "missing_count": 1,
+                             "missing_tickers": ["NVDA"]},
+                "null_fields": {"row_count": 2, "null_field_rows": 1},
+            },
+        },
+    }
+    report.update(overrides)
+    return report
+
+
+def test_report_script_prints_new_sections(capsys):
+    """_print_report renders the three new sections after the daily block."""
+    data_health_report._print_report(_composite_report())
+    out = capsys.readouterr().out
+    assert "[staleness]" in out  # existing daily checks still printed
+    assert "[fear_greed]" in out
+    assert "health_status=WARN" in out
+    assert "days_behind=2" in out
+    assert "[weekly]" in out
+    assert "missing_indicator_keys=0" in out
+    assert "[metadata]" in out
+    assert "NVDA" in out
+    assert "null-field rows" in out
+
+
+def test_report_script_disabled_and_check_failed_sections(capsys):
+    """DISABLED/CHECK_FAILED sections print their status lines safely."""
+    report = _composite_report()
+    report["fear_greed"] = {
+        "health_status": "DISABLED", "reason": "fear_greed.enabled is false"
+    }
+    report["weekly"] = {
+        "health_status": "CHECK_FAILED", "error": "no such table"
+    }
+    data_health_report._print_report(report)
+    out = capsys.readouterr().out
+    assert "fear_greed.enabled is false" in out
+    assert "no such table" in out
+
+
+def test_report_script_pre_f17_report_shape(capsys):
+    """A pre-F17 (daily-only) report still renders without new sections."""
+    report = _composite_report()
+    for key in ("daily_close", "fear_greed", "weekly", "company_metadata"):
+        del report[key]
+    data_health_report._print_report(report)
+    out = capsys.readouterr().out
+    assert "[staleness]" in out
+    assert "[fear_greed]" not in out
+    assert "[weekly]" not in out

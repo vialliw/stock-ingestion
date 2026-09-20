@@ -68,6 +68,12 @@ def make_server(module, report_dir="/tmp/test_reports"):
         "mode": "light",
         "checks": {},
     }
+    # F17-T1: same for the three new composite sections — a bare
+    # MagicMock return is non-dict and would mark the section
+    # CHECK_FAILED, dragging the composite worst-status with it.
+    db_mgr.check_fear_greed_health.return_value = {"health_status": "OK"}
+    db_mgr.check_weekly_health.return_value = {"health_status": "OK"}
+    db_mgr.check_metadata_health.return_value = {"health_status": "OK"}
 
     class _TestServer(module.MarketDataFlightServer):
         """Subclass that skips the port-binding base ``__init__``."""
@@ -614,6 +620,131 @@ class TestDataHealthAction:
         assert data["status"] == "SUCCESS"
         assert data["health"]["health_status"] == "CHECK_FAILED"
         assert "boom" in data["health"]["error"]
+
+
+# =====================================================================
+# F17-T1: composite health report (daily_close + fear_greed + weekly +
+# company_metadata) — worst-status rollup, additive shape
+# =====================================================================
+
+
+class TestCompositeHealth:
+    """The composite report composes per-section sub-reports (F17-T1)."""
+
+    def test_composite_shape_backward_compatible(self, module):
+        """Existing daily keys stay top-level; new keys are additive."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        daily = {
+            "health_status": "OK",
+            "mode": "light",
+            "as_of": "2026-01-08",
+            "latest_trading_day": "2026-01-08",
+            "pending_session": None,
+            "checks": {"staleness": {"stale_count": 0}},
+        }
+        db_mgr.check_daily_close_health.return_value = daily
+        ingest_engine.run_daily_load.return_value = _load_result()
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("daily_load"))
+        )
+        health = data["health"]
+        # Every original daily_close key survives at the top level.
+        for key, value in daily.items():
+            assert health[key] == value, key
+        # The composite sections each carry their own status.
+        assert health["daily_close"]["health_status"] == "OK"
+        assert health["fear_greed"]["health_status"] == "OK"
+        assert health["weekly"]["health_status"] == "OK"
+        assert health["company_metadata"]["health_status"] == "OK"
+        assert health["health_status"] == "OK"
+
+    def test_composite_worst_status_warn(self, module):
+        """A WARN section drags the top-level status to WARN."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        db_mgr.check_weekly_health.return_value = {
+            "health_status": "WARN",
+            "checks": {"staleness": {"stale": True}},
+        }
+        ingest_engine.run_daily_load.return_value = _load_result()
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("daily_load"))
+        )
+        health = data["health"]
+        assert health["daily_close"]["health_status"] == "OK"
+        assert health["weekly"]["health_status"] == "WARN"
+        assert health["health_status"] == "WARN"
+
+    def test_composite_worst_status_check_failed(self, module):
+        """CHECK_FAILED outranks WARN — a section failure is isolated."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        db_mgr.check_weekly_health.return_value = {
+            "health_status": "WARN",
+        }
+        db_mgr.check_fear_greed_health.side_effect = RuntimeError(
+            "fg exploded"
+        )
+        ingest_engine.run_daily_load.return_value = _load_result()
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("daily_load"))
+        )
+        health = data["health"]
+        # The failed section is CHECK_FAILED with an error; the others
+        # still ran (weekly kept its own WARN).
+        assert health["fear_greed"]["health_status"] == "CHECK_FAILED"
+        assert "fg exploded" in health["fear_greed"]["error"]
+        assert health["weekly"]["health_status"] == "WARN"
+        assert health["daily_close"]["health_status"] == "OK"
+        assert health["health_status"] == "CHECK_FAILED"
+
+    def test_composite_disabled_excluded_from_rollup(self, module):
+        """A DISABLED section (fear_greed off) does not drag the worst."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        db_mgr.check_fear_greed_health.return_value = {
+            "health_status": "DISABLED",
+        }
+        ingest_engine.run_daily_load.return_value = _load_result()
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("daily_load"))
+        )
+        health = data["health"]
+        assert health["fear_greed"]["health_status"] == "DISABLED"
+        assert health["health_status"] == "OK"
+
+    def test_composite_forwards_fear_greed_enabled_flag(self, module):
+        """cfg.fear_greed.enabled is forwarded to the F&G check."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        cfg.fear_greed.enabled = False
+        ingest_engine.run_daily_load.return_value = _load_result()
+        server.do_action(MagicMock(), make_action("daily_load"))
+        call = db_mgr.check_fear_greed_health.call_args
+        assert call.kwargs["enabled"] is False
+
+    def test_composite_metadata_gets_configured_tickers(self, module):
+        """company_metadata coverage uses configured-minus-excluded."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        cfg.ingestion.tickers = ["AAPL", "MSFT"]
+        cfg.ingestion.exclude_tickers = ["MSFT"]
+        ingest_engine.run_daily_load.return_value = _load_result()
+        server.do_action(MagicMock(), make_action("daily_load"))
+        call = db_mgr.check_metadata_health.call_args
+        assert call.kwargs["tickers"] == ["AAPL"]
+
+    def test_composite_data_health_action_carries_sections(self, module):
+        """The data_health action returns the full composite report."""
+        server, db_mgr, ingest_engine, cfg = make_server(module)
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("data_health"))
+        )
+        assert data["status"] == "SUCCESS"
+        health = data["health"]
+        # The mocked daily check returns the light stub — the action
+        # still passes include_gaps=True down (asserted elsewhere).
+        assert health["mode"] == "light"
+        for section in (
+            "daily_close", "fear_greed", "weekly", "company_metadata"
+        ):
+            assert section in health
+            assert health[section]["health_status"] == "OK"
 
 
 # =====================================================================
