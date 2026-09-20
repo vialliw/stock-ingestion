@@ -8,6 +8,6 @@ rem
 rem Optional first argument overrides fear_greed.start_date (YYYY-MM-DD).
 
 cd /d "%~dp0\.."
-python scriptsefresh_fear_greed.py %*
+python scripts\refresh_fear_greed.py %*
 echo.
 pause
