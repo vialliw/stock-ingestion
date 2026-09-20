@@ -2340,3 +2340,5 @@ No src/, tests/, scripts/, or docs files modified by Critic D — blackboard onl
 [2026-09-20T18:15:02.984908+00:00] [ORCHESTRATOR] F17-T1 cycle closed. C APPROVED (5 non-blocking: verify.py exit-msg drift, metadata CHECK_FAILED lacks as_of, NaN fg_score claim — D DISPUTED it (DuckDB NaN>100=TRUE so it IS flagged), fresh-DB WARN intended, post-try shaping mirrors pre-existing pattern). D PASS all 5 ACs file:line + own mutation + fresh-DB live probes both impls.
 
 [2026-09-20T18:59:35.114746+00:00] [ORCHESTRATOR] Registered F18-T1 (Fear & Greed tab in report_app.py — strict MVP of user dashboard proposal: gauge + band-shaded fg_score history + 9-row rating heatmap + window presets). Plan: plan-fb943476f18f611c.md.
+
+[2026-09-20T19:00:39.234166+00:00] [EXECUTOR] claimed F18-T1
