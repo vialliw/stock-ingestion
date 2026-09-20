@@ -2985,5 +2985,31 @@
     ],
     "acceptance_criteria": "Health checks for new tables, reusing existing machinery (plan-fb943476f18f611c.md). (1) check_fear_greed_health/check_weekly_health/check_metadata_health on BOTH db impls — SQL-driven (no bare for-loops), never-raises (failure -> health_status CHECK_FAILED + error), bounded lists (max_items), injectable now/as_of/trading_days/grace_minutes; staleness reuses _nyse_sessions ended-session + pending_session semantics; each returns own health_status + evidence fields. (2) Coverage: F&G — presence (empty->WARN), MAX(date) staleness vs latest ended session, fg_score outside [0,100] count, fg_rating outside {extreme fear,fear,neutral,greed,extreme greed} (NULL ok), NULL fg_score count, fully-NULL series -> missing_series; enabled=false -> health_status DISABLED excluded from rollup. Weekly — MAX(Date) vs expected Friday key date_trunc('week',latest_ended_session)+4; weekly_close vs weekly_indicators row-count parity + missing-key count (bounded sample); stale tickers (in weekly_close, absent daily_close, bounded); NULL OHLC / Volume<0 counts. Metadata — configured-minus-excluded tickers missing from company_metadata -> WARN; NULL-field row count informational. (3) _health_report composite on BOTH servers: existing daily_close keys untouched at top level; new sections under 'fear_greed'/'weekly'/'company_metadata'; top-level health_status = worst across sections (OK<WARN<CHECK_FAILED); never raises; per-section exception -> that section CHECK_FAILED only; data_health action + initial_load/daily_load embed carry composite (SKIPPED/on_request unchanged). (4) scripts/data_health_report.py prints the three new sections (same style; exit code unchanged); data_health_verify.py and daily_load_once.py need no functional change (verify still reads top-level daily keys; once.py warns on worst-status) — verify and note. (5) Tests over seeded temp DBs BOTH impls: each check OK/WARN paths, staleness boundary incl. pending-session grace, weekly parity/stale-ticker/NULL cases, DISABLED path, composite worst-status + backward-compatible shape (daily keys still top-level), data_health action + load-embed integration, report script output; pytest all green (baseline 882); check_loops --src-dir src + --strict clean; README.md==docs/README.md byte-identical; docs/DATA_SERVICE_API.md documents the additive composite shape.",
     "assigned_to": "B"
+  },
+  {
+    "id": "F18-T1",
+    "title": "Fear & Greed tab in report_app.py (gauge + band-shaded history + rating heatmap)",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": [
+      "F17-T1"
+    ],
+    "input_files": [
+      "/scripts/report_app.py",
+      "/scripts/breadth_dashboard.py",
+      "/scripts/rrg_dashboard.py",
+      "/src/db.py"
+    ],
+    "output_files": [
+      "/scripts/fear_greed_dashboard.py",
+      "/scripts/report_app.py",
+      "/tests/test_fear_greed_dashboard.py",
+      "/tests/test_report_app.py",
+      "/README.md",
+      "/docs/README.md"
+    ],
+    "acceptance_criteria": "Fear & Greed tab per plan-fb943476f18f611c.md (strict MVP of the user's dashboard proposal). (1) New scripts/fear_greed_dashboard.py — module importable WITHOUT plotly (lazy imports inside builders); build_fear_greed_sql() -> SELECT date, fg_score, fg_rating + all 9 <key> DOUBLE and <key>_rating columns FROM fear_greed_history ORDER BY date; normalize_dates() via pd.to_datetime (Flight returns object-dtype datetime.date); filter_window(df, preset) for 1M/3M/6M/YTD/1Y/2Y/Max (YTD = Jan 1 of latest year IN DATA); RATING_ORDER map extreme fear..extreme greed -> 0..4 + RATING_COLORS palette (#d62728/#ff7f0e/#7f7f7f/#9ed36a/#2ca02c) + BAND_BOUNDS [0,25,45,55,75,100]. (2) build_gauge_figure(latest_score, prev_score, rating): go.Indicator gauge+number+delta, axis [0,100], 5 band steps with palette colors, delta vs prev trading day. (3) build_history_figure(df, show_ma): fg_score line+area, fixed 0-100 domain, 5 semi-transparent horizontal band shapes (palette colors), optional MA20/MA50 overlay toggle, hover shows date/score/rating. (4) build_heatmap_figure(df): go.Heatmap over all 9 *_rating columns -> ordinal z via RATING_ORDER (NULL/unknown -> gap), discrete colorscale anchored 0-4 to palette, y = human labels, hovertext = raw value + rating via customdata. (5) X axes category type (dates as YYYY-MM-DD strings) — trading-day-only, no weekend/holiday gaps or interpolation. Raw metric columns NEVER plotted on a numeric axis. (6) report_app.py: _render_fear_greed_tab — Parameters expander with window radio (default 1Y) + Refresh data button (_get_cached_fetch(st).clear()); cached_fetch_dataframe -> None -> existing st.error msg; empty -> st.error; renders gauge + deltas caption (1d/5d/21d), history chart + MA checkbox, heatmap; added as 8th tab 'Fear & Greed' to st.tabs + dispatch; module docstring tab count updated. (7) tests/test_fear_greed_dashboard.py: SQL builder columns/table/order; filter_window all presets incl YTD boundary + Max; rating->ordinal + unknown/NULL -> gap; figure structure asserts (gauge 5 steps + delta ref; history 5 band shapes + MA toggle traces; heatmap z ordinal + discrete colorscale + hovertext raw+rating); normalize_dates on object-dtype input; None/empty guards. test_report_app.py additions: new tab present + render path with mocked cached_fetch_dataframe + error paths. (8) pytest all green (baseline 951); check_loops --src-dir src + --strict clean; README.md == docs/README.md byte-identical documenting the new tab.",
+    "assigned_to": "B"
   }
 ]
