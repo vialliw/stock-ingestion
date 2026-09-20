@@ -53,7 +53,14 @@ The optional SPY overlay is fed by a second query —
 figure's trading-day category axis (SPY dates absent from the F&G
 window drop; F&G dates without a SPY close render as a gap).
 
-Version: 1.1 (F19-T1)
+The tab's bottom-of-page "Interpretation guide" expander renders the
+module-level ``FEAR_GREED_GUIDE`` markdown constant (F20-T1 — adapted
+from ``docs/enhancements/20260920b.md``: the screenshot-specific
+example readings removed/genericized, the sub-indicator count fixed
+to the nine rows the heatmap actually renders, and a note added for
+the optional SPY price-axis overlay).
+
+Version: 1.2 (F20-T1)
 =============================================================================
 """
 
@@ -139,6 +146,105 @@ _HEATMAP_COLORSCALE: List[list] = [
     for step, color in enumerate(RATING_COLORS)
     for edge in (0.0, 0.2)
 ]
+
+# ------------------------------------------------------------------
+# Interpretation guide — rendered in the tab's bottom-of-page
+# st.expander("Interpretation guide") via st.markdown (F20-T1), the
+# same idiom as the daily/weekly *_GUIDE constants in report_app.
+#
+# Adapted from docs/enhancements/20260920b.md — NOT verbatim:
+#   * every "the screenshot" reference and the embedded example
+#     readings were removed or genericized (the app shows live data);
+#   * the source says "seven underlying drivers/components" but its
+#     own table — and this heatmap — render NINE rows (the two MA
+#     companions included), so the count wording says nine;
+#   * a bullet was added under the line-chart section for the
+#     optional SPY close overlay (F19-T1).
+# ------------------------------------------------------------------
+
+FEAR_GREED_GUIDE = """\
+### Interpretation Guide: Fear & Greed Dashboard (Three Charts)
+
+This tab shows CNN's Fear & Greed Index and its nine underlying sub-indicators. The three charts work together: the gauge gives the current snapshot, the line chart shows how the overall index has evolved, and the colored strips reveal which components are driving the sentiment.
+
+#### 1. Gauge (Current Fear & Greed Index)
+**What it shows**
+A semi-circular dial of the latest `fg_score` (0–100).
+
+- **0–25** (dark red): Extreme Fear
+- **25–45** (orange): Fear
+- **45–55** (gray): Neutral
+- **55–75** (light green): Greed
+- **75–100** (dark green): Extreme Greed
+
+**Reading the number**
+- The score lands in one of the five zones above — e.g. a reading of 29.1 sits firmly in the **Fear** zone.
+- The small ▲/▼ delta marker next to the number is the point change versus the previous trading day.
+
+**How to use it**
+This is the single best "at-a-glance" number. Readings below ~25 historically coincide with high anxiety and often better medium-term buying opportunities; readings above ~75 signal complacency and elevated risk of pullbacks. The needle and color make the current regime unmistakable.
+
+#### 2. Line Chart (Fear & Greed Score History)
+**What it shows**
+Daily `fg_score` over the selected window.
+
+- Blue line = the index itself.
+- Background horizontal bands use the same five-zone colors as the gauge (green at the top for greed, gray for neutral, darker tones lower for fear).
+- The optional MA20/MA50 checkbox overlays moving averages of the index.
+- The optional "Overlay SPY price" checkbox adds the SPY close as a dark-orange line on a **separate right-side price axis** — do not compare its price scale against the 0–100 index axis; it is there for shape/timing comparison only.
+
+**How to read it**
+- Watch whether the line is rising or falling through the colored zones.
+- Prolonged stays in the lower (fear) bands often mark capitulation periods; prolonged stays in the upper (greed) bands mark euphoria.
+- Sharp drops usually correspond to market stress events.
+- The index line is the only series that legitimately lives on a 0–100 scale; do not compare its absolute level with the raw numbers of the sub-indicators — or with the SPY price on the secondary axis.
+
+**Practical tip**
+Use the window presets (1M / 3M / 6M / YTD / 1Y / 2Y / Max) to switch between short-term noise and multi-year context. The axis shows trading days only, so weekends and holidays do not create artificial gaps.
+
+#### 3. Colored Strips (Sub-Indicator Regime Heatmap)
+**What it shows**
+The nine sub-indicator rows that feed the overall index — the components CNN aggregates, plus the two moving-average companions — each shown as a horizontal color bar across the same time window:
+
+| Row                        | Meaning                                      |
+|----------------------------|----------------------------------------------|
+| Stock Price Strength       | % of stocks near 52-week highs vs lows      |
+| Stock Price Breadth        | Volume-based market breadth (McClellan-style)|
+| Momentum (SPX)             | S&P 500 vs its own recent trend             |
+| Momentum (125d MA)         | S&P 500 vs its 125-day moving average       |
+| Volatility (VIX)           | Current VIX level                           |
+| VIX 50d MA                 | VIX's own 50-day average                    |
+| Put/Call                   | Equity put/call ratio                       |
+| Junk Bond Demand           | High-yield vs investment-grade spread proxy |
+| Safe Haven Demand          | Stocks vs bonds relative performance        |
+
+**Color meaning (same palette everywhere)**
+- Red / dark red → Extreme Fear or Fear
+- Gray → Neutral
+- Light green / dark green → Greed or Extreme Greed
+
+**How to interpret**
+- When most strips are red/orange, fear is broad-based (classic risk-off).
+- When most strips are green, greed is broad-based.
+- Mixed colors show internal divergence (e.g., strong momentum but elevated volatility).
+- The strips use the CNN rating bands, **not** the raw numeric values — the raw metric value and its rating appear in each cell's hover. This avoids the dangerous mistake of plotting VIX, put/call ratios, and S&P levels on the same axis.
+
+**Key rule**
+Never treat the absolute height or shade intensity of these strips as comparable numeric magnitudes. They are categorical regime labels only.
+
+#### Putting the Three Charts Together
+1. Start with the **gauge** → "Where are we right now?"
+2. Look at the **line chart** → "How did we get here, and is the move accelerating or reversing?"
+3. Scan the **strips** → "Is this fear/greed concentrated in one or two drivers, or is it across the board?"
+
+#### Quick Caveats
+- The overall score is a composite; individual strips can disagree with it.
+- Raw underlying numbers (VIX level, put/call ratio, etc.) live on completely different scales and are intentionally **not** plotted on the line chart — they only appear in the heatmap hover.
+- Colors are discrete regime labels, not continuous intensities.
+- Data cover trading days only, from mid-2020 onward.
+
+Use the gauge for the headline, the line for context and timing, and the strips for diagnostic detail."""
+
 
 # ------------------------------------------------------------------
 # SQL builders — fetch the whole table once; window-slice in pandas.

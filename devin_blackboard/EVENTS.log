@@ -2392,3 +2392,34 @@ Evidence map:
 [2026-09-20T21:20:03.254411+00:00] [CHALLENGER] F19-T1 APPROVED — AC1-4 verified in code + plotly source trace (yaxis2 ordering real: update_yaxes selects only existing layout axes, so update_layout creating yaxis2 after update_yaxes avoids a [0,100] range clobber). 8 non-blocking notes (unconditional SPY fetch, caption-on-unchecked, NaT/garbage-dtype propagation unreachable on real data, yaxis2.range pin test suggested). Stray = absent; doc rename clean.
 [2026-09-20T21:32:34.534994+00:00] [CRITIC] F19-T1 PASS — 4/4 ACs independently verified (43-check own probe + 5-mutation harness all caught): SQL shape+bounds+injection-raises; y2 trace #FF8C00/1.5/right/no-range-pin + inner-align gaps; tab checkbox default-on, fetch bound=full-fg-min before slice, fetch-fail->caption+3 charts; pytest 991/991, check_loops clean, READMEs byte-identical. Housekeeping: stray = file committed in 6262cd6, deleted in worktree — commit deletion.
 [2026-09-20T21:35:49.470262+00:00] [executor] claimed F20-T1
+[2026-09-20T21:43:53.477076+00:00] [executor] completed F20-T1 -> FEAR_GREED_GUIDE added at scripts/fear_greed_dashboard.py (module-level markdown constant, adapted from docs/enhancements/20260920b.md: screenshot refs removed, nine-row wording fixed, SPY right-axis overlay bullet added; module docstring Version 1.2 F20-T1). report_app.py _render_fear_greed_tab ends with st.expander(Interpretation guide) + st.markdown(FEAR_GREED_GUIDE) after the heatmap plotly_chart; Guides docstring paragraph updated. Tests: +6 in tests/test_fear_greed_dashboard.py (TestFearGreedGuide — non-empty, band bounds 0-25..75-100, Extreme Fear/Extreme Greed, all 9 INDICATORS labels, nine-not-seven, SPY right-side, no 'screenshot', reading order + caveats) and +1 in tests/test_report_app.py (expander label last + st.markdown called once with the constant). pytest 998/998 pass (baseline 991 +7). check_loops --src-dir src clean (14 files). README.md + docs/README.md F&G bullet updated identically; filecmp byte-identical = True. --verify F20-T1 all PASS.
+Evidence map:
+[
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

@@ -1697,3 +1697,38 @@ class TestFearGreedTab:
 
         sentinel.clear.assert_called_once()
         assert st.plotly_chart.call_count == 3
+
+    def test_interpretation_guide_expander_renders_constant(
+        self, tmp_path, monkeypatch
+    ):
+        """F20-T1 — the tab ends with an
+        st.expander("Interpretation guide") rendering
+        ``fear_greed_dashboard.FEAR_GREED_GUIDE`` via st.markdown
+        (same convention as the daily tabs' *_GUIDE constants)."""
+        pytest.importorskip("plotly")
+        import fear_greed_dashboard as fgd
+
+        df = self._fg_df()
+        spy = self._spy_df(df["date"])
+
+        def fake_fetch(st, sql, config):
+            # F&G query -> fg frame; SPY query -> spy frame (F19-T1).
+            return df if "fear_greed_history" in sql else spy
+
+        monkeypatch.setattr(
+            report_app, "cached_fetch_dataframe", fake_fetch
+        )
+        st = MagicMock()
+        st.radio.return_value = "Max"
+        st.button.return_value = False
+        st.checkbox.return_value = True
+
+        report_app._render_fear_greed_tab(st, _config(tmp_path))
+
+        # Params expander first, "Interpretation guide" expander last.
+        expander_labels = [c.args[0] for c in st.expander.call_args_list]
+        assert expander_labels[0] == "Parameters"
+        assert expander_labels[-1] == "Interpretation guide"
+        # st.markdown receives the guide constant (the tab's only
+        # markdown call).
+        st.markdown.assert_called_once_with(fgd.FEAR_GREED_GUIDE)

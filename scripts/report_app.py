@@ -81,7 +81,9 @@ approval in F7-T27; the session-specific data tables / named
 candidates / "Key Insights" are excluded), and every tab renders its
 source md's interpretation guide verbatim in an "Interpretation
 guide" expander (``WEEKLY_*_GUIDE`` for the weekly tabs,
-``DAILY_*_GUIDE`` for the daily ones).
+``DAILY_*_GUIDE`` for the daily ones, and
+``fear_greed_dashboard.FEAR_GREED_GUIDE`` — adapted from
+``docs/enhancements/20260920b.md`` — for the Fear & Greed tab).
 
 Every tab's bar chart is drawn through
 :func:`_render_ordered_bar_chart` — an Altair bar chart with
@@ -2253,6 +2255,8 @@ def _render_fear_greed_tab(st, config: PipelineConfig) -> None:
     st.plotly_chart(
         fear_greed_dashboard.build_heatmap_figure(df), width="stretch"
     )
+    with st.expander("Interpretation guide"):
+        st.markdown(fear_greed_dashboard.FEAR_GREED_GUIDE)
 
 
 def main() -> None:

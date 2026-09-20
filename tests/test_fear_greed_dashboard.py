@@ -602,3 +602,61 @@ class TestBuildHeatmapFigure:
         hm = fig.data[0]
         assert len(hm.z) == 9
         assert all(pd.isna(v) for row in hm.z for v in row)
+
+
+class TestFearGreedGuide:
+    """F20-T1 — the ``FEAR_GREED_GUIDE`` markdown rendered in the
+    tab's bottom-of-page "Interpretation guide" expander (adapted
+    from ``docs/enhancements/20260920b.md``)."""
+
+    def test_constant_exists_and_non_empty(self):
+        assert isinstance(fgd.FEAR_GREED_GUIDE, str)
+        assert fgd.FEAR_GREED_GUIDE.strip()
+
+    def test_band_definitions_and_palette(self):
+        guide = fgd.FEAR_GREED_GUIDE
+        for phrase in (
+            "0–25",
+            "25–45",
+            "45–55",
+            "55–75",
+            "75–100",
+            "Extreme Fear",
+            "Neutral",
+            "Extreme Greed",
+            "dark red",
+            "orange",
+            "gray",
+            "green",
+        ):
+            assert phrase in guide
+
+    def test_all_nine_indicator_rows_named(self):
+        """The source doc says "seven" but its own table — and the
+        rendered heatmap — list nine rows; the guide must say nine
+        and name every rendered row."""
+        guide = fgd.FEAR_GREED_GUIDE
+        assert "seven" not in guide.lower()
+        assert "nine" in guide.lower()
+        for _key, label in fgd.INDICATORS:
+            assert label in guide
+
+    def test_spy_overlay_documented(self):
+        """The optional SPY overlay bullet warns against comparing
+        the right-side price axis to the 0–100 index axis."""
+        guide = fgd.FEAR_GREED_GUIDE
+        assert "SPY" in guide
+        assert "right-side" in guide.lower()
+        assert "0–100" in guide
+
+    def test_no_screenshot_references(self):
+        """The app shows live data — every "the screenshot" / example
+        screenshot reading from the source doc was removed."""
+        assert "screenshot" not in fgd.FEAR_GREED_GUIDE.lower()
+
+    def test_reading_order_and_caveats_kept(self):
+        guide = fgd.FEAR_GREED_GUIDE
+        assert "Putting the Three Charts Together" in guide
+        assert "Quick Caveats" in guide
+        assert "discrete regime labels" in guide
+        assert "mid-2020" in guide
