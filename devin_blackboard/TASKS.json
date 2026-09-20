@@ -2909,7 +2909,7 @@
     "title": "CNN Fear & Greed index ingestion into fear_greed_history table",
     "role": "executor",
     "model": "swe",
-    "status": "todo",
+    "status": "in_progress",
     "depends_on": [
       "F15-T1"
     ],

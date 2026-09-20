@@ -2315,3 +2315,5 @@ No src/, tests/, scripts/, or docs files modified by Critic D — blackboard onl
 [2026-09-16T21:25:47.789209+00:00] [ORCHESTRATOR] F15-T1 cycle closed — UI-only change, no live deploy needed (SQL/fetch path proven live by F13/F14). Custom RRG available in the tab selectbox.
 
 [2026-09-20T09:25:03.150907+00:00] [ORCHESTRATOR] Registered F16-T1 (CNN Fear and Greed ingestion into fear_greed_history; adapted docs/enhancements/2260920.md to single-writer Flight architecture + live payload shape). Plan: plan-fb943476f18f611c.md.
+
+[2026-09-20T09:26:04.462647+00:00] [EXECUTOR] claimed F16-T1
