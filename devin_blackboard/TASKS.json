@@ -2991,7 +2991,7 @@
     "title": "Fear & Greed tab in report_app.py (gauge + band-shaded history + rating heatmap)",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F17-T1"
     ],

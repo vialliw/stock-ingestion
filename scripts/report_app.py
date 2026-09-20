@@ -1,6 +1,6 @@
-"""Interactive Streamlit report app with seven tabs — the three weekly
+"""Interactive Streamlit report app with eight tabs — the three weekly
 reports first, then the two daily ones, then Market Breadth, then
-Relative Rotation (RRG):
+Relative Rotation (RRG), then Fear & Greed:
 
 * **"Weekly — Combined Regimes"**: the combined weekly report from
   ``docs/report_idea/report_weekly_trends.md`` — all four non-Normal
@@ -50,6 +50,18 @@ Relative Rotation (RRG):
   symbols, regex-validated before they reach the query); period /
   trail / lookback-years / benchmark widgets default to the preset's
   values (period=14 / trail=3 / 3 years / SPY for Custom).
+* **"Fear & Greed"**: the CNN Fear & Greed dashboard over the
+  ``fear_greed_history`` table (F18-T1 — strict MVP of the user's
+  dashboard proposal).  All SQL / window slicing / figure construction
+  lives in ``scripts/fear_greed_dashboard.py`` (lazily imported — it in
+  turn lazy-imports ``plotly``): a headline 0-100 gauge with the five
+  rating bands and a delta vs the previous trading day, an
+  ``fg_score`` history line over five semi-transparent rating-band
+  zones (optional MA20/MA50 overlay), and a rating heatmap covering
+  the nine ``*_rating`` sub-indicator columns (ordinal-mapped cells,
+  raw value + rating in the hover).  A window radio slices the frame
+  post-query in pandas — ``1M/3M/6M/YTD/1Y/2Y/Max``, default ``1Y``;
+  ``YTD`` anchors to Jan 1 of the latest year present *in the data*.
 
 The weekly tabs aggregate ``daily_close`` into weekly bars
 (``DATE_TRUNC('week', Date)``, first-Open/last-Close via
@@ -2107,6 +2119,102 @@ def _render_rrg_tab(st, config: PipelineConfig) -> None:
     )
 
 
+def _render_fear_greed_tab(st, config: PipelineConfig) -> None:
+    """Fear & Greed — headline gauge, band-shaded ``fg_score`` history
+    and a sub-indicator rating heatmap over ``fear_greed_history``
+    (F18-T1 — strict MVP of the user's dashboard proposal).
+
+    All SQL / window slicing / figure construction lives in
+    ``scripts/fear_greed_dashboard.py`` (imported lazily — it in turn
+    lazy-imports ``plotly`` inside the figure builders, so this module
+    stays importable without plotly).  The single query goes through
+    :func:`cached_fetch_dataframe` like every other tab; the window
+    preset slices the fetched frame post-query in pandas via
+    ``filter_window``.
+    """
+    import fear_greed_dashboard
+
+    with st.expander("Parameters", expanded=True):
+        presets = list(fear_greed_dashboard.WINDOW_PRESETS)
+        window = st.radio(
+            "Window",
+            options=presets,
+            index=presets.index(fear_greed_dashboard.DEFAULT_WINDOW),
+            horizontal=True,
+            key="fg_window",
+        )
+        if st.button("Refresh data", key="fg_refresh"):
+            _get_cached_fetch(st).clear()
+
+    df = cached_fetch_dataframe(
+        st, fear_greed_dashboard.build_fear_greed_sql(), config
+    )
+    if df is None:
+        st.error(
+            "Could not fetch report data — the Flight server is "
+            "unreachable and the direct read-only DuckDB fallback "
+            "failed (the database write lock is probably held by "
+            "another process, or the database file is unavailable)."
+        )
+        return
+    if df.empty:
+        st.error(
+            "No fear_greed_history data returned — the table is empty "
+            "or has not been loaded yet (run the fear_greed_refresh "
+            "Flight action or scripts/refresh_fear_greed.py)."
+        )
+        return
+
+    df = fear_greed_dashboard.normalize_dates(df)
+    df = fear_greed_dashboard.filter_window(df, window)
+    if df.empty:
+        st.error(
+            f"No fear_greed_history rows inside the {window} window — "
+            "pick a wider preset."
+        )
+        return
+
+    st.caption(f"{len(df)} row(s)")
+
+    # Headline gauge — delta vs the previous trading day (the same row
+    # when the window holds a single bar, i.e. delta 0).
+    latest = df.iloc[-1]
+    latest_score = float(latest["fg_score"])
+    prev_score = (
+        float(df.iloc[-2]["fg_score"]) if len(df) >= 2 else latest_score
+    )
+    st.plotly_chart(
+        fear_greed_dashboard.build_gauge_figure(
+            latest_score, prev_score, latest["fg_rating"]
+        ),
+        width="stretch",
+    )
+
+    # Change caption — 1d/5d/21d deltas, each only shown when the
+    # windowed history is long enough to contain that lookback.
+    parts = [f"As of {latest['date'].date()}"]
+    if len(df) >= 2:
+        parts.append(f"1d {latest_score - prev_score:+.1f}")
+    if len(df) >= 6:
+        parts.append(
+            f"5d {latest_score - float(df.iloc[-6]['fg_score']):+.1f}"
+        )
+    if len(df) >= 22:
+        parts.append(
+            f"21d {latest_score - float(df.iloc[-22]['fg_score']):+.1f}"
+        )
+    st.caption(" · ".join(parts))
+
+    show_ma = st.checkbox("Show MA20/MA50", value=False, key="fg_ma")
+    st.plotly_chart(
+        fear_greed_dashboard.build_history_figure(df, show_ma),
+        width="stretch",
+    )
+    st.plotly_chart(
+        fear_greed_dashboard.build_heatmap_figure(df), width="stretch"
+    )
+
+
 def main() -> None:
     """Streamlit entrypoint — run via ``streamlit run scripts/report_app.py``."""
     import streamlit as st
@@ -2130,6 +2238,7 @@ def main() -> None:
         tab_accel,
         tab_breadth,
         tab_rrg,
+        tab_fear_greed,
     ) = st.tabs(
         [
             "Weekly — Combined Regimes",
@@ -2139,6 +2248,7 @@ def main() -> None:
             "Daily — Acceleration Candidates",
             "Market Breadth",
             "Relative Rotation (RRG)",
+            "Fear & Greed",
         ]
     )
     with tab_weekly_combined:
@@ -2155,6 +2265,8 @@ def main() -> None:
         _render_market_breadth_tab(st, config)
     with tab_rrg:
         _render_rrg_tab(st, config)
+    with tab_fear_greed:
+        _render_fear_greed_tab(st, config)
 
 
 # ``streamlit run`` executes this file as __main__, while unit tests

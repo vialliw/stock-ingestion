@@ -1412,3 +1412,143 @@ class TestRrgTab:
         st.warning.assert_called_once()
         assert "XLF" in str(st.warning.call_args)
         st.plotly_chart.assert_called_once()
+
+
+class TestFearGreedTab:
+    """The "Fear & Greed" tab — 8th tab, after RRG (F18-T1).  The
+    heavy lifting lives in ``scripts/fear_greed_dashboard.py``; here
+    we only check the tab is wired into ``main()`` and that the
+    render path drives the shared cached fetch + three
+    ``st.plotly_chart`` calls (gauge + history + heatmap)."""
+
+    def test_tab_label_in_main_tab_list(self):
+        import inspect
+
+        src = inspect.getsource(report_app.main)
+        assert '"Fear & Greed"' in src
+        # Eighth and last tab — after Relative Rotation.
+        assert src.index('"Relative Rotation (RRG)"') < src.index(
+            '"Fear & Greed"'
+        )
+        assert src.index("_render_fear_greed_tab") > src.index(
+            '"Fear & Greed"'
+        )
+
+    @staticmethod
+    def _fg_df(n: int = 60) -> pd.DataFrame:
+        """Synthetic ``fear_greed_history`` frame — all 21 display
+        columns, business-day dates."""
+        import fear_greed_dashboard as fgd
+
+        dates = pd.date_range(end="2026-09-18", periods=n, freq="B")
+        data = {
+            "date": dates,
+            "fg_score": [30.0 + i * 0.25 for i in range(n)],
+            "fg_rating": ["fear"] * n,
+        }
+        for key, _label in fgd.INDICATORS:
+            data[key] = [float(i % 10) for i in range(n)]
+            data[f"{key}_rating"] = ["neutral"] * n
+        return pd.DataFrame(data)
+
+    def test_render_drives_fetch_and_three_charts(
+        self, tmp_path, monkeypatch
+    ):
+        pytest.importorskip("plotly")
+        df = self._fg_df()
+        seen_sql = []
+
+        def fake_fetch(st, sql, config):
+            seen_sql.append(sql)
+            return df
+
+        monkeypatch.setattr(
+            report_app, "cached_fetch_dataframe", fake_fetch
+        )
+        st = MagicMock()
+        st.radio.return_value = "1Y"
+        st.button.return_value = False
+        st.checkbox.return_value = True
+
+        report_app._render_fear_greed_tab(st, _config(tmp_path))
+
+        # Exactly one fetch through the shared cached path.
+        assert len(seen_sql) == 1
+        assert "FROM fear_greed_history" in seen_sql[0]
+        # Gauge + history + heatmap.
+        assert st.plotly_chart.call_count == 3
+        st.error.assert_not_called()
+        # Window radio defaults to 1Y among the seven presets.
+        radio_kwargs = st.radio.call_args.kwargs
+        assert (
+            radio_kwargs["options"][radio_kwargs["index"]] == "1Y"
+        )
+        # MA checkbox on -> the history figure carries 3 traces
+        # (score + MA20 + MA50).
+        history_fig = st.plotly_chart.call_args_list[1].args[0]
+        assert len(history_fig.data) == 3
+        # The heatmap figure is the third chart, 9 rows.
+        heatmap_fig = st.plotly_chart.call_args_list[2].args[0]
+        assert len(heatmap_fig.data[0].z) == 9
+
+    def test_render_errors_when_fetch_returns_none(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: None,
+        )
+        st = MagicMock()
+        st.radio.return_value = "1Y"
+        st.button.return_value = False
+
+        report_app._render_fear_greed_tab(st, _config(tmp_path))
+
+        st.error.assert_called_once()
+        assert "Flight server" in str(st.error.call_args)
+        st.plotly_chart.assert_not_called()
+
+    def test_render_errors_when_frame_empty(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: pd.DataFrame(),
+        )
+        st = MagicMock()
+        st.radio.return_value = "1Y"
+        st.button.return_value = False
+
+        report_app._render_fear_greed_tab(st, _config(tmp_path))
+
+        st.error.assert_called_once()
+        assert "fear_greed_history" in str(st.error.call_args)
+        st.plotly_chart.assert_not_called()
+
+    def test_refresh_button_clears_cached_fetch(
+        self, tmp_path, monkeypatch
+    ):
+        """The "Refresh data" button calls
+        ``_get_cached_fetch(st).clear()``."""
+        pytest.importorskip("plotly")
+        df = self._fg_df(5)
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: df,
+        )
+        sentinel = MagicMock()
+        monkeypatch.setattr(
+            report_app, "_get_cached_fetch", lambda st: sentinel
+        )
+        st = MagicMock()
+        st.radio.return_value = "Max"
+        st.button.return_value = True
+        st.checkbox.return_value = False
+
+        report_app._render_fear_greed_tab(st, _config(tmp_path))
+
+        sentinel.clear.assert_called_once()
+        assert st.plotly_chart.call_count == 3
