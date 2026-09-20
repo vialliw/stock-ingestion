@@ -1254,6 +1254,6 @@ scheduler:
   timezone: America/New_York
 fear_greed:
   enabled: true
-  start_date: '2014-01-01'
+  start_date: '2020-08-01'
   timeout_seconds: 15
   alert_threshold: 25.0

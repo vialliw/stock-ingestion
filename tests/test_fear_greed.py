@@ -26,6 +26,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pyarrow.flight as flight
 import pytest
+import requests
 
 from src.config import PipelineConfig
 from src.db import (
@@ -228,6 +229,10 @@ def test_happy_path_parse_and_upsert(engine, db, cfg, monkeypatch):
     assert result["fg_score"] == 55.0
     assert result["fg_rating"] == "neutral"
     assert result["missing_series"] == []
+    assert result["start_date_fallback"] is False
+    assert result["fetched_url"].endswith(
+        f"/graphdata/{cfg.fear_greed.start_date}"
+    )
     assert isinstance(result["duration_ms"], int)
 
     rows = _rows(db)
@@ -276,6 +281,94 @@ def test_explicit_start_date_used_in_url(engine, db, cfg, monkeypatch):
 def test_bad_start_date_rejected(engine, bad):
     with pytest.raises(ValueError):
         engine.run_fear_greed_load(start_date=bad)
+
+
+# ---------------------------------------------------------------------------
+# start_date fallback (CNN retains only ~6 years of history)
+# ---------------------------------------------------------------------------
+
+
+def _http_error_response(message: str) -> MagicMock:
+    """A response whose raise_for_status() raises requests.HTTPError."""
+    resp = MagicMock()
+    resp.raise_for_status.side_effect = requests.HTTPError(message)
+    return resp
+
+
+@pytest.mark.parametrize("impl", IMPLEMENTATIONS)
+def test_http_error_falls_back_to_undated_url(
+    engine, db, cfg, monkeypatch
+):
+    """HTTPError on the dated URL -> ONE retry on the undated base URL;
+    start_date_fallback=True and fetched_url is the undated URL."""
+    cfg.fear_greed.start_date = "2014-01-01"
+    mock_get = MagicMock(
+        side_effect=[
+            _http_error_response("500 Server Error"),
+            fake_response(make_payload()),
+        ]
+    )
+    monkeypatch.setattr("requests.get", mock_get)
+    result = engine.run_fear_greed_load()
+
+    assert mock_get.call_count == 2
+    dated_call, fallback_call = mock_get.call_args_list
+    assert dated_call.args[0].endswith("/graphdata/2014-01-01")
+    # The undated base URL — no trailing date segment.
+    assert fallback_call.args[0].endswith("/graphdata")
+    assert fallback_call.kwargs["timeout"] == cfg.fear_greed.timeout_seconds
+    assert result["status"] == "SUCCESS"
+    assert result["start_date_fallback"] is True
+    assert result["fetched_url"] == fallback_call.args[0]
+    assert result["fetched_url"].endswith("/graphdata")
+    assert result["rows_upserted"] == 2
+
+
+@pytest.mark.parametrize("impl", IMPLEMENTATIONS)
+def test_fallback_request_failure_propagates(
+    engine, db, cfg, monkeypatch
+):
+    """If the undated retry ALSO raises HTTPError, it propagates (the
+    bridge converts it to FAILED)."""
+    mock_get = MagicMock(
+        side_effect=[
+            _http_error_response("500 dated"),
+            _http_error_response("500 undated"),
+        ]
+    )
+    monkeypatch.setattr("requests.get", mock_get)
+    with pytest.raises(requests.HTTPError, match="500 undated"):
+        engine.run_fear_greed_load()
+    assert mock_get.call_count == 2
+
+
+@pytest.mark.parametrize("impl", IMPLEMENTATIONS)
+@pytest.mark.parametrize(
+    "exc",
+    [requests.Timeout("cnn slow"), ConnectionError("cnn down")],
+    ids=["timeout", "connection_error"],
+)
+def test_non_http_error_does_not_fall_back(engine, db, monkeypatch, exc):
+    """Timeout/ConnectionError on the dated URL -> NO retry: the error
+    propagates and requests.get is called exactly once."""
+    mock_get = MagicMock(side_effect=exc)
+    monkeypatch.setattr("requests.get", mock_get)
+    with pytest.raises(type(exc)):
+        engine.run_fear_greed_load()
+    assert mock_get.call_count == 1
+
+
+@pytest.mark.parametrize("impl", IMPLEMENTATIONS)
+def test_normal_response_reports_no_fallback(engine, db, cfg, monkeypatch):
+    """A normal 200 on the dated URL -> start_date_fallback=False and
+    fetched_url is the dated URL (single GET)."""
+    cfg.fear_greed.start_date = "2020-08-01"
+    mock_get = MagicMock(return_value=fake_response(make_payload()))
+    monkeypatch.setattr("requests.get", mock_get)
+    result = engine.run_fear_greed_load()
+    assert mock_get.call_count == 1
+    assert result["start_date_fallback"] is False
+    assert result["fetched_url"].endswith("/graphdata/2020-08-01")
 
 
 # ---------------------------------------------------------------------------
@@ -754,7 +847,7 @@ def test_both_configs_read_fear_greed_from_yaml(tmp_path):
     cfg = PipelineConfig.from_yaml("src/config.yaml")
     cfgc = ChallengerCfg.from_yaml("src/config.yaml")
     assert cfg.fear_greed.enabled is True
-    assert cfg.fear_greed.start_date == "2014-01-01"
+    assert cfg.fear_greed.start_date == "2020-08-01"
     assert cfgc.fear_greed.enabled is True
-    assert cfgc.fear_greed.start_date == "2014-01-01"
+    assert cfgc.fear_greed.start_date == "2020-08-01"
     assert cfgc.fear_greed.alert_threshold == 25.0

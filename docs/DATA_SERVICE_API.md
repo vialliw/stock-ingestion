@@ -152,10 +152,17 @@ textual rating; `ingested_at` (TIMESTAMPTZ) is stamped on every write.
 | `stock_price_strength` `stock_price_breadth` `market_momentum_sp500` `market_momentum_sp125` `market_volatility_vix` `market_volatility_vix_50` `put_call_options` `junk_bond_demand` `safe_haven_demand` | DOUBLE | the **raw** metric (VIX level, put/call ratio, SPX price, breadth oscillator…) — **not** a 0–100 score |
 | `<key>_rating` (one per key above) | VARCHAR | per-series rating label |
 
-Backfills from `fear_greed.start_date` (default `2014-01-01`) via the
+Backfills from `fear_greed.start_date` (default `2020-08-01`) via the
 `fear_greed_refresh` action; every completed OHLCV load also refreshes
 it best-effort (the `fear_greed` sub-block on the load result).
 Absent sub-indicator series land as NULL columns — never an error.
+CNN retains only ~6 years of history: a `start_date` behind the
+advancing retention floor makes the dated `graphdata/{start_date}`
+endpoint return HTTP 500, so on `requests.HTTPError` the load retries
+once against the undated `graphdata` URL (rolling ~1 year) and reports
+`start_date_fallback: true` + the actual URL in `fetched_url`.
+Timeouts/connection errors do not fall back (same host), and a failing
+retry surfaces as `FAILED`.
 
 ### 3.6 Audit/internal tables (available but not a stable contract)
 
@@ -178,7 +185,7 @@ result rows. Payloads are optional JSON objects unless noted.
 | `on_request_load` | `{tickers: [str], start_date, end_date}` — **required** | like `daily_load` | Custom-range backfill (write) |
 | `metadata_load` | `{tickers?: [str], refresh?: bool, delay_s?: num≥0, max_tickers?: int≥1}` | `{status: SUCCESS\|PARTIAL\|ABORTED, ...}` | `company_metadata` backfill (write, yfinance-paced) |
 | `weekly_refresh` | — (empty) | `{status: SUCCESS\|FAILED, weekly_close_rows, weekly_indicators_rows, duration_ms}` | Rebuild both weekly tables (write, pure SQL ~17 s) |
-| `fear_greed_refresh` | `{start_date?: "YYYY-MM-DD"}` | `{status: SUCCESS\|FAILED, rows_upserted, latest_date, fg_score, fg_rating, alert_triggered, alert_detail, missing_series, duration_ms}` | CNN Fear & Greed fetch + `fear_greed_history` upsert (write) |
+| `fear_greed_refresh` | `{start_date?: "YYYY-MM-DD"}` | `{status: SUCCESS\|FAILED, rows_upserted, latest_date, fg_score, fg_rating, alert_triggered, alert_detail, missing_series, fetched_url, start_date_fallback, duration_ms}` | CNN Fear & Greed fetch + `fear_greed_history` upsert (write); HTTPError on the dated URL retries once on the undated URL (~6y retention floor — see §3.5) |
 | `daily_report` | `{date?: "YYYY-MM-DD"}` | `{status, report}` | Top-20 dollar-volume report (also writes a file server-side) |
 | `get_run_history` | — | `{status, run_history: [...]}` | `ingestion_runs` audit log |
 | `sync_to_r2` | — | R2 sync result | Push DB artifact to Cloudflare R2 |

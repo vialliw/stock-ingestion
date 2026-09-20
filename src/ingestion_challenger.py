@@ -53,11 +53,15 @@ logger = logging.getLogger(__name__)
 # endpoint returns HTTP 418 without browser headers, and each
 # sub-indicator block's ``data`` array carries the RAW metric in ``y``
 # (VIX level, put/call ratio, SPX price, breadth oscillator) — not a
-# 0-100 score.
+# 0-100 score.  Retention (verified 2026-09-20): CNN keeps only ~6
+# years — dated requests behind the retention floor return HTTP 500,
+# so run_fear_greed_load falls back to the undated ``graphdata``
+# endpoint (rolling ~1 year) on HTTPError only.
 
-FEAR_GREED_URL_TEMPLATE = (
-    "https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{}"
+FEAR_GREED_BASE_URL = (
+    "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
 )
+FEAR_GREED_URL_TEMPLATE = FEAR_GREED_BASE_URL + "/{}"
 
 FEAR_GREED_HEADERS = {
     "User-Agent": (
@@ -839,6 +843,14 @@ class _FearGreedMixin:
         """Fetch the CNN Fear & Greed payload and upsert it into
         ``fear_greed_history``.
 
+        Retention/fallback: CNN retains only ~6 years of history, so a
+        ``start_date`` behind the advancing retention floor makes the
+        dated endpoint return HTTP 500.  On ``requests.HTTPError`` ONLY
+        the request is retried once against the undated
+        ``FEAR_GREED_BASE_URL`` (rolling ~1 year of data); timeouts and
+        connection errors do NOT fall back (same host — pointless), and
+        a failing retry propagates (the bridge converts it to FAILED).
+
         Resilience contract: a missing/empty ``fear_and_greed_historical``
         raises ``ValueError`` naming the key; a missing/empty
         sub-indicator block contributes NULL columns, a
@@ -847,10 +859,13 @@ class _FearGreedMixin:
 
         Returns ``{status: 'SUCCESS', rows_upserted, latest_date,
         fg_score, fg_rating, alert_triggered, alert_detail,
-        missing_series, duration_ms}`` — ``alert_triggered`` when the
+        missing_series, fetched_url, start_date_fallback,
+        duration_ms}`` — ``alert_triggered`` when the
         latest ``fg_score`` <= ``fear_greed.alert_threshold``;
         ``alert_detail`` lists sub-indicators whose current rating is
-        ``'extreme fear'``.
+        ``'extreme fear'``.  ``fetched_url`` is the URL that actually
+        returned data and ``start_date_fallback`` is True when the
+        undated-URL fallback was used.
         """
         if start_date is None:
             start_date = self.cfg.fear_greed.start_date
@@ -870,12 +885,36 @@ class _FearGreedMixin:
         start_time = datetime.now()
         url = FEAR_GREED_URL_TEMPLATE.format(start_date)
         logger.info(f"Fetching CNN Fear & Greed data from {url} ...")
-        resp = requests.get(
-            url,
-            headers=FEAR_GREED_HEADERS,
-            timeout=self.cfg.fear_greed.timeout_seconds,
-        )
-        resp.raise_for_status()
+        try:
+            resp = requests.get(
+                url,
+                headers=FEAR_GREED_HEADERS,
+                timeout=self.cfg.fear_greed.timeout_seconds,
+            )
+            resp.raise_for_status()
+            start_date_fallback = False
+        except requests.HTTPError:
+            # CNN only retains ~6 years of history — a start_date behind
+            # the advancing retention floor makes the dated endpoint
+            # return HTTP 500.  Retry ONCE with the undated base URL
+            # (rolling ~1 year).  Only HTTPError falls back: timeouts
+            # and connection errors would hit the same host again
+            # pointlessly.  A failing retry propagates (the bridge
+            # converts it to FAILED).
+            logger.warning(
+                f"CNN Fear & Greed request to {url} returned an HTTP "
+                f"error (start_date {start_date} is likely beyond "
+                f"CNN's ~6-year retention floor) — retrying with the "
+                f"undated URL {FEAR_GREED_BASE_URL} ..."
+            )
+            url = FEAR_GREED_BASE_URL
+            resp = requests.get(
+                url,
+                headers=FEAR_GREED_HEADERS,
+                timeout=self.cfg.fear_greed.timeout_seconds,
+            )
+            resp.raise_for_status()
+            start_date_fallback = True
         payload = resp.json()
 
         # Required core series — missing/empty is a hard error naming
@@ -958,6 +997,8 @@ class _FearGreedMixin:
             "alert_triggered": bool(alert_triggered),
             "alert_detail": alert_detail,
             "missing_series": missing_series,
+            "fetched_url": url,
+            "start_date_fallback": start_date_fallback,
             "duration_ms": duration_ms,
         }
         if alert_triggered:

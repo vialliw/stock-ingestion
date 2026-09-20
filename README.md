@@ -104,7 +104,7 @@ The project was built using a coordinated multi-agent workflow (executor → cha
   - `on_request_load` — load a custom date range for specified tickers.
   - `metadata_load` — backfill `company_metadata` from `yf.Ticker(t).info` (see [Company Metadata](#company-metadata)). Payload: `tickers` (list of strings, optional — defaults to all configured tickers), `refresh` (bool, default `false` — `true` re-fetches even present tickers), `delay_s` (number ≥ 0, default 0.5 — pacing between `.info` calls), `max_tickers` (integer ≥ 1, optional cap). Returns `SUCCESS` (no failures), `PARTIAL` (some `tickers_failed`), or `ABORTED` (circuit breaker tripped).
   - `weekly_refresh` — rebuild `weekly_close` and `weekly_indicators` from `daily_close` (see [Weekly Layer](#weekly-layer)). No payload required. Returns `SUCCESS` with row counts, or `FAILED` with an `error` field — the daily tables are unaffected.
-  - `fear_greed_refresh` — fetch CNN's Fear & Greed payload and upsert `fear_greed_history` (see [CNN Fear & Greed Index](#cnn-fear--greed-index)). Payload is optional; `start_date` (`YYYY-MM-DD`) overrides the configured backfill horizon — a malformed value raises `FlightServerError`. Returns `SUCCESS` with `rows_upserted`/`latest_date`/`fg_score`/`fg_rating`/`alert_triggered`/`missing_series`, or `FAILED` with an `error` field.
+  - `fear_greed_refresh` — fetch CNN's Fear & Greed payload and upsert `fear_greed_history` (see [CNN Fear & Greed Index](#cnn-fear--greed-index)). Payload is optional; `start_date` (`YYYY-MM-DD`) overrides the configured backfill horizon — a malformed value raises `FlightServerError`. Returns `SUCCESS` with `rows_upserted`/`latest_date`/`fg_score`/`fg_rating`/`alert_triggered`/`missing_series`/`fetched_url`/`start_date_fallback`, or `FAILED` with an `error` field.
   - `daily_report` — generate a top-20 dollar-volume report as JSON.
   - `health_check` — return server uptime, DB status, ticker count, row count, schema version.
   - `data_health` — run the full `daily_close` data-health report (see [Data Health Checks](#data-health-checks)).
@@ -213,7 +213,7 @@ python scripts/refresh_weekly.py
 
 `fear_greed_history` stores CNN's Fear & Greed index — the composite 0-100 score (`fg_score`/`fg_rating`) plus each of the 9 sub-indicators' **raw** metric value and per-series rating per date: `stock_price_strength`, `stock_price_breadth`, `market_momentum_sp500`, `market_momentum_sp125`, `market_volatility_vix`, `market_volatility_vix_50`, `put_call_options`, `junk_bond_demand`, `safe_haven_demand` (each with a `<key>_rating` column). It is populated by `IngestionEngine.run_fear_greed_load`, reachable through the `fear_greed_refresh` Flight action so the server stays the single DuckDB writer.
 
-- **Source** — CNN's frontend API `https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{start_date}`. The endpoint returns HTTP 418 without browser headers (User-Agent/Referer/Origin/Accept are sent). One GET covers the full history from `fear_greed.start_date` (default `2014-01-01`). Note: the sub-indicator `data` points carry the *raw* metric in `y` (VIX level, put/call ratio, SPX price, breadth oscillator) — not a 0-100 score — and the live payload key names differ from the reference doc (`docs/enhancements/2260920.md` predates them).
+- **Source** — CNN's frontend API `https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{start_date}`. The endpoint returns HTTP 418 without browser headers (User-Agent/Referer/Origin/Accept are sent). One GET covers the full history from `fear_greed.start_date` (default `2020-08-01`). **Retention limit:** CNN only retains ~6 years of history — a `start_date` behind the advancing retention floor makes the dated endpoint return HTTP 500, so on `requests.HTTPError` the load retries once against the undated `graphdata` URL (rolling ~1 year) and reports `start_date_fallback: true` + the actual URL in `fetched_url`. Timeouts/connection errors do not fall back (same host), and a failing retry surfaces as `FAILED`. Note: the sub-indicator `data` points carry the *raw* metric in `y` (VIX level, put/call ratio, SPX price, breadth oscillator) — not a 0-100 score — and the live payload key names differ from the reference doc (`docs/enhancements/2260920.md` predates them).
 - **Resilience** — a missing/empty `fear_and_greed_historical` block is a hard error naming the key; a missing/empty sub-indicator block contributes NULL columns and a `missing_series` entry plus a warning log (never a `KeyError`); malformed points (missing `x`/`y`/`rating`) become NULL; duplicate dates keep the last point; unknown payload keys are ignored.
 - **Alert** — when the latest `fg_score` is <= `fear_greed.alert_threshold` (default `25.0`) the result carries `alert_triggered: true` and `alert_detail` lists the sub-indicators currently rated `extreme fear`.
 - **Bridging** — completed `initial_load`, `daily_load` (SUCCESS/PARTIAL only — never `SKIPPED`), and `on_request_load` runs end with a best-effort refresh merged under a `fear_greed` key on the load result, exactly like the `weekly` bridge; `fear_greed.enabled: false` returns `{"status": "DISABLED"}`. Any failure is reported as `{"status": "FAILED", ...}` — it can never fail a completed load.
@@ -221,7 +221,7 @@ python scripts/refresh_weekly.py
 
 ```bash
 python scripts/refresh_fear_greed.py              # uses fear_greed.start_date
-python scripts/refresh_fear_greed.py 2014-01-01   # explicit backfill horizon
+python scripts/refresh_fear_greed.py 2020-08-01   # explicit backfill horizon
 ```
 
 `scripts/refresh_fear_greed.bat` is the double-clickable Windows wrapper.
@@ -400,7 +400,7 @@ scheduler:
 
 fear_greed:
   enabled: true               # set false to skip the post-load Fear & Greed bridge
-  start_date: "2014-01-01"    # backfill horizon for the CNN graphdata endpoint
+  start_date: "2020-08-01"    # backfill horizon — CNN retains only ~6y; older dates fall back to the undated URL
   timeout_seconds: 15         # HTTP GET timeout (must be > 0)
   alert_threshold: 25.0       # alert_triggered when latest fg_score <= this (0-100)
 ```
@@ -561,7 +561,7 @@ results = list(client.do_action(action))
 
 # CNN Fear & Greed refresh (fear_greed_history); empty payload uses the
 # configured fear_greed.start_date — or pass an explicit backfill horizon
-action = flight.Action("fear_greed_refresh", b'{"start_date": "2014-01-01"}')
+action = flight.Action("fear_greed_refresh", b'{"start_date": "2020-08-01"}')
 results = list(client.do_action(action))
 
 # Get ingestion run history

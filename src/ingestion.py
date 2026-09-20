@@ -38,6 +38,12 @@ logger = logging.getLogger(__name__)
 #
 # URL: https://production.dataviz.cnn.io/index/fearandgreed/graphdata/
 #      {start_date} — returns HTTP 418 without browser headers.
+# Retention (verified 2026-09-20): CNN keeps only ~6 years of history —
+# the dated endpoint returns HTTP 500 for start_dates behind the
+# retention floor (e.g. 2020-07-01 fails while 2020-08-01 works), and
+# the undated ``graphdata`` endpoint returns a rolling ~1 year window.
+# run_fear_greed_load therefore falls back to the undated URL when the
+# dated request raises an HTTPError.
 # Payload top-level keys: ``fear_and_greed`` (current snapshot),
 # ``fear_and_greed_historical`` ({data: [{x: ms-epoch float,
 # y: 0-100 score, rating: str}]}) and one block per sub-indicator
@@ -45,9 +51,10 @@ logger = logging.getLogger(__name__)
 # the RAW metric (VIX level, put/call ratio, SPX price, breadth
 # oscillator), not a 0-100 score.
 
-FEAR_GREED_URL_TEMPLATE = (
-    "https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{}"
+FEAR_GREED_BASE_URL = (
+    "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
 )
+FEAR_GREED_URL_TEMPLATE = FEAR_GREED_BASE_URL + "/{}"
 
 FEAR_GREED_HEADERS = {
     "User-Agent": (
@@ -954,6 +961,14 @@ class IngestionEngine:
         expected column (absent -> None) so the upsert uses a static
         column list.
 
+        Retention/fallback: CNN retains only ~6 years of history, so a
+        ``start_date`` behind the advancing retention floor makes the
+        dated endpoint return HTTP 500.  On ``requests.HTTPError`` ONLY
+        the request is retried once against the undated
+        ``FEAR_GREED_BASE_URL`` (rolling ~1 year of data); timeouts and
+        connection errors do NOT fall back (same host — pointless), and
+        a failing retry propagates (the bridge converts it to FAILED).
+
         Resilience contract: a missing/empty
         ``fear_and_greed_historical`` raises ``ValueError`` naming the
         key; a missing/empty sub-indicator block contributes NULL
@@ -963,10 +978,13 @@ class IngestionEngine:
 
         Returns ``{status: 'SUCCESS', rows_upserted, latest_date,
         fg_score, fg_rating, alert_triggered, alert_detail,
-        missing_series, duration_ms}`` where ``alert_triggered`` is set
+        missing_series, fetched_url, start_date_fallback,
+        duration_ms}`` where ``alert_triggered`` is set
         when the latest ``fg_score`` is <= ``fear_greed.alert_threshold``
         and ``alert_detail`` lists sub-indicator keys whose current
-        rating is ``'extreme fear'``.
+        rating is ``'extreme fear'``.  ``fetched_url`` is the URL that
+        actually returned data and ``start_date_fallback`` is True when
+        the undated-URL fallback was used.
         """
         if start_date is None:
             start_date = self.cfg.fear_greed.start_date
@@ -986,12 +1004,39 @@ class IngestionEngine:
         start_time = datetime.now()
         url = FEAR_GREED_URL_TEMPLATE.format(start_date)
         logger.info("Fetching CNN Fear & Greed data from %s ...", url)
-        resp = requests.get(
-            url,
-            headers=FEAR_GREED_HEADERS,
-            timeout=self.cfg.fear_greed.timeout_seconds,
-        )
-        resp.raise_for_status()
+        try:
+            resp = requests.get(
+                url,
+                headers=FEAR_GREED_HEADERS,
+                timeout=self.cfg.fear_greed.timeout_seconds,
+            )
+            resp.raise_for_status()
+            start_date_fallback = False
+        except requests.HTTPError:
+            # CNN only retains ~6 years of history — a start_date behind
+            # the advancing retention floor makes the dated endpoint
+            # return HTTP 500.  Retry ONCE with the undated base URL
+            # (rolling ~1 year).  Only HTTPError falls back: timeouts
+            # and connection errors would hit the same host again
+            # pointlessly.  A failing retry propagates (the bridge
+            # converts it to FAILED).
+            logger.warning(
+                "CNN Fear & Greed request to %s returned an HTTP error "
+                "(start_date %s is likely beyond CNN's ~6-year "
+                "retention floor) — retrying with the undated URL %s "
+                "...",
+                url,
+                start_date,
+                FEAR_GREED_BASE_URL,
+            )
+            url = FEAR_GREED_BASE_URL
+            resp = requests.get(
+                url,
+                headers=FEAR_GREED_HEADERS,
+                timeout=self.cfg.fear_greed.timeout_seconds,
+            )
+            resp.raise_for_status()
+            start_date_fallback = True
         payload = resp.json()
 
         # Required core series — missing/empty is a hard error naming
@@ -1074,6 +1119,8 @@ class IngestionEngine:
             "alert_triggered": bool(alert_triggered),
             "alert_detail": alert_detail,
             "missing_series": missing_series,
+            "fetched_url": url,
+            "start_date_fallback": start_date_fallback,
             "duration_ms": duration_ms,
         }
         if alert_triggered:
