@@ -2903,5 +2903,48 @@
     ],
     "acceptance_criteria": "Generic custom-ticker RRG in the existing report_app RRG tab. (1) scripts/report_app.py _render_rrg_tab: selectbox options become list(RRG_PRESETS)+[\"Custom\"]; preset = RRG_PRESETS.get(preset_name) — Custom uses defaults period=14/trail=3/lookback_years=3/benchmark SPY and shows a st.text_input for comma-separated tickers; ticker parsing split/strip/upper/dedupe/drop-empty; empty -> st.error before fetch; build_rrg_sql ValueError -> st.error (existing); after compute_rrg compare requested vs rrg[\"tickers\"] and st.warning dropped symbols; Custom download filename RRG_Custom_analysis_prompt.json; docstrings updated. (2) tests/test_report_app.py: Custom path normalizes tickers into SQL (e.g. \"XLK, dia ,xlf\" -> 'XLK','DIA','XLF'), empty input -> st.error no fetch, invalid symbol -> st.error no fetch, dropped-ticker -> st.warning. (3) READMEs byte-identical with Custom option documented. (4) pytest green (baseline 789); check_loops clean.",
     "assigned_to": "B"
+  },
+  {
+    "id": "F16-T1",
+    "title": "CNN Fear & Greed index ingestion into fear_greed_history table",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": [
+      "F15-T1"
+    ],
+    "input_files": [
+      "/docs/enhancements/2260920.md",
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/src/db.py",
+      "/src/db_challenger.py",
+      "/src/flight_server.py",
+      "/src/flight_server_challenger.py",
+      "/src/config.py",
+      "/src/config_challenger.py",
+      "/src/config.yaml",
+      "/scripts/refresh_weekly.py"
+    ],
+    "output_files": [
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/src/db.py",
+      "/src/db_challenger.py",
+      "/src/flight_server.py",
+      "/src/flight_server_challenger.py",
+      "/src/config.py",
+      "/src/config_challenger.py",
+      "/src/config.yaml",
+      "/scripts/refresh_fear_greed.py",
+      "/scripts/refresh_fear_greed.bat",
+      "/tests/test_fear_greed.py",
+      "/requirements.txt",
+      "/README.md",
+      "/docs/README.md",
+      "/docs/DATA_SERVICE_API.md"
+    ],
+    "acceptance_criteria": "CNN Fear & Greed ingestion per plan (plan-fb943476f18f611c.md). (1) fear_greed_history table in _init_schema of BOTH db impls — date PK, fg_score/fg_rating, 9 sub-indicator series as <cnn_key> DOUBLE + <cnn_key>_rating VARCHAR (stock_price_strength, stock_price_breadth, market_momentum_sp500, market_momentum_sp125, market_volatility_vix, market_volatility_vix_50, put_call_options, junk_bond_demand, safe_haven_demand), ingested_at TIMESTAMPTZ; schema_version 5->6 (executor) / 4->5 (challenger), auto-migrate existing DBs. (2) run_fear_greed_load on BOTH ingestion impls: GET https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{cfg.fear_greed.start_date} with browser headers (UA/Referer/Origin/Accept — API returns 418 without), requests timeout from cfg; parses x=ms->UTC date, y->DOUBLE, rating->VARCHAR into one date-keyed wide frame; upsert via INSERT ... ON CONFLICT (date) DO UPDATE; re-run with changed values updates not duplicates. Payload resilience: missing/empty fear_and_greed_historical -> named error; missing/empty sub-indicator key -> NULL columns + key in result['missing_series'] + warning (never KeyError); unknown keys ignored; all expected columns materialized before the static upsert; malformed/missing y or rating points -> NULL; dup dates -> keep last; fully-empty frame -> raise. (3) _fear_greed_bridge never-raises, enabled=false -> {'status':'DISABLED'}, merged under result['fear_greed'] on run_initial_load/run_daily_load(SUCCESS/PARTIAL only, not SKIPPED)/run_on_request_load — mirrors _weekly_bridge. (4) fear_greed_refresh action on BOTH flight servers; optional payload; engine failure -> status:FAILED body not transport error; payload validation (start_date YYYY-MM-DD if present). (5) New 'fear_greed' config section in src/config.yaml + FearGreedConfig in both config impls: enabled:bool, start_date YYYY-MM-DD validated, timeout_seconds>0, alert_threshold 0-100; defaults enabled=true/start_date='2014-01-01'/timeout=15/threshold=25.0. Result carries alert_triggered (fg_score<=threshold) + alert_detail (sub-indicators in 'extreme fear'). (6) scripts/refresh_fear_greed.py + .bat mirror refresh_weekly (CRLF, pause, python scripts\refresh_fear_greed.py %*), print rows/latest/rating/alert. requirements.txt gains requests>=2.31. (7) tests/test_fear_greed.py: mock requests.get (no live network); parse incl. all resilience cases (missing core key -> error; missing sub key -> NULLs+missing_series; malformed points; dup dates), upsert idempotency, bridge merge/never-raises/enabled-skip, action wiring + payload validation, alert flag; parametrized over BOTH impls; pytest all green (baseline 793). (8) check_loops --src-dir src + --strict clean; README.md == docs/README.md byte-identical documenting table+action+config+script; docs/DATA_SERVICE_API.md documents the table + fear_greed_refresh action.",
+    "assigned_to": "B"
   }
 ]
