@@ -98,12 +98,13 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 
 - **`do_get`** — read-only SQL queries returning Arrow record batches. SELECT/WITH statements only. Configurable query timeout (default 120s, no row limit).
 - **`do_put`** — accepts external Arrow record batches matching the `daily_close` schema (7 columns), validates schema, filters excluded tickers, and upserts in a single vectorized operation.
-- **`do_action`** — ten administrative actions:
+- **`do_action`** — eleven administrative actions:
   - `initial_load` — run the initial historical load. Depth = `ingestion.initial_load_years` (default 6); an explicit `years` key in the action payload overrides it. `years` must be an integer in `[1, 30]` (bool/non-int rejected); invalid values raise `ValueError` in the engine and surface as a `FlightServerError` — never a silent empty download.
   - `daily_load` — run today's incremental load.
   - `on_request_load` — load a custom date range for specified tickers.
   - `metadata_load` — backfill `company_metadata` from `yf.Ticker(t).info` (see [Company Metadata](#company-metadata)). Payload: `tickers` (list of strings, optional — defaults to all configured tickers), `refresh` (bool, default `false` — `true` re-fetches even present tickers), `delay_s` (number ≥ 0, default 0.5 — pacing between `.info` calls), `max_tickers` (integer ≥ 1, optional cap). Returns `SUCCESS` (no failures), `PARTIAL` (some `tickers_failed`), or `ABORTED` (circuit breaker tripped).
   - `weekly_refresh` — rebuild `weekly_close` and `weekly_indicators` from `daily_close` (see [Weekly Layer](#weekly-layer)). No payload required. Returns `SUCCESS` with row counts, or `FAILED` with an `error` field — the daily tables are unaffected.
+  - `fear_greed_refresh` — fetch CNN's Fear & Greed payload and upsert `fear_greed_history` (see [CNN Fear & Greed Index](#cnn-fear--greed-index)). Payload is optional; `start_date` (`YYYY-MM-DD`) overrides the configured backfill horizon — a malformed value raises `FlightServerError`. Returns `SUCCESS` with `rows_upserted`/`latest_date`/`fg_score`/`fg_rating`/`alert_triggered`/`missing_series`, or `FAILED` with an `error` field.
   - `daily_report` — generate a top-20 dollar-volume report as JSON.
   - `health_check` — return server uptime, DB status, ticker count, row count, schema version.
   - `data_health` — run the full `daily_close` data-health report (see [Data Health Checks](#data-health-checks)).
@@ -208,6 +209,23 @@ python scripts/refresh_weekly.py
 
 `scripts/refresh_weekly.bat` is the double-clickable Windows wrapper.
 
+### CNN Fear & Greed Index
+
+`fear_greed_history` stores CNN's Fear & Greed index — the composite 0-100 score (`fg_score`/`fg_rating`) plus each of the 9 sub-indicators' **raw** metric value and per-series rating per date: `stock_price_strength`, `stock_price_breadth`, `market_momentum_sp500`, `market_momentum_sp125`, `market_volatility_vix`, `market_volatility_vix_50`, `put_call_options`, `junk_bond_demand`, `safe_haven_demand` (each with a `<key>_rating` column). It is populated by `IngestionEngine.run_fear_greed_load`, reachable through the `fear_greed_refresh` Flight action so the server stays the single DuckDB writer.
+
+- **Source** — CNN's frontend API `https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{start_date}`. The endpoint returns HTTP 418 without browser headers (User-Agent/Referer/Origin/Accept are sent). One GET covers the full history from `fear_greed.start_date` (default `2014-01-01`). Note: the sub-indicator `data` points carry the *raw* metric in `y` (VIX level, put/call ratio, SPX price, breadth oscillator) — not a 0-100 score — and the live payload key names differ from the reference doc (`docs/enhancements/2260920.md` predates them).
+- **Resilience** — a missing/empty `fear_and_greed_historical` block is a hard error naming the key; a missing/empty sub-indicator block contributes NULL columns and a `missing_series` entry plus a warning log (never a `KeyError`); malformed points (missing `x`/`y`/`rating`) become NULL; duplicate dates keep the last point; unknown payload keys are ignored.
+- **Alert** — when the latest `fg_score` is <= `fear_greed.alert_threshold` (default `25.0`) the result carries `alert_triggered: true` and `alert_detail` lists the sub-indicators currently rated `extreme fear`.
+- **Bridging** — completed `initial_load`, `daily_load` (SUCCESS/PARTIAL only — never `SKIPPED`), and `on_request_load` runs end with a best-effort refresh merged under a `fear_greed` key on the load result, exactly like the `weekly` bridge; `fear_greed.enabled: false` returns `{"status": "DISABLED"}`. Any failure is reported as `{"status": "FAILED", ...}` — it can never fail a completed load.
+- **On demand** — the `fear_greed_refresh` Flight action (empty payload, or `{"start_date": "YYYY-MM-DD"}`) or the CLI:
+
+```bash
+python scripts/refresh_fear_greed.py              # uses fear_greed.start_date
+python scripts/refresh_fear_greed.py 2014-01-01   # explicit backfill horizon
+```
+
+`scripts/refresh_fear_greed.bat` is the double-clickable Windows wrapper.
+
 ---
 
 ## Project Structure
@@ -253,6 +271,7 @@ stock-ingestion/
 │   ├── test_rrg_dashboard.py  # RRG dashboard (presets/SQL/RRG math/figure/LLM payload/CLI)
 │   ├── test_scheduler.py
 │   ├── test_store_csv.py
+│   ├── test_fear_greed.py      # CNN Fear & Greed: parse/resilience, upsert, bridge, action, config
 │   └── test_weekly.py          # Weekly layer: Friday keys, OHLCV agg, indicators, bridge
 ├── scripts/
 │   ├── breadth_dashboard.bat   # Double-click wrapper for breadth_dashboard.py
@@ -269,6 +288,8 @@ stock-ingestion/
 │   ├── poll_tasks.py           # Multi-agent task lifecycle manager
 │   ├── pre_commit_check_loops.py  # Pre-commit hook wrapper
 │   ├── register_daily_task.ps1 # schtasks registration (timezone conversion, idempotent)
+│   ├── refresh_fear_greed.bat  # Double-click wrapper for refresh_fear_greed.py
+│   ├── refresh_fear_greed.py   # fear_greed_history upsert via the fear_greed_refresh Flight action
 │   ├── refresh_weekly.bat      # Double-click wrapper for refresh_weekly.py
 │   ├── refresh_weekly.py       # weekly_close + weekly_indicators rebuild via the weekly_refresh Flight action
 │   ├── register_flight_service.ps1  # AtStartup service task for the Flight server (restart-on-failure)
@@ -331,6 +352,7 @@ pip install -r requirements.txt
 | `openpyxl` | Excel (xlsx) report output |
 | `streamlit` | Interactive report app |
 | `plotly` | Market breadth dashboard charts |
+| `requests` | CNN Fear & Greed API fetch (also a transitive yfinance dep) |
 
 ---
 
@@ -375,6 +397,12 @@ scheduler:
   enabled: false
   schedule_time: "16:30"
   timezone: "America/New_York"
+
+fear_greed:
+  enabled: true               # set false to skip the post-load Fear & Greed bridge
+  start_date: "2014-01-01"    # backfill horizon for the CNN graphdata endpoint
+  timeout_seconds: 15         # HTTP GET timeout (must be > 0)
+  alert_threshold: 25.0       # alert_triggered when latest fg_score <= this (0-100)
 ```
 
 ### Environment Variables (R2)
@@ -531,6 +559,11 @@ results = list(client.do_action(action))
 action = flight.Action("weekly_refresh", b'{}')
 results = list(client.do_action(action))
 
+# CNN Fear & Greed refresh (fear_greed_history); empty payload uses the
+# configured fear_greed.start_date — or pass an explicit backfill horizon
+action = flight.Action("fear_greed_refresh", b'{"start_date": "2014-01-01"}')
+results = list(client.do_action(action))
+
 # Get ingestion run history
 action = flight.Action("get_run_history", b'{}')
 results = list(client.do_action(action))
@@ -680,7 +713,7 @@ Output per preset: **`<prefix>.html`** and **`<prefix>_analysis_prompt.json`** w
 
 ## Database Schema
 
-The DuckDB database contains seven tables:
+The DuckDB database contains eight tables:
 
 ### `daily_close` (canonical OHLCV data)
 
@@ -771,6 +804,19 @@ Rebuilt from `daily_close` by `rebuild_weekly_close()` (`INSERT ... ON CONFLICT 
 
 Rebuilt from `weekly_close` by `rebuild_weekly_indicators()` (`INSERT OR REPLACE` over the legacy `update_weekly_indicators_01` CTE chain — the `_01` column set under the base name).
 
+### `fear_greed_history` (CNN Fear & Greed index)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `date` | DATE | Calendar date (primary key) |
+| `fg_score` | DOUBLE | Composite Fear & Greed score (0-100) |
+| `fg_rating` | VARCHAR | Composite rating, e.g. `extreme fear` |
+| `<key>` | DOUBLE | Raw metric value for each of the 9 sub-indicators: `stock_price_strength`, `stock_price_breadth`, `market_momentum_sp500`, `market_momentum_sp125`, `market_volatility_vix`, `market_volatility_vix_50`, `put_call_options`, `junk_bond_demand`, `safe_haven_demand` |
+| `<key>_rating` | VARCHAR | Per-sub-indicator rating for the same 9 keys (nullable) |
+| `ingested_at` | TIMESTAMPTZ | When the row was last written |
+
+Upserted by `run_fear_greed_load` (via the `fear_greed_refresh` action) with `INSERT ... ON CONFLICT (date) DO UPDATE` — re-runs update changed values in place. See [CNN Fear & Greed Index](#cnn-fear--greed-index).
+
 ### `schema_version` (migration tracking)
 
 | Column | Type | Description |
@@ -778,7 +824,7 @@ Rebuilt from `weekly_close` by `rebuild_weekly_indicators()` (`INSERT OR REPLACE
 | `version` | INTEGER | Schema version number |
 | `applied_at` | TIMESTAMP | When the migration was applied |
 
-Current schema version: 5. The database auto-migrates from v1 (legacy `daily_quotes` table) to v2 (rename to `daily_close`) to v3 (add `ingestion_runs` table) to v4 (add `company_metadata` table) to v5 (add `weekly_close` and `weekly_indicators` tables).
+Current schema version: 6. The database auto-migrates from v1 (legacy `daily_quotes` table) to v2 (rename to `daily_close`) to v3 (add `ingestion_runs` table) to v4 (add `company_metadata` table) to v5 (add `weekly_close` and `weekly_indicators` tables) to v6 (add `fear_greed_history` table).
 
 ---
 
@@ -795,7 +841,7 @@ python -m pytest tests/test_flight_server.py -q
 python -m pytest tests/ -v
 ```
 
-The test suite includes 787 tests covering:
+The test suite includes 872 tests covering:
 
 | Test File | Coverage |
 |-----------|----------|
@@ -805,6 +851,7 @@ The test suite includes 787 tests covering:
 | `test_db.py` | DatabaseManager: schema, migrations, upsert, queries |
 | `test_delisted_lifecycle.py` | Delisted ticker handling |
 | `test_do_put.py` | do_put schema validation, exclude filtering, upsert |
+| `test_fear_greed.py` | CNN Fear & Greed: parse/resilience, upsert idempotency, bridge, action, config |
 | `test_flight_server.py` | do_get SELECT validation, do_action routing |
 | `test_health_check.py` | health_check + get_run_history actions |
 | `test_ingestion.py` | IngestionEngine: initial/daily/on-request loads |

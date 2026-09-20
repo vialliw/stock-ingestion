@@ -27,6 +27,7 @@ Spec reference: docs/tech_spec/gemini_tech_spec.1.0.2.md §4, §10.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -34,11 +35,64 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
+import requests
 import yfinance as yf
 
 import pandas_market_calendars as mcal
 
 logger = logging.getLogger(__name__)
+
+
+# =====================================================================
+# CNN Fear & Greed index (F16-T1)
+# =====================================================================
+#
+# Live API facts (verified 2026-09-20) — the reference doc
+# docs/enhancements/2260920.md uses stale key names that do NOT exist
+# in the real payload (stock_price_momentum, market_volatility).  The
+# endpoint returns HTTP 418 without browser headers, and each
+# sub-indicator block's ``data`` array carries the RAW metric in ``y``
+# (VIX level, put/call ratio, SPX price, breadth oscillator) — not a
+# 0-100 score.
+
+FEAR_GREED_URL_TEMPLATE = (
+    "https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{}"
+)
+
+FEAR_GREED_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/126.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://www.cnn.com/markets/fear-and-greed",
+    "Origin": "https://www.cnn.com",
+    "Accept": "application/json",
+}
+
+# The 9 CNN sub-indicator payload keys mapped to their column prefix on
+# fear_greed_history (the CNN key verbatim — each yields a
+# ``<key> DOUBLE`` + ``<key>_rating VARCHAR`` column pair).
+FEAR_GREED_SERIES: Dict[str, str] = {
+    "stock_price_strength": "stock_price_strength",
+    "stock_price_breadth": "stock_price_breadth",
+    "market_momentum_sp500": "market_momentum_sp500",
+    "market_momentum_sp125": "market_momentum_sp125",
+    "market_volatility_vix": "market_volatility_vix",
+    "market_volatility_vix_50": "market_volatility_vix_50",
+    "put_call_options": "put_call_options",
+    "junk_bond_demand": "junk_bond_demand",
+    "safe_haven_demand": "safe_haven_demand",
+}
+
+# Static wide-frame column list: date, fg_score, fg_rating, then each
+# series' <prefix> / <prefix>_rating pair.
+FEAR_GREED_COLUMNS: List[str] = (
+    ["date", "fg_score", "fg_rating"]
+    + [c for prefix in FEAR_GREED_SERIES.values() for c in (prefix, f"{prefix}_rating")]
+)
+
+_FEAR_GREED_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 # =====================================================================
 # Exception hierarchy (structural difference #2)
@@ -742,12 +796,210 @@ class _WeeklyMixin:
             return {"status": "FAILED", "error": str(exc)}
 
 
+class _FearGreedMixin:
+    """CNN Fear & Greed index ingestion (F16-T1).
+
+    Same contract as the executor's ``run_fear_greed_load`` /
+    ``_fear_greed_bridge``: one GET on the CNN graphdata endpoint,
+    per-date wide frame upserted via ``db.upsert_fear_greed``, and a
+    never-raises bridge honoring ``cfg.fear_greed.enabled``.
+    """
+
+    @staticmethod
+    def _fear_greed_series_points(block: Any) -> Dict[Any, Tuple[Any, Any]]:
+        """Parse one CNN series block into ``{date: (value, rating)}``.
+
+        ``block`` is a payload sub-object with a ``data`` array of
+        ``{x: ms-epoch float, y: value, rating: str}`` points.  ``x`` is
+        converted to a UTC date; a missing/None ``y`` or ``rating``
+        lands as NULL.  Points without a usable ``x`` are skipped, and
+        duplicate dates keep the LAST point in the array.  A non-dict
+        block or a missing/empty ``data`` array yields ``{}`` (the
+        caller treats that as a missing series — never a KeyError).
+        """
+        if not isinstance(block, dict):
+            return {}
+        points = block.get("data")
+        if not isinstance(points, (list, tuple)):
+            return {}
+        return {
+            datetime.fromtimestamp(float(p["x"]) / 1000, tz=timezone.utc).date(): (
+                p.get("y"),
+                p.get("rating"),
+            )
+            for p in points
+            if isinstance(p, dict)
+            and p.get("x") is not None
+            and isinstance(p.get("x"), (int, float))
+        }
+
+    def run_fear_greed_load(
+        self, start_date: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Fetch the CNN Fear & Greed payload and upsert it into
+        ``fear_greed_history``.
+
+        Resilience contract: a missing/empty ``fear_and_greed_historical``
+        raises ``ValueError`` naming the key; a missing/empty
+        sub-indicator block contributes NULL columns, a
+        ``missing_series`` entry and a warning — never a KeyError;
+        unknown payload keys are ignored; a fully-empty frame raises.
+
+        Returns ``{status: 'SUCCESS', rows_upserted, latest_date,
+        fg_score, fg_rating, alert_triggered, alert_detail,
+        missing_series, duration_ms}`` — ``alert_triggered`` when the
+        latest ``fg_score`` <= ``fear_greed.alert_threshold``;
+        ``alert_detail`` lists sub-indicators whose current rating is
+        ``'extreme fear'``.
+        """
+        if start_date is None:
+            start_date = self.cfg.fear_greed.start_date
+        if not isinstance(start_date, str) or not _FEAR_GREED_DATE_RE.fullmatch(
+            start_date
+        ):
+            raise ValueError(
+                f"start_date must be a YYYY-MM-DD string, got {start_date!r}"
+            )
+        try:
+            datetime.strptime(start_date, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError(
+                f"start_date is not a real calendar date, got {start_date!r}"
+            )
+
+        start_time = datetime.now()
+        url = FEAR_GREED_URL_TEMPLATE.format(start_date)
+        logger.info(f"Fetching CNN Fear & Greed data from {url} ...")
+        resp = requests.get(
+            url,
+            headers=FEAR_GREED_HEADERS,
+            timeout=self.cfg.fear_greed.timeout_seconds,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+
+        # Required core series — missing/empty is a hard error naming
+        # the key (never a bare KeyError).
+        hist_rows = self._fear_greed_series_points(
+            payload.get("fear_and_greed_historical")
+        )
+        if not hist_rows:
+            raise ValueError(
+                "CNN payload missing required key "
+                "'fear_and_greed_historical' (or its 'data' array is "
+                "empty/unusable)"
+            )
+
+        # Optional sub-indicator series — missing/empty blocks
+        # contribute NULL columns + a missing_series entry.
+        series_rows = {
+            key: self._fear_greed_series_points(payload.get(key))
+            for key in FEAR_GREED_SERIES
+        }
+        missing_series = [k for k, rows in series_rows.items() if not rows]
+        if missing_series:
+            logger.warning(
+                f"Fear & Greed payload missing/empty sub-indicator "
+                f"series {missing_series} — their columns will be NULL."
+            )
+
+        # Union of every series' date keys (dicts iterate their keys).
+        all_dates = set(hist_rows).union(*series_rows.values())
+        # Outer-merge on date into the static wide column list.
+        wide_rows = [
+            {
+                "date": d,
+                "fg_score": hist_rows.get(d, (None, None))[0],
+                "fg_rating": hist_rows.get(d, (None, None))[1],
+                **{
+                    prefix: series_rows[key].get(d, (None, None))[0]
+                    for key, prefix in FEAR_GREED_SERIES.items()
+                },
+                **{
+                    f"{prefix}_rating": series_rows[key].get(d, (None, None))[1]
+                    for key, prefix in FEAR_GREED_SERIES.items()
+                },
+            }
+            for d in sorted(all_dates)
+        ]
+        wide = pd.DataFrame(wide_rows, columns=FEAR_GREED_COLUMNS)
+        if wide.empty:
+            raise ValueError(
+                "CNN Fear & Greed payload produced no rows to upsert"
+            )
+
+        rows_upserted = self.db.upsert_fear_greed(wide)
+        duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+
+        latest_date = max(all_dates)
+        fg_score = hist_rows.get(latest_date, (None, None))[0]
+        fg_rating = hist_rows.get(latest_date, (None, None))[1]
+        fg_score_f = (
+            float(fg_score)
+            if fg_score is not None and not pd.isna(fg_score)
+            else None
+        )
+        threshold = self.cfg.fear_greed.alert_threshold
+        alert_triggered = fg_score_f is not None and fg_score_f <= threshold
+        alert_detail = [
+            key
+            for key in FEAR_GREED_SERIES
+            if isinstance(payload.get(key), dict)
+            and str(payload[key].get("rating") or "").lower()
+            == "extreme fear"
+        ]
+
+        result = {
+            "status": "SUCCESS",
+            "rows_upserted": rows_upserted,
+            "latest_date": latest_date.isoformat(),
+            "fg_score": fg_score_f,
+            "fg_rating": fg_rating,
+            "alert_triggered": bool(alert_triggered),
+            "alert_detail": alert_detail,
+            "missing_series": missing_series,
+            "duration_ms": duration_ms,
+        }
+        if alert_triggered:
+            logger.warning(
+                f"RUNTIME EVENT: Fear & Greed alert — latest fg_score "
+                f"{fg_score_f} <= threshold {threshold} (rating: "
+                f"{fg_rating}; extreme-fear sub-indicators: "
+                f"{alert_detail})"
+            )
+        logger.info(
+            f"Fear & Greed load complete. Rows upserted: "
+            f"{rows_upserted}, latest date: {latest_date}, fg_score: "
+            f"{fg_score_f} ({fg_rating})."
+        )
+        return result
+
+    def _fear_greed_bridge(self) -> Dict[str, Any]:
+        """Best-effort Fear & Greed refresh after a load; NEVER raises.
+
+        Mirrors ``_weekly_bridge``: honors ``cfg.fear_greed.enabled``
+        (``{'status': 'DISABLED'}`` when off); any failure is logged and
+        surfaced as ``{'status': 'FAILED', 'error': ...}``.
+        """
+        try:
+            if not getattr(
+                getattr(self.cfg, "fear_greed", None), "enabled", False
+            ):
+                return {"status": "DISABLED"}
+            return self.run_fear_greed_load()
+        except Exception as exc:  # noqa: BLE001 — never fail the load
+            logger.warning(
+                f"Fear & Greed bridge failed (load unaffected): {exc}"
+            )
+            return {"status": "FAILED", "error": str(exc)}
+
+
 # =====================================================================
 # Main engine — composes the mixins
 # =====================================================================
 
 
-class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin, _MetadataMixin, _WeeklyMixin):
+class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin, _MetadataMixin, _WeeklyMixin, _FearGreedMixin):
     """Yfinance ingestion engine (challenger variant).
 
     Same public API as the spec reference implementation but structurally
@@ -958,6 +1210,9 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin, _MetadataMix
         # F12-T1: best-effort weekly-layer refresh — merged under
         # 'weekly'; never fails the load.
         result["weekly"] = self._weekly_bridge()
+        # F16-T1: best-effort Fear & Greed refresh — merged under
+        # 'fear_greed'; never fails the load.
+        result["fear_greed"] = self._fear_greed_bridge()
         return result
 
     def run_daily_load(
@@ -1078,6 +1333,9 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin, _MetadataMix
         # F12-T1: best-effort weekly-layer refresh — merged under
         # 'weekly' on SUCCESS/PARTIAL only; never fails the load.
         result["weekly"] = self._weekly_bridge()
+        # F16-T1: best-effort Fear & Greed refresh — merged under
+        # 'fear_greed' on SUCCESS/PARTIAL only; never fails the load.
+        result["fear_greed"] = self._fear_greed_bridge()
         return result
 
     def run_on_request_load(
@@ -1112,6 +1370,9 @@ class IngestionEngine(_SplitMixin, _DownloadMixin, _NormalizeMixin, _MetadataMix
         # F12-T1: best-effort weekly-layer refresh — merged under
         # 'weekly'; never fails the load.
         result["weekly"] = self._weekly_bridge()
+        # F16-T1: best-effort Fear & Greed refresh — merged under
+        # 'fear_greed'; never fails the load.
+        result["fear_greed"] = self._fear_greed_bridge()
         return result
 
 

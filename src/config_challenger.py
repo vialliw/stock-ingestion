@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Dict, List
 
 import yaml
@@ -176,6 +177,100 @@ def _validate_market_breadth_years(value: Any) -> int:
     return value
 
 
+def _validate_fg_enabled(value: Any) -> bool:
+    """Coerce ``fear_greed.enabled``; ``None`` falls back to True."""
+    if value is None:
+        return True
+    if not isinstance(value, bool):
+        raise ValueError(f"fear_greed.enabled must be a bool, got {value!r}")
+    return value
+
+
+def _validate_fg_start_date(value: Any) -> str:
+    """``fear_greed.start_date`` must be a real ``YYYY-MM-DD`` date.
+
+    Mirrors the executor's ``FearGreedConfig.validate_start_date`` in
+    ``src/config.py``: the value is interpolated verbatim into the CNN
+    graphdata URL, so strict shape + real-calendar validation applies.
+    ``None`` (YAML ``null`` / absent key) falls back to the default.
+    """
+    if value is None:
+        return "2014-01-01"
+    if not isinstance(value, str):
+        raise ValueError(
+            f"fear_greed.start_date must be a YYYY-MM-DD string, "
+            f"got {type(value).__name__} {value!r}"
+        )
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise ValueError(
+            f"fear_greed.start_date must be in YYYY-MM-DD format, got {value!r}"
+        )
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError(
+            f"fear_greed.start_date is not a real calendar date, got {value!r}"
+        )
+    return value
+
+
+def _validate_fg_timeout(value: Any) -> float:
+    """Coerce ``fear_greed.timeout_seconds`` to a positive number.
+
+    Mirrors ``Field(default=15, gt=0)`` in the executor's
+    ``FearGreedConfig``.  ``None`` falls back to the default; bools and
+    non-numeric values are rejected; numeric strings are coerced like
+    ``_validate_port``.
+    """
+    if value is None:
+        return 15.0
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if isinstance(value, str):
+            try:
+                value = float(value)
+            except ValueError:
+                raise ValueError(
+                    f"fear_greed.timeout_seconds must be a number, got {value!r}"
+                )
+        else:
+            raise ValueError(
+                f"fear_greed.timeout_seconds must be a number, got {value!r}"
+            )
+    if value <= 0:
+        raise ValueError(
+            f"fear_greed.timeout_seconds must be > 0, got {value}"
+        )
+    return float(value)
+
+
+def _validate_fg_alert_threshold(value: Any) -> float:
+    """Coerce ``fear_greed.alert_threshold`` into the 0-100 band.
+
+    Mirrors ``Field(default=25.0, ge=0, le=100)`` in the executor's
+    ``FearGreedConfig`` — the Fear & Greed score is a 0-100 index, so
+    the alert level must live in that range.
+    """
+    if value is None:
+        return 25.0
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if isinstance(value, str):
+            try:
+                value = float(value)
+            except ValueError:
+                raise ValueError(
+                    f"fear_greed.alert_threshold must be a number, got {value!r}"
+                )
+        else:
+            raise ValueError(
+                f"fear_greed.alert_threshold must be a number, got {value!r}"
+            )
+    if not 0 <= value <= 100:
+        raise ValueError(
+            f"fear_greed.alert_threshold must be in [0, 100], got {value}"
+        )
+    return float(value)
+
+
 # ---------------------------------------------------------------------------
 # Nested config dataclasses
 # ---------------------------------------------------------------------------
@@ -271,6 +366,29 @@ class ReportsConfig:
         )
 
 
+@dataclass
+class FearGreedConfig:
+    """CNN Fear & Greed index ingestion settings (F16-T1) — parity
+    with ``FearGreedConfig`` in ``src/config.py``."""
+
+    enabled: bool = True
+    start_date: str = "2014-01-01"
+    timeout_seconds: float = 15.0
+    alert_threshold: float = 25.0
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "FearGreedConfig":
+        data = data or {}
+        return cls(
+            enabled=_validate_fg_enabled(data.get("enabled")),
+            start_date=_validate_fg_start_date(data.get("start_date")),
+            timeout_seconds=_validate_fg_timeout(data.get("timeout_seconds")),
+            alert_threshold=_validate_fg_alert_threshold(
+                data.get("alert_threshold")
+            ),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Top-level config
 # ---------------------------------------------------------------------------
@@ -282,6 +400,9 @@ class PipelineConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     reports: ReportsConfig = field(default_factory=ReportsConfig)
+    # CNN Fear & Greed ingestion (F16-T1) — read by
+    # ingestion_challenger.run_fear_greed_load / _fear_greed_bridge.
+    fear_greed: FearGreedConfig = field(default_factory=FearGreedConfig)
 
     # -- properties ---------------------------------------------------------
 
@@ -328,6 +449,7 @@ class PipelineConfig:
             server=ServerConfig.from_dict(raw.get("server", {})),
             logging=LoggingConfig.from_dict(raw.get("logging", {})),
             reports=ReportsConfig.from_dict(raw.get("reports", {})),
+            fear_greed=FearGreedConfig.from_dict(raw.get("fear_greed", {})),
         )
 
 
@@ -337,5 +459,6 @@ __all__ = [
     "ServerConfig",
     "LoggingConfig",
     "ReportsConfig",
+    "FearGreedConfig",
     "PipelineConfig",
 ]

@@ -421,6 +421,36 @@ class MarketDataFlightServer(flight.FlightServerBase):
             logger.error("weekly_refresh failed: %s", e)
             return {"status": "FAILED", "error": str(e)}
 
+    def _handle_fear_greed_refresh(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        # F16-T1: CNN Fear & Greed history refresh.  Payload is
+        # optional/empty; an explicit "start_date" (YYYY-MM-DD)
+        # overrides the configured fear_greed.start_date — a malformed
+        # value is rejected with FlightActionError (-> FlightServerError
+        # over the wire).  Engine failures are reported as
+        # status=FAILED in the body, not a transport error (mirrors
+        # _handle_weekly_refresh).
+        start_date = payload.get("start_date")
+        if start_date is not None:
+            if not isinstance(start_date, str) or not re.fullmatch(
+                r"\d{4}-\d{2}-\d{2}", start_date
+            ):
+                raise FlightActionError(
+                    f"start_date must be a YYYY-MM-DD string, "
+                    f"got {start_date!r}"
+                )
+            try:
+                datetime.strptime(start_date, "%Y-%m-%d")
+            except ValueError as e:
+                raise FlightActionError(
+                    f"start_date is not a real calendar date, "
+                    f"got {start_date!r}"
+                ) from e
+        try:
+            return self.engine.run_fear_greed_load(start_date=start_date)
+        except Exception as e:
+            logger.error("fear_greed_refresh failed: %s", e)
+            return {"status": "FAILED", "error": str(e)}
+
     def _handle_data_health(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         # F9-T5: FULL daily_close health report (incl. NYSE gap
         # detection).  Payload may carry "gap_days" (int >= 1) to size
@@ -454,6 +484,7 @@ MarketDataFlightServer._ACTION_HANDLERS = {
     "data_health": MarketDataFlightServer._handle_data_health,
     "metadata_load": MarketDataFlightServer._handle_metadata_load,
     "weekly_refresh": MarketDataFlightServer._handle_weekly_refresh,
+    "fear_greed_refresh": MarketDataFlightServer._handle_fear_greed_refresh,
 }
 
 

@@ -23,7 +23,34 @@ import pyarrow as pa
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
+
+# F16-T1: CNN Fear & Greed sub-indicator payload keys — each becomes a
+# ``<key> DOUBLE`` + ``<key>_rating VARCHAR`` column pair on
+# ``fear_greed_history``.  These are the LIVE API key names (verified
+# 2026-09-20); the reference doc docs/enhancements/2260920.md uses stale
+# names (stock_price_momentum / market_volatility) that do not exist.
+FEAR_GREED_SUB_INDICATORS: Tuple[str, ...] = (
+    "stock_price_strength",
+    "stock_price_breadth",
+    "market_momentum_sp500",
+    "market_momentum_sp125",
+    "market_volatility_vix",
+    "market_volatility_vix_50",
+    "put_call_options",
+    "junk_bond_demand",
+    "safe_haven_demand",
+)
+
+# Static column list for the fear_greed_history upsert — every column
+# except the ``ingested_at`` DEFAULT.  The engine materializes all of
+# them on the staging frame so this list is always complete.
+FEAR_GREED_UPSERT_COLUMNS: Tuple[str, ...] = (
+    ("date", "fg_score", "fg_rating")
+    + tuple(
+        col for key in FEAR_GREED_SUB_INDICATORS for col in (key, f"{key}_rating")
+    )
+)
 
 
 class DatabaseManager:
@@ -120,6 +147,35 @@ class DatabaseManager:
                     PRIMARY KEY (Date, Ticker)
                 );
             """)
+            # F16-T1: CNN Fear & Greed history — one row per date; the
+            # composite score plus each of the 9 sub-indicators' raw
+            # metric value and textual rating.
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS fear_greed_history (
+                    date DATE PRIMARY KEY,
+                    fg_score DOUBLE,
+                    fg_rating VARCHAR,
+                    stock_price_strength DOUBLE,
+                    stock_price_strength_rating VARCHAR,
+                    stock_price_breadth DOUBLE,
+                    stock_price_breadth_rating VARCHAR,
+                    market_momentum_sp500 DOUBLE,
+                    market_momentum_sp500_rating VARCHAR,
+                    market_momentum_sp125 DOUBLE,
+                    market_momentum_sp125_rating VARCHAR,
+                    market_volatility_vix DOUBLE,
+                    market_volatility_vix_rating VARCHAR,
+                    market_volatility_vix_50 DOUBLE,
+                    market_volatility_vix_50_rating VARCHAR,
+                    put_call_options DOUBLE,
+                    put_call_options_rating VARCHAR,
+                    junk_bond_demand DOUBLE,
+                    junk_bond_demand_rating VARCHAR,
+                    safe_haven_demand DOUBLE,
+                    safe_haven_demand_rating VARCHAR,
+                    ingested_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
 
             # Determine current schema version (0 = fresh database).
             try:
@@ -164,6 +220,12 @@ class DatabaseManager:
             if current_version < 5:
                 self.conn.execute(
                     "INSERT INTO schema_version (version) VALUES (?)", [5]
+                )
+
+            # --- v5 -> v6: fear_greed_history (created above) ---
+            if current_version < 6:
+                self.conn.execute(
+                    "INSERT INTO schema_version (version) VALUES (?)", [6]
                 )
 
     # ------------------------------------------------------------------
@@ -417,6 +479,50 @@ class DatabaseManager:
             finally:
                 self.conn.unregister("staging_metadata")
         return len(rows)
+
+    def upsert_fear_greed(self, df: pd.DataFrame) -> int:
+        """Upsert a wide Fear & Greed frame into ``fear_greed_history``.
+
+        ``df`` must carry exactly the ``FEAR_GREED_UPSERT_COLUMNS`` —
+        ``date`` plus ``fg_score``/``fg_rating`` and each sub-indicator's
+        ``<key>``/``<key>_rating`` pair (the engine materializes all of
+        them, absent values as NULL).  Uses the project's
+        ``INSERT ... ON CONFLICT (date) DO UPDATE`` idiom (same as
+        ``upsert_company_metadata``), so a re-run updates changed values
+        in place instead of duplicating rows; ``ingested_at`` is stamped
+        on every write.  Returns the number of rows staged.
+        """
+        if df is None or df.empty:
+            return 0
+        work = df.copy()
+        # pandas 3.x 'str' dtype cannot be scanned by duckdb's register()
+        # path — normalize to object dtype exactly like upsert_dataframe.
+        str_cols = [
+            c for c in work.columns if str(work[c].dtype) in ("str", "string")
+        ]
+        if str_cols:
+            work[str_cols] = work[str_cols].astype(object)
+        # Coerce the PK to datetime64 so DuckDB compares DATE to DATE.
+        work["date"] = pd.to_datetime(work["date"])
+        cols = list(FEAR_GREED_UPSERT_COLUMNS)
+        set_clause = ", ".join(
+            f"{c} = EXCLUDED.{c}" for c in cols if c != "date"
+        )
+        with self._write_lock:
+            self.conn.register("staging_fear_greed", work[cols])
+            try:
+                self.conn.execute(f"""
+                    INSERT INTO fear_greed_history AS target
+                        ({", ".join(cols)})
+                    SELECT {", ".join(cols)}
+                    FROM staging_fear_greed
+                    ON CONFLICT (date) DO UPDATE SET
+                        {set_clause},
+                        ingested_at = now();
+                """)
+            finally:
+                self.conn.unregister("staging_fear_greed")
+        return len(work)
 
     # ------------------------------------------------------------------
     # Weekly layer (F12-T1) — verbatim ports of

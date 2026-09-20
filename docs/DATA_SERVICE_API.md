@@ -6,7 +6,7 @@ This document is the complete contract: endpoint, query protocol,
 schema, semantics, and caveats. You do not need the rest of this repo —
 only `pyarrow` and this page.
 
-**Version:** schema v5 / service live as of 2026-09-15.
+**Version:** schema v6 / service live as of 2026-09-20.
 
 ---
 
@@ -139,10 +139,28 @@ NULL fields are meaningful (e.g. ETFs have no sector/industry on
 Yahoo). Coverage grows over time — the daily load auto-backfills
 missing tickers.
 
-### 3.5 Audit/internal tables (available but not a stable contract)
+### 3.5 `fear_greed_history` — CNN Fear & Greed index
+
+One row per calendar date, PK `date` (DATE). The composite 0–100
+index plus each of CNN's 9 sub-indicators' raw metric value and
+textual rating; `ingested_at` (TIMESTAMPTZ) is stamped on every write.
+
+| Column | Type | Notes |
+|---|---|---|
+| `fg_score` | DOUBLE | composite Fear & Greed score (0–100) |
+| `fg_rating` | VARCHAR | `extreme fear` / `fear` / `neutral` / `greed` / `extreme greed` |
+| `stock_price_strength` `stock_price_breadth` `market_momentum_sp500` `market_momentum_sp125` `market_volatility_vix` `market_volatility_vix_50` `put_call_options` `junk_bond_demand` `safe_haven_demand` | DOUBLE | the **raw** metric (VIX level, put/call ratio, SPX price, breadth oscillator…) — **not** a 0–100 score |
+| `<key>_rating` (one per key above) | VARCHAR | per-series rating label |
+
+Backfills from `fear_greed.start_date` (default `2014-01-01`) via the
+`fear_greed_refresh` action; every completed OHLCV load also refreshes
+it best-effort (the `fear_greed` sub-block on the load result).
+Absent sub-indicator series land as NULL columns — never an error.
+
+### 3.6 Audit/internal tables (available but not a stable contract)
 
 `ingestion_runs` (run log), `splits_processed` (split-repair
-bookkeeping), `schema_version` (migration markers — current `5`).
+bookkeeping), `schema_version` (migration markers — current `6`).
 
 ---
 
@@ -160,14 +178,16 @@ result rows. Payloads are optional JSON objects unless noted.
 | `on_request_load` | `{tickers: [str], start_date, end_date}` — **required** | like `daily_load` | Custom-range backfill (write) |
 | `metadata_load` | `{tickers?: [str], refresh?: bool, delay_s?: num≥0, max_tickers?: int≥1}` | `{status: SUCCESS\|PARTIAL\|ABORTED, ...}` | `company_metadata` backfill (write, yfinance-paced) |
 | `weekly_refresh` | — (empty) | `{status: SUCCESS\|FAILED, weekly_close_rows, weekly_indicators_rows, duration_ms}` | Rebuild both weekly tables (write, pure SQL ~17 s) |
+| `fear_greed_refresh` | `{start_date?: "YYYY-MM-DD"}` | `{status: SUCCESS\|FAILED, rows_upserted, latest_date, fg_score, fg_rating, alert_triggered, alert_detail, missing_series, duration_ms}` | CNN Fear & Greed fetch + `fear_greed_history` upsert (write) |
 | `daily_report` | `{date?: "YYYY-MM-DD"}` | `{status, report}` | Top-20 dollar-volume report (also writes a file server-side) |
 | `get_run_history` | — | `{status, run_history: [...]}` | `ingestion_runs` audit log |
 | `sync_to_r2` | — | R2 sync result | Push DB artifact to Cloudflare R2 |
 
 Notes:
 
-- Load results embed `health`, `metadata`, and `weekly` sub-blocks —
-  every completed OHLCV load already refreshes the derived layers.
+- Load results embed `health`, `metadata`, `weekly`, and `fear_greed`
+  sub-blocks — every completed OHLCV load already refreshes the
+  derived layers.
 - Invalid payload fields raise `FlightServerError` (fail-fast, never
   silently coerced).
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import datetime
 from typing import List, Literal
 
 import yaml
@@ -158,6 +159,64 @@ class ReportsConfig(BaseModel):
         return v
 
 
+class FearGreedConfig(BaseModel):
+    """CNN Fear & Greed index ingestion settings (F16-T1).
+
+    ``enabled`` gates the best-effort ``_fear_greed_bridge`` merged onto
+    completed loads.  ``start_date`` is the backfill horizon embedded in
+    the CNN graphdata URL.  ``timeout_seconds`` bounds the HTTP GET
+    (the API returns 418 without browser headers and can hang).  When
+    the latest ``fg_score`` is <= ``alert_threshold`` the load result
+    carries ``alert_triggered=True``.
+    """
+
+    enabled: bool = True
+    start_date: str = "2014-01-01"
+    timeout_seconds: float = Field(default=15.0, gt=0)
+    alert_threshold: float = Field(default=25.0, ge=0, le=100)
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def validate_enabled(cls, v) -> bool:
+        """``None`` falls back to the default; only real bools are
+        accepted (Pydantic's lax mode would silently coerce strings
+        like ``"yes"``)."""
+        if v is None:
+            return True
+        if not isinstance(v, bool):
+            raise ValueError(f"enabled must be a bool, got {v!r}")
+        return v
+
+    @field_validator("start_date", mode="before")
+    @classmethod
+    def validate_start_date(cls, v) -> str:
+        """``start_date`` must be a real calendar date in strict
+        ``YYYY-MM-DD`` form — it is interpolated verbatim into the CNN
+        graphdata URL."""
+        if v is None:
+            return "2014-01-01"
+        if not isinstance(v, str):
+            raise ValueError(
+                f"start_date must be a YYYY-MM-DD string, got {type(v).__name__} {v!r}"
+            )
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+            raise ValueError(f"start_date must be in YYYY-MM-DD format, got {v!r}")
+        try:
+            datetime.strptime(v, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError(f"start_date is not a real calendar date, got {v!r}")
+        return v
+
+    @field_validator("timeout_seconds", "alert_threshold", mode="before")
+    @classmethod
+    def validate_numbers(cls, v):
+        """Reject bools — ``gt=0`` / ``ge=0, le=100`` would otherwise
+        silently accept ``True`` as ``1``."""
+        if isinstance(v, bool):
+            raise ValueError(f"expected a number, got bool {v}")
+        return v
+
+
 class R2Config(BaseModel):
     """Cloudflare R2 sync settings.
 
@@ -205,6 +264,7 @@ class PipelineConfig(BaseModel):
     reports: ReportsConfig = Field(default_factory=ReportsConfig)
     r2: R2Config = Field(default_factory=R2Config)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
+    fear_greed: FearGreedConfig = Field(default_factory=FearGreedConfig)
 
     @property
     def db_path(self) -> str:

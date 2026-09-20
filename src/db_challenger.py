@@ -64,7 +64,7 @@ import pyarrow as pa
 
 logger = logging.getLogger("MarketDataPipeline")
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Maximum number of read cursors the pool will keep alive at once.
 # Additional concurrent readers block until a cursor is returned.
@@ -250,6 +250,88 @@ ON CONFLICT (Date, Ticker) DO UPDATE SET
     Close  = excluded.Close,
     Volume = excluded.Volume;
 """
+
+# ---------------------------------------------------------------------------
+# Fear & Greed history (F16-T1) — CNN fearandgreed/graphdata payload.
+# The 9 sub-indicator payload keys below are the LIVE API names (verified
+# 2026-09-20); the reference doc docs/enhancements/2260920.md lists stale
+# names (stock_price_momentum / market_volatility) that do not exist.
+# ---------------------------------------------------------------------------
+
+FEAR_GREED_SUB_INDICATORS: Tuple[str, ...] = (
+    "stock_price_strength",
+    "stock_price_breadth",
+    "market_momentum_sp500",
+    "market_momentum_sp125",
+    "market_volatility_vix",
+    "market_volatility_vix_50",
+    "put_call_options",
+    "junk_bond_demand",
+    "safe_haven_demand",
+)
+
+# Static column list for the fear_greed_history upsert — every column
+# except the ``ingested_at`` DEFAULT.
+FEAR_GREED_UPSERT_COLUMNS: Tuple[str, ...] = (
+    ("date", "fg_score", "fg_rating")
+    + tuple(
+        col for key in FEAR_GREED_SUB_INDICATORS for col in (key, f"{key}_rating")
+    )
+)
+
+_FEAR_GREED_HISTORY_DDL = """
+CREATE TABLE IF NOT EXISTS fear_greed_history (
+    date DATE PRIMARY KEY,
+    fg_score DOUBLE,
+    fg_rating VARCHAR,
+    stock_price_strength DOUBLE,
+    stock_price_strength_rating VARCHAR,
+    stock_price_breadth DOUBLE,
+    stock_price_breadth_rating VARCHAR,
+    market_momentum_sp500 DOUBLE,
+    market_momentum_sp500_rating VARCHAR,
+    market_momentum_sp125 DOUBLE,
+    market_momentum_sp125_rating VARCHAR,
+    market_volatility_vix DOUBLE,
+    market_volatility_vix_rating VARCHAR,
+    market_volatility_vix_50 DOUBLE,
+    market_volatility_vix_50_rating VARCHAR,
+    put_call_options DOUBLE,
+    put_call_options_rating VARCHAR,
+    junk_bond_demand DOUBLE,
+    junk_bond_demand_rating VARCHAR,
+    safe_haven_demand DOUBLE,
+    safe_haven_demand_rating VARCHAR,
+    ingested_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# Arrow staging schema for upsert_fear_greed — explicit so all-NULL
+# rating columns still land as VARCHAR (from_pylist would infer null
+# type), mirroring _COMPANY_METADATA_ARROW_SCHEMA.
+_FEAR_GREED_ARROW_SCHEMA = pa.schema(
+    [pa.field("date", pa.date32()), pa.field("fg_score", pa.float64()),
+     pa.field("fg_rating", pa.string())]
+    + [
+        pa.field(col, pa.float64() if col == key else pa.string())
+        for key in FEAR_GREED_SUB_INDICATORS
+        for col in (key, f"{key}_rating")
+    ]
+)
+
+# ON CONFLICT refresh on the date PK — same idiom as
+# _COMPANY_METADATA_UPSERT_SQL; ingested_at is stamped on every write.
+_FEAR_GREED_UPSERT_SQL = (
+    "INSERT INTO fear_greed_history ("
+    + ", ".join(FEAR_GREED_UPSERT_COLUMNS)
+    + ")\nSELECT "
+    + ", ".join(FEAR_GREED_UPSERT_COLUMNS)
+    + " FROM staging_fear_greed\nON CONFLICT (date) DO UPDATE SET\n    "
+    + ",\n    ".join(
+        f"{c} = excluded.{c}" for c in FEAR_GREED_UPSERT_COLUMNS if c != "date"
+    )
+    + ",\n    ingested_at = now();"
+)
 
 # ---------------------------------------------------------------------------
 # Weekly layer (F12-T1) — verbatim ports of
@@ -472,6 +554,25 @@ _GAP_UNIVERSE_CONFIGURED = (
 _HEALTH_MAX_ITEMS = 50
 
 
+def _coerce_fg_cell(value: Any) -> Any:
+    """Normalize one ``fear_greed_history`` cell for Arrow staging.
+
+    NaN/NaT become ``None`` (SQL NULL) and ``pd.Timestamp``/``datetime``
+    become ``datetime.date`` so ``pa.Table.from_pylist`` binds the
+    explicit ``_FEAR_GREED_ARROW_SCHEMA`` types.
+    """
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, (pd.Timestamp, datetime)):
+        return value.date()
+    return value
+
+
 def _validate_select_only(sql: str) -> None:
     """Reject statements that are not SELECT or WITH (CTE) queries.
 
@@ -543,6 +644,8 @@ class DatabaseManager:
             # weekly_indicators _01 column set).
             conn.execute(_WEEKLY_CLOSE_DDL)
             conn.execute(_WEEKLY_INDICATORS_DDL)
+            # F16-T1: CNN Fear & Greed history table.
+            conn.execute(_FEAR_GREED_HISTORY_DDL)
             conn.execute(
                 "INSERT INTO schema_version (version) "
                 "SELECT $version WHERE NOT EXISTS ("
@@ -669,6 +772,43 @@ class DatabaseManager:
             finally:
                 conn.unregister("staging_metadata")
         return len(rows)
+
+    # -- fear & greed history (F16-T1) ---------------------------------
+
+    def upsert_fear_greed(self, df: pd.DataFrame) -> int:
+        """Upsert a wide Fear & Greed frame into ``fear_greed_history``.
+
+        ``df`` carries exactly ``FEAR_GREED_UPSERT_COLUMNS`` (``date``
+        plus ``fg_score``/``fg_rating`` and each sub-indicator's
+        ``<key>``/``<key>_rating`` pair; absent values are NULL).
+        Staged through an Arrow table with an explicit schema — like
+        ``upsert_company_metadata`` this sidesteps the pandas ``str``
+        dtype limitation and guarantees all-NULL rating columns still
+        bind as VARCHAR.  ``INSERT ... ON CONFLICT (date) DO UPDATE``
+        updates changed values in place (no duplicates on re-run) and
+        re-stamps ``ingested_at``.  Returns the row count staged.
+        """
+        if df is None or df.empty:
+            return 0
+        records = df.loc[:, list(FEAR_GREED_UPSERT_COLUMNS)].to_dict(
+            "records"
+        )
+        # Normalize each record: NaN/NaT -> None, Timestamp/datetime ->
+        # datetime.date, so from_pylist binds clean DATE/DOUBLE/VARCHAR.
+        cleaned = [
+            {k: _coerce_fg_cell(v) for k, v in row.items()}
+            for row in records
+        ]
+        arrow_table = pa.Table.from_pylist(
+            cleaned, schema=_FEAR_GREED_ARROW_SCHEMA
+        )
+        with self._write.connection() as conn:
+            conn.register("staging_fear_greed", arrow_table)
+            try:
+                conn.execute(_FEAR_GREED_UPSERT_SQL)
+            finally:
+                conn.unregister("staging_fear_greed")
+        return len(records)
 
     # -- weekly layer (F12-T1) ------------------------------------------
     # Verbatim SQL ports of libs/vw_pipe_data_duckdb.py

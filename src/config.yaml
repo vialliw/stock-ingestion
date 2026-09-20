@@ -1252,3 +1252,8 @@ scheduler:
   enabled: true
   schedule_time: '16:14'
   timezone: America/New_York
+fear_greed:
+  enabled: true
+  start_date: '2014-01-01'
+  timeout_seconds: 15
+  alert_threshold: 25.0

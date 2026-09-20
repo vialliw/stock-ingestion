@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import queue
+import re
 import threading
 from datetime import datetime
 
@@ -350,6 +351,37 @@ class MarketDataFlightServer(flight.FlightServerBase):
                 result = self.engine.run_weekly_refresh()
             except Exception as e:
                 logger.error("weekly_refresh failed: %s", e)
+                result = {"status": "FAILED", "error": str(e)}
+            return _ActionResult(json.dumps(result).encode("utf-8"))
+
+        elif action_type == "fear_greed_refresh":
+            # F16-T1: CNN Fear & Greed history refresh.  Payload is
+            # optional/empty; an explicit "start_date" (YYYY-MM-DD)
+            # overrides the configured fear_greed.start_date.  Engine
+            # failures surface as status=FAILED in the JSON body — not
+            # a transport error (mirrors weekly_refresh).
+            start_date = payload.get("start_date")
+            if start_date is not None:
+                if not isinstance(start_date, str) or not re.fullmatch(
+                    r"\d{4}-\d{2}-\d{2}", start_date
+                ):
+                    raise flight.FlightServerError(
+                        f"start_date must be a YYYY-MM-DD string, "
+                        f"got {start_date!r}"
+                    )
+                try:
+                    datetime.strptime(start_date, "%Y-%m-%d")
+                except ValueError as e:
+                    raise flight.FlightServerError(
+                        f"start_date is not a real calendar date, "
+                        f"got {start_date!r}"
+                    ) from e
+            try:
+                result = self.engine.run_fear_greed_load(
+                    start_date=start_date
+                )
+            except Exception as e:
+                logger.error("fear_greed_refresh failed: %s", e)
                 result = {"status": "FAILED", "error": str(e)}
             return _ActionResult(json.dumps(result).encode("utf-8"))
 
