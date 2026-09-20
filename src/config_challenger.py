@@ -195,7 +195,7 @@ def _validate_fg_start_date(value: Any) -> str:
     ``None`` (YAML ``null`` / absent key) falls back to the default.
     """
     if value is None:
-        return "2014-01-01"
+        return "2020-08-01"
     if not isinstance(value, str):
         raise ValueError(
             f"fear_greed.start_date must be a YYYY-MM-DD string, "
@@ -372,7 +372,7 @@ class FearGreedConfig:
     with ``FearGreedConfig`` in ``src/config.py``."""
 
     enabled: bool = True
-    start_date: str = "2014-01-01"
+    start_date: str = "2020-08-01"
     timeout_seconds: float = 15.0
     alert_threshold: float = 25.0
 

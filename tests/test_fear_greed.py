@@ -782,7 +782,7 @@ def test_fear_greed_refresh_engine_failure_is_failed_body(module_name):
 def test_executor_config_defaults_and_yaml():
     cfg = PipelineConfig()
     assert cfg.fear_greed.enabled is True
-    assert cfg.fear_greed.start_date == "2014-01-01"
+    assert cfg.fear_greed.start_date == "2020-08-01"
     assert cfg.fear_greed.timeout_seconds == 15
     assert cfg.fear_greed.alert_threshold == 25.0
 
@@ -812,7 +812,7 @@ def test_challenger_config_defaults():
 
     cfg = CcFg()
     assert cfg.enabled is True
-    assert cfg.start_date == "2014-01-01"
+    assert cfg.start_date == "2020-08-01"
     assert cfg.timeout_seconds == 15.0
     assert cfg.alert_threshold == 25.0
 

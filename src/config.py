@@ -171,7 +171,7 @@ class FearGreedConfig(BaseModel):
     """
 
     enabled: bool = True
-    start_date: str = "2014-01-01"
+    start_date: str = "2020-08-01"
     timeout_seconds: float = Field(default=15.0, gt=0)
     alert_threshold: float = Field(default=25.0, ge=0, le=100)
 
@@ -194,7 +194,7 @@ class FearGreedConfig(BaseModel):
         ``YYYY-MM-DD`` form — it is interpolated verbatim into the CNN
         graphdata URL."""
         if v is None:
-            return "2014-01-01"
+            return "2020-08-01"
         if not isinstance(v, str):
             raise ValueError(
                 f"start_date must be a YYYY-MM-DD string, got {type(v).__name__} {v!r}"
