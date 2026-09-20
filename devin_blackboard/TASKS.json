@@ -2946,5 +2946,44 @@
     ],
     "acceptance_criteria": "CNN Fear & Greed ingestion per plan (plan-fb943476f18f611c.md). (1) fear_greed_history table in _init_schema of BOTH db impls — date PK, fg_score/fg_rating, 9 sub-indicator series as <cnn_key> DOUBLE + <cnn_key>_rating VARCHAR (stock_price_strength, stock_price_breadth, market_momentum_sp500, market_momentum_sp125, market_volatility_vix, market_volatility_vix_50, put_call_options, junk_bond_demand, safe_haven_demand), ingested_at TIMESTAMPTZ; schema_version 5->6 (executor) / 4->5 (challenger), auto-migrate existing DBs. (2) run_fear_greed_load on BOTH ingestion impls: GET https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{cfg.fear_greed.start_date} with browser headers (UA/Referer/Origin/Accept — API returns 418 without), requests timeout from cfg; parses x=ms->UTC date, y->DOUBLE, rating->VARCHAR into one date-keyed wide frame; upsert via INSERT ... ON CONFLICT (date) DO UPDATE; re-run with changed values updates not duplicates. Payload resilience: missing/empty fear_and_greed_historical -> named error; missing/empty sub-indicator key -> NULL columns + key in result['missing_series'] + warning (never KeyError); unknown keys ignored; all expected columns materialized before the static upsert; malformed/missing y or rating points -> NULL; dup dates -> keep last; fully-empty frame -> raise. (3) _fear_greed_bridge never-raises, enabled=false -> {'status':'DISABLED'}, merged under result['fear_greed'] on run_initial_load/run_daily_load(SUCCESS/PARTIAL only, not SKIPPED)/run_on_request_load — mirrors _weekly_bridge. (4) fear_greed_refresh action on BOTH flight servers; optional payload; engine failure -> status:FAILED body not transport error; payload validation (start_date YYYY-MM-DD if present). (5) New 'fear_greed' config section in src/config.yaml + FearGreedConfig in both config impls: enabled:bool, start_date YYYY-MM-DD validated, timeout_seconds>0, alert_threshold 0-100; defaults enabled=true/start_date='2014-01-01'/timeout=15/threshold=25.0. Result carries alert_triggered (fg_score<=threshold) + alert_detail (sub-indicators in 'extreme fear'). (6) scripts/refresh_fear_greed.py + .bat mirror refresh_weekly (CRLF, pause, python scripts\refresh_fear_greed.py %*), print rows/latest/rating/alert. requirements.txt gains requests>=2.31. (7) tests/test_fear_greed.py: mock requests.get (no live network); parse incl. all resilience cases (missing core key -> error; missing sub key -> NULLs+missing_series; malformed points; dup dates), upsert idempotency, bridge merge/never-raises/enabled-skip, action wiring + payload validation, alert flag; parametrized over BOTH impls; pytest all green (baseline 793). (8) check_loops --src-dir src + --strict clean; README.md == docs/README.md byte-identical documenting table+action+config+script; docs/DATA_SERVICE_API.md documents the table + fear_greed_refresh action.",
     "assigned_to": "B"
+  },
+  {
+    "id": "F17-T1",
+    "title": "Health checks for fear_greed_history, weekly tables, company_metadata",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": [
+      "F16-T1"
+    ],
+    "input_files": [
+      "/src/db.py",
+      "/src/db_challenger.py",
+      "/src/flight_server.py",
+      "/src/flight_server_challenger.py",
+      "/src/ingestion.py",
+      "/src/ingestion_challenger.py",
+      "/scripts/data_health_report.py",
+      "/scripts/data_health_verify.py",
+      "/scripts/daily_load_once.py",
+      "/tests/test_db.py",
+      "/tests/test_flight_server.py",
+      "/tests/test_health_check.py"
+    ],
+    "output_files": [
+      "/src/db.py",
+      "/src/db_challenger.py",
+      "/src/flight_server.py",
+      "/src/flight_server_challenger.py",
+      "/scripts/data_health_report.py",
+      "/tests/test_db.py",
+      "/tests/test_flight_server.py",
+      "/tests/test_health_check.py",
+      "/README.md",
+      "/docs/README.md",
+      "/docs/DATA_SERVICE_API.md"
+    ],
+    "acceptance_criteria": "Health checks for new tables, reusing existing machinery (plan-fb943476f18f611c.md). (1) check_fear_greed_health/check_weekly_health/check_metadata_health on BOTH db impls — SQL-driven (no bare for-loops), never-raises (failure -> health_status CHECK_FAILED + error), bounded lists (max_items), injectable now/as_of/trading_days/grace_minutes; staleness reuses _nyse_sessions ended-session + pending_session semantics; each returns own health_status + evidence fields. (2) Coverage: F&G — presence (empty->WARN), MAX(date) staleness vs latest ended session, fg_score outside [0,100] count, fg_rating outside {extreme fear,fear,neutral,greed,extreme greed} (NULL ok), NULL fg_score count, fully-NULL series -> missing_series; enabled=false -> health_status DISABLED excluded from rollup. Weekly — MAX(Date) vs expected Friday key date_trunc('week',latest_ended_session)+4; weekly_close vs weekly_indicators row-count parity + missing-key count (bounded sample); stale tickers (in weekly_close, absent daily_close, bounded); NULL OHLC / Volume<0 counts. Metadata — configured-minus-excluded tickers missing from company_metadata -> WARN; NULL-field row count informational. (3) _health_report composite on BOTH servers: existing daily_close keys untouched at top level; new sections under 'fear_greed'/'weekly'/'company_metadata'; top-level health_status = worst across sections (OK<WARN<CHECK_FAILED); never raises; per-section exception -> that section CHECK_FAILED only; data_health action + initial_load/daily_load embed carry composite (SKIPPED/on_request unchanged). (4) scripts/data_health_report.py prints the three new sections (same style; exit code unchanged); data_health_verify.py and daily_load_once.py need no functional change (verify still reads top-level daily keys; once.py warns on worst-status) — verify and note. (5) Tests over seeded temp DBs BOTH impls: each check OK/WARN paths, staleness boundary incl. pending-session grace, weekly parity/stale-ticker/NULL cases, DISABLED path, composite worst-status + backward-compatible shape (daily keys still top-level), data_health action + load-embed integration, report script output; pytest all green (baseline 882); check_loops --src-dir src + --strict clean; README.md==docs/README.md byte-identical; docs/DATA_SERVICE_API.md documents the additive composite shape.",
+    "assigned_to": "B"
   }
 ]
