@@ -43,6 +43,23 @@ def _fg_df(n: int = 60, end: str = "2026-09-18") -> pd.DataFrame:
     return pd.DataFrame(data)
 
 
+def _spy_df(dates, closes=None) -> pd.DataFrame:
+    """Synthetic SPY ``daily_close`` frame as it arrives via Flight —
+    ``Date`` is object-dtype ``datetime.date`` (the F13 lesson).
+    ``dates`` is a list of ``datetime.date`` / ISO strings."""
+    date_objs = pd.to_datetime(list(dates)).date
+    return pd.DataFrame(
+        {
+            "Date": pd.Series(list(date_objs), dtype=object),
+            "Close": (
+                list(closes)
+                if closes is not None
+                else [400.0 + i for i in range(len(dates))]
+            ),
+        }
+    )
+
+
 class TestModuleImportableWithoutPlotly:
     """The module must import cleanly on a host without plotly —
     figure builders lazy-import it (AC1)."""
@@ -182,6 +199,61 @@ class TestBuildFearGreedSql:
         # 3 composite + 9 value + 9 rating = 21 columns, date ascending.
         assert df.shape[1] == 21
         assert df["date"].iloc[0] < df["date"].iloc[1]
+
+
+class TestBuildSpySql:
+    """F19-T1 — the SPY overlay query is scoped to ``daily_close``
+    SPY rows and bounded by the caller's start date."""
+
+    def test_sql_shape(self):
+        sql = fgd.build_spy_sql("2020-08-01")
+        assert sql == (
+            "SELECT Date, Close FROM daily_close "
+            "WHERE Ticker='SPY' AND Date >= '2020-08-01' "
+            "ORDER BY Date"
+        )
+
+    def test_accepts_date_and_timestamp(self):
+        expected = "Date >= '2026-09-01'"
+        assert expected in fgd.build_spy_sql(date(2026, 9, 1))
+        assert expected in fgd.build_spy_sql(pd.Timestamp("2026-09-01"))
+
+    def test_generated_sql_executes_on_duckdb(self, tmp_path):
+        """The emitted query matches the real daily_close DDL and the
+        Ticker/Date predicates hold."""
+        db_path = str(tmp_path / "spy.duckdb")
+        conn = duckdb.connect(db_path)
+        try:
+            conn.execute(
+                """
+                CREATE TABLE daily_close (
+                    Date DATE NOT NULL,
+                    Ticker VARCHAR NOT NULL,
+                    Open DOUBLE,
+                    High DOUBLE,
+                    Low DOUBLE,
+                    "Close" DOUBLE,
+                    Volume DOUBLE,
+                    PRIMARY KEY (Date, Ticker)
+                )
+                """
+            )
+            conn.executemany(
+                "INSERT INTO daily_close VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [
+                    ("2026-09-15", "SPY", 1, 1, 1, 640.0, 1),
+                    ("2026-09-16", "SPY", 1, 1, 1, 641.5, 1),
+                    ("2026-09-16", "AAPL", 1, 1, 1, 250.0, 1),
+                    ("2026-09-17", "SPY", 1, 1, 1, 645.0, 1),
+                ],
+            )
+            df = conn.execute(fgd.build_spy_sql("2026-09-16")).df()
+        finally:
+            conn.close()
+
+        assert list(df.columns) == ["Date", "Close"]
+        assert list(df["Close"]) == [641.5, 645.0]
+        assert df["Date"].iloc[0] < df["Date"].iloc[1]
 
 
 class TestNormalizeDates:
@@ -376,6 +448,88 @@ class TestBuildHistoryFigure:
         assert "MA20" in names and "MA50" in names
         # MA traces share the same category-date x axis.
         assert list(fig_on.data[1].x) == list(fig_on.data[0].x)
+
+
+class TestBuildHistoryFigureSpyOverlay:
+    """F19-T1 — the optional SPY secondary-axis overlay."""
+
+    def test_spy_trace_on_secondary_axis(self):
+        pytest.importorskip("plotly")
+        df = _fg_df(60)
+        spy = _spy_df(df["date"].dt.date.tolist())
+        fig = fgd.build_history_figure(df, spy_df=spy)
+
+        assert len(fig.data) == 2
+        spy_trace = fig.data[1]
+        assert spy_trace.name == "SPY"
+        assert spy_trace.yaxis == "y2"
+        assert spy_trace.line.color == "#FF8C00"
+        assert spy_trace.line.width == pytest.approx(1.5)
+        # SPY-appropriate hover carries the date + close.
+        assert "%{x}" in spy_trace.hovertemplate
+        assert "%{y" in spy_trace.hovertemplate
+        # Right-side overlaying axis, no gridlines.
+        y2 = fig.layout.yaxis2
+        assert y2.overlaying == "y"
+        assert y2.side == "right"
+        assert y2.showgrid is False
+        assert y2.title.text == "SPY"
+
+    def test_spy_dates_inner_aligned_to_category_axis(self):
+        """The x axis stays exactly the F&G trading days: a SPY date
+        absent from the F&G window drops out, and an F&G date missing
+        a SPY close renders as a gap (NaN) — never a crash."""
+        pytest.importorskip("plotly")
+        df = _fg_df(3)  # 2026-09-16/17/18 (business days)
+        cats = df["date"].dt.strftime("%Y-%m-%d").tolist()
+        assert cats == ["2026-09-16", "2026-09-17", "2026-09-18"]
+        # SPY has an extra non-F&G date (09-15) and is missing 09-17.
+        spy = _spy_df(
+            ["2026-09-15", "2026-09-16", "2026-09-18"],
+            closes=[500.0, 501.5, 503.0],
+        )
+        fig = fgd.build_history_figure(df, spy_df=spy)
+
+        spy_trace = fig.data[1]
+        # x is exactly the F&G category dates — the extra SPY date
+        # dropped out of the join.
+        assert list(spy_trace.x) == cats
+        # 09-16 close lands, 09-17 is a gap, 09-18 close lands.
+        assert spy_trace.y[0] == pytest.approx(501.5)
+        assert pd.isna(spy_trace.y[1])
+        assert spy_trace.y[2] == pytest.approx(503.0)
+        assert 500.0 not in list(spy_trace.y)
+
+    def test_spy_coexists_with_ma_traces(self):
+        pytest.importorskip("plotly")
+        df = _fg_df(60)
+        spy = _spy_df(df["date"].dt.date.tolist())
+        fig = fgd.build_history_figure(df, show_ma=True, spy_df=spy)
+        assert [t.name for t in fig.data] == [
+            "Fear & Greed",
+            "MA20",
+            "MA50",
+            "SPY",
+        ]
+        assert fig.data[3].yaxis == "y2"
+
+    def test_spy_none_and_empty_render_clean(self):
+        """spy_df=None / empty frame -> identical figure to today:
+        one trace, no yaxis2, no error."""
+        pytest.importorskip("plotly")
+        df = _fg_df(30)
+        fig_default = fgd.build_history_figure(df)
+        fig_none = fgd.build_history_figure(df, spy_df=None)
+        fig_empty = fgd.build_history_figure(
+            df, spy_df=_spy_df([], closes=[])
+        )
+        fig_missing_cols = fgd.build_history_figure(
+            df, spy_df=pd.DataFrame({"Other": [1, 2, 3]})
+        )
+        for fig in (fig_default, fig_none, fig_empty, fig_missing_cols):
+            assert len(fig.data) == 1
+            assert "yaxis2" not in fig.to_dict()["layout"]
+            assert fig.layout.xaxis.type == "category"
 
 
 class TestBuildHeatmapFigure:

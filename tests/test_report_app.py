@@ -1451,16 +1451,34 @@ class TestFearGreedTab:
             data[f"{key}_rating"] = ["neutral"] * n
         return pd.DataFrame(data)
 
+    @staticmethod
+    def _spy_df(dates) -> pd.DataFrame:
+        """Synthetic SPY ``daily_close`` frame — ``Date``/``Close``
+        columns as returned by ``build_spy_sql`` (object-dtype dates,
+        like Flight delivers)."""
+        return pd.DataFrame(
+            {
+                "Date": pd.Series(
+                    list(pd.to_datetime(list(dates)).date), dtype=object
+                ),
+                "Close": [500.0 + i for i in range(len(dates))],
+            }
+        )
+
     def test_render_drives_fetch_and_three_charts(
         self, tmp_path, monkeypatch
     ):
         pytest.importorskip("plotly")
         df = self._fg_df()
+        spy = self._spy_df(df["date"])
         seen_sql = []
 
         def fake_fetch(st, sql, config):
             seen_sql.append(sql)
-            return df
+            # F&G query -> fg frame; SPY query -> spy frame (F19-T1).
+            if "fear_greed_history" in sql:
+                return df
+            return spy
 
         monkeypatch.setattr(
             report_app, "cached_fetch_dataframe", fake_fetch
@@ -1472,9 +1490,14 @@ class TestFearGreedTab:
 
         report_app._render_fear_greed_tab(st, _config(tmp_path))
 
-        # Exactly one fetch through the shared cached path.
-        assert len(seen_sql) == 1
+        # Two fetches through the shared cached path: F&G then SPY
+        # bounded by the earliest F&G date.
+        assert len(seen_sql) == 2
         assert "FROM fear_greed_history" in seen_sql[0]
+        assert "FROM daily_close" in seen_sql[1]
+        assert "Ticker='SPY'" in seen_sql[1]
+        earliest = df["date"].min().strftime("%Y-%m-%d")
+        assert f"Date >= '{earliest}'" in seen_sql[1]
         # Gauge + history + heatmap.
         assert st.plotly_chart.call_count == 3
         st.error.assert_not_called()
@@ -1483,13 +1506,135 @@ class TestFearGreedTab:
         assert (
             radio_kwargs["options"][radio_kwargs["index"]] == "1Y"
         )
-        # MA checkbox on -> the history figure carries 3 traces
-        # (score + MA20 + MA50).
+        # Both checkboxes on -> the history figure carries 4 traces
+        # (score + MA20 + MA50 + SPY on y2).
         history_fig = st.plotly_chart.call_args_list[1].args[0]
-        assert len(history_fig.data) == 3
+        assert len(history_fig.data) == 4
+        assert history_fig.data[3].name == "SPY"
+        assert history_fig.data[3].yaxis == "y2"
         # The heatmap figure is the third chart, 9 rows.
         heatmap_fig = st.plotly_chart.call_args_list[2].args[0]
         assert len(heatmap_fig.data[0].z) == 9
+
+    def test_spy_overlay_checkbox_wiring(
+        self, tmp_path, monkeypatch
+    ):
+        """The 'Overlay SPY price' checkbox exists (default on, key
+        fg_spy) and gates whether the SPY frame reaches the history
+        figure."""
+        pytest.importorskip("plotly")
+        df = self._fg_df()
+        spy = self._spy_df(df["date"])
+
+        def fake_fetch(st, sql, config):
+            return df if "fear_greed_history" in sql else spy
+
+        monkeypatch.setattr(
+            report_app, "cached_fetch_dataframe", fake_fetch
+        )
+        st = MagicMock()
+        st.radio.return_value = "Max"
+        st.button.return_value = False
+        # Keyed checkbox: MA off, SPY overlay on.
+        st.checkbox.side_effect = lambda *a, **kw: {
+            "fg_ma": False,
+            "fg_spy": True,
+        }[kw["key"]]
+
+        report_app._render_fear_greed_tab(st, _config(tmp_path))
+
+        checkbox_calls = {
+            c.kwargs["key"]: c.kwargs for c in st.checkbox.call_args_list
+        }
+        assert checkbox_calls["fg_spy"]["value"] is True
+        assert checkbox_calls["fg_ma"]["value"] is False
+        history_fig = st.plotly_chart.call_args_list[1].args[0]
+        names = [t.name for t in history_fig.data]
+        assert names == ["Fear & Greed", "SPY"]
+        assert history_fig.data[1].yaxis == "y2"
+        assert history_fig.layout.yaxis2.side == "right"
+
+        # Overlay unchecked -> no SPY trace even though the fetch
+        # succeeded.
+        st2 = MagicMock()
+        st2.radio.return_value = "Max"
+        st2.button.return_value = False
+        st2.checkbox.side_effect = lambda *a, **kw: {
+            "fg_ma": False,
+            "fg_spy": False,
+        }[kw["key"]]
+
+        report_app._render_fear_greed_tab(st2, _config(tmp_path))
+
+        history_fig2 = st2.plotly_chart.call_args_list[1].args[0]
+        assert [t.name for t in history_fig2.data] == ["Fear & Greed"]
+        assert "yaxis2" not in history_fig2.to_dict()["layout"]
+
+    def test_spy_fetch_none_still_renders_with_caption(
+        self, tmp_path, monkeypatch
+    ):
+        """SPY fetch returning None degrades gracefully: gauge +
+        history + heatmap still render and a caption notes the overlay
+        is unavailable."""
+        pytest.importorskip("plotly")
+        df = self._fg_df()
+
+        def fake_fetch(st, sql, config):
+            if "fear_greed_history" in sql:
+                return df
+            return None  # SPY fetch failed
+
+        monkeypatch.setattr(
+            report_app, "cached_fetch_dataframe", fake_fetch
+        )
+        st = MagicMock()
+        st.radio.return_value = "Max"
+        st.button.return_value = False
+        st.checkbox.side_effect = lambda *a, **kw: {
+            "fg_ma": False,
+            "fg_spy": True,
+        }[kw["key"]]
+
+        report_app._render_fear_greed_tab(st, _config(tmp_path))
+
+        st.error.assert_not_called()
+        assert st.plotly_chart.call_count == 3
+        history_fig = st.plotly_chart.call_args_list[1].args[0]
+        assert [t.name for t in history_fig.data] == ["Fear & Greed"]
+        assert "yaxis2" not in history_fig.to_dict()["layout"]
+        captions = " ".join(
+            str(c.args[0]) for c in st.caption.call_args_list
+        )
+        assert "SPY" in captions
+
+    def test_spy_fetch_empty_still_renders_with_caption(
+        self, tmp_path, monkeypatch
+    ):
+        """An empty SPY frame is the same graceful degradation."""
+        pytest.importorskip("plotly")
+        df = self._fg_df()
+
+        def fake_fetch(st, sql, config):
+            if "fear_greed_history" in sql:
+                return df
+            return pd.DataFrame({"Date": [], "Close": []})
+
+        monkeypatch.setattr(
+            report_app, "cached_fetch_dataframe", fake_fetch
+        )
+        st = MagicMock()
+        st.radio.return_value = "Max"
+        st.button.return_value = False
+        st.checkbox.return_value = True
+
+        report_app._render_fear_greed_tab(st, _config(tmp_path))
+
+        st.error.assert_not_called()
+        assert st.plotly_chart.call_count == 3
+        captions = " ".join(
+            str(c.args[0]) for c in st.caption.call_args_list
+        )
+        assert "SPY" in captions
 
     def test_render_errors_when_fetch_returns_none(
         self, tmp_path, monkeypatch

@@ -23,8 +23,9 @@ The tab is the strict MVP of the user's dashboard proposal:
 1. A headline gauge — latest ``fg_score`` on a 0-100 dial with the five
    rating bands as gauge steps and a delta vs the previous trading day.
 2. A ``fg_score`` history chart — line + light fill on a fixed 0-100
-   domain with five semi-transparent horizontal rating-band zones and
-   an optional MA20/MA50 overlay.
+   domain with five semi-transparent horizontal rating-band zones, an
+   optional MA20/MA50 overlay, and an optional SPY close overlay on a
+   secondary (right-side) y axis (F19-T1).
 3. A rating heatmap — one row per sub-indicator, cells colored by the
    textual rating mapped to a 0-4 ordinal scale, hover showing the raw
    metric value + rating.
@@ -45,7 +46,14 @@ Two deliberate chart choices:
   a numeric axis (their units differ wildly); they only appear in the
   heatmap hover text.
 
-Version: 1.0 (F18-T1)
+The optional SPY overlay is fed by a second query —
+:func:`build_spy_sql` pulls ``Date``/``Close`` rows for ``SPY`` from
+``daily_close`` starting at the earliest F&G date, and
+:func:`build_history_figure` inner-aligns those closes onto the
+figure's trading-day category axis (SPY dates absent from the F&G
+window drop; F&G dates without a SPY close render as a gap).
+
+Version: 1.1 (F19-T1)
 =============================================================================
 """
 
@@ -133,7 +141,7 @@ _HEATMAP_COLORSCALE: List[list] = [
 ]
 
 # ------------------------------------------------------------------
-# SQL builder — fetch the whole table once; window-slice in pandas.
+# SQL builders — fetch the whole table once; window-slice in pandas.
 # ------------------------------------------------------------------
 
 
@@ -154,6 +162,25 @@ def build_fear_greed_sql() -> str:
     select_list = ", ".join(col for pair in cols for col in pair)
     return (
         f"SELECT {select_list} FROM fear_greed_history ORDER BY date"
+    )
+
+
+def build_spy_sql(start_date) -> str:
+    """SPY closes for the history chart's secondary-axis overlay.
+
+    ``start_date`` is a ``datetime.date`` / ``Timestamp`` / ISO string
+    — the earliest F&G date, so the fetched frame covers the ``Max``
+    window and every preset can slice it post-query.  Single-quote
+    literal interpolation mirrors the module's established SQL-string
+    convention (see :func:`build_fear_greed_sql`); ``start_date`` is
+    normalized to ``YYYY-MM-DD`` via ``pd.Timestamp`` before it reaches
+    the text.
+    """
+    start = pd.Timestamp(start_date).strftime("%Y-%m-%d")
+    return (
+        "SELECT Date, Close FROM daily_close "
+        f"WHERE Ticker='SPY' AND Date >= '{start}' "
+        "ORDER BY Date"
     )
 
 
@@ -255,7 +282,11 @@ def build_gauge_figure(latest_score, prev_score, rating):
     return fig
 
 
-def build_history_figure(df: pd.DataFrame, show_ma: bool = False):
+def build_history_figure(
+    df: pd.DataFrame,
+    show_ma: bool = False,
+    spy_df: Optional[pd.DataFrame] = None,
+):
     """``fg_score`` history: line + light fill over five band zones.
 
     The frame must already be window-sliced and ``normalize_dates``-ed.
@@ -265,6 +296,17 @@ def build_history_figure(df: pd.DataFrame, show_ma: bool = False):
     ``RATING_COLORS`` order at the ``BAND_BOUNDS`` edges.  ``show_ma``
     overlays MA20/MA50 line traces (computed on the sliced window).
     Hover shows date | score | rating.
+
+    ``spy_df`` (optional, F19-T1) is a ``daily_close`` frame with
+    ``Date``/``Close`` columns — ``Date`` arrives object-dtype via
+    Flight (the F13 lesson) and is normalized with ``pd.to_datetime``.
+    A non-empty frame adds a dark-orange SPY line on a secondary
+    right-side y axis: the closes are LEFT-merged onto this figure's
+    category date strings, so the x axis stays exactly the F&G trading
+    days — SPY dates absent from the F&G window drop out and F&G dates
+    missing a SPY close render as a gap (NaN).  ``None``, an empty
+    frame, or a frame missing the expected columns produces the same
+    figure as before — no ``yaxis2``, no error.
     """
     import plotly.graph_objects as go
 
@@ -326,6 +368,39 @@ def build_history_figure(df: pd.DataFrame, show_ma: bool = False):
             )
         )
 
+    spy_added = (
+        spy_df is not None
+        and not spy_df.empty
+        and {"Date", "Close"} <= set(spy_df.columns)
+    )
+    if spy_added:
+        # Inner-align SPY onto the figure's category dates: a LEFT
+        # merge keyed on the YYYY-MM-DD strings keeps the x axis
+        # exactly the F&G trading days — SPY dates absent from the F&G
+        # window drop out of the join, and F&G dates with no SPY close
+        # produce NaN (a gap in the line), never a crash.
+        spy = spy_df.copy()
+        spy["Date"] = pd.to_datetime(spy["Date"])
+        spy["_cat"] = spy["Date"].dt.strftime("%Y-%m-%d")
+        aligned = pd.DataFrame({"_cat": x}).merge(
+            spy.drop_duplicates("_cat")[["_cat", "Close"]],
+            on="_cat",
+            how="left",
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=aligned["_cat"],
+                y=aligned["Close"],
+                mode="lines",
+                name="SPY",
+                yaxis="y2",
+                line=dict(color="#FF8C00", width=1.5),
+                hovertemplate=(
+                    "Date: %{x}<br>SPY Close: %{y:.2f}<extra></extra>"
+                ),
+            )
+        )
+
     fig.update_yaxes(range=[0, 100], title_text="Fear & Greed score")
     fig.update_xaxes(type="category", title_text=None)
     fig.update_layout(
@@ -333,6 +408,17 @@ def build_history_figure(df: pd.DataFrame, show_ma: bool = False):
         margin=dict(l=40, r=40, t=30, b=40),
         hovermode="x unified",
     )
+    if spy_added:
+        # AFTER update_yaxes — that call touches every y axis and
+        # would otherwise clobber yaxis2's title/range.
+        fig.update_layout(
+            yaxis2=dict(
+                overlaying="y",
+                side="right",
+                title="SPY",
+                showgrid=False,
+            )
+        )
     return fig
 
 

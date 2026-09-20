@@ -2349,3 +2349,43 @@ No src/, tests/, scripts/, or docs files modified by Critic D — blackboard onl
 [2026-09-20T19:34:29.335132+00:00] [ORCHESTRATOR] F18-T1 cycle closed — Fear & Greed tab shipped (8th tab: gauge + band-shaded history + 9-row rating heatmap + window presets). 981/981 tests. Client-side Streamlit only — no service restart; SQL already verified live via Flight by executor (1,539 rows). C/D non-blocking notes recorded in EVENTS/STATE (INDICATORS label duplication, NaN gauge on NULL score, MA NaN on short windows, shared-cache clear — all benign).
 
 [2026-09-20T20:57:18.621377+00:00] [executor] claimed F19-T1
+[2026-09-20T21:08:30.199323+00:00] [executor] completed F19-T1 -> F19-T1 SPY overlay on F&G history chart complete. fear_greed_dashboard.py: build_spy_sql(start_date) emits SELECT Date, Close FROM daily_close WHERE Ticker='SPY' AND Date >= start ORDER BY Date; build_history_figure(df, show_ma, spy_df=None) normalizes Date via pd.to_datetime, LEFT-merges SPY Close onto the category date strings (extra SPY dates drop, missing -> NaN gap), adds yaxis=y2 trace color #FF8C00 width 1.5, sets yaxis2 overlaying-y/side-right/title-SPY/showgrid-False AFTER update_yaxes (which would clobber yaxis2's title); None/empty/missing-cols -> identical figure no y2. report_app.py _render_fear_greed_tab: second cached_fetch_dataframe build_spy_sql(min fg date, pre-window-slice), st.checkbox Overlay SPY price value=True key=fg_spy, window-sliced SPY passed only when checked, fetch None/empty -> st.caption + tab still renders. Tests: test_fear_greed_dashboard +7 (SQL shape incl. seeded-DuckDB exec, y2 trace/color/axis, inner-align drop+gap, MA coexist, None/empty clean), test_report_app +3 (checkbox wiring incl. unchecked, fetch-None and fetch-empty caption paths) + updated render test for 2-fetch path. pytest tests/ -q -> 991 passed (baseline 981, +10). check_loops --src-dir src clean (14 files). README.md == docs/README.md byte-identical (cmp) with one overlay clause added to the F&G features bullet in both. --verify F19-T1 -> ALL PASS.
+Evidence map:
+[
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

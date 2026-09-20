@@ -57,7 +57,9 @@ Relative Rotation (RRG), then Fear & Greed:
   turn lazy-imports ``plotly``): a headline 0-100 gauge with the five
   rating bands and a delta vs the previous trading day, an
   ``fg_score`` history line over five semi-transparent rating-band
-  zones (optional MA20/MA50 overlay), and a rating heatmap covering
+  zones (optional MA20/MA50 overlay plus an optional SPY close overlay
+  on a secondary right-side axis, inner-joined onto the F&G trading
+  days), and a rating heatmap covering
   the nine ``*_rating`` sub-indicator columns (ordinal-mapped cells,
   raw value + rating in the hover).  A window radio slices the frame
   post-query in pandas — ``1M/3M/6M/YTD/1Y/2Y/Max``, default ``1Y``;
@@ -2127,10 +2129,12 @@ def _render_fear_greed_tab(st, config: PipelineConfig) -> None:
     All SQL / window slicing / figure construction lives in
     ``scripts/fear_greed_dashboard.py`` (imported lazily — it in turn
     lazy-imports ``plotly`` inside the figure builders, so this module
-    stays importable without plotly).  The single query goes through
-    :func:`cached_fetch_dataframe` like every other tab; the window
-    preset slices the fetched frame post-query in pandas via
-    ``filter_window``.
+    stays importable without plotly).  Both queries — the F&G history
+    and the SPY closes for the history chart's secondary-axis overlay
+    (F19-T1) — go through :func:`cached_fetch_dataframe` like every
+    other tab; the window preset slices the fetched frames post-query
+    in pandas via ``filter_window`` / a date-bounds slice.  A failed or
+    empty SPY fetch degrades to a caption — it never breaks the tab.
     """
     import fear_greed_dashboard
 
@@ -2166,6 +2170,17 @@ def _render_fear_greed_tab(st, config: PipelineConfig) -> None:
         return
 
     df = fear_greed_dashboard.normalize_dates(df)
+
+    # Second fetch — SPY closes from the earliest F&G date onward, so
+    # the frame covers the "Max" window and every preset can slice it
+    # post-query (fetched BEFORE the window slice below).  A failed or
+    # empty SPY fetch degrades to a caption near the history chart.
+    spy_df = cached_fetch_dataframe(
+        st,
+        fear_greed_dashboard.build_spy_sql(df["date"].min()),
+        config,
+    )
+
     df = fear_greed_dashboard.filter_window(df, window)
     if df.empty:
         st.error(
@@ -2206,8 +2221,33 @@ def _render_fear_greed_tab(st, config: PipelineConfig) -> None:
     st.caption(" · ".join(parts))
 
     show_ma = st.checkbox("Show MA20/MA50", value=False, key="fg_ma")
+    overlay_spy = st.checkbox(
+        "Overlay SPY price", value=True, key="fg_spy"
+    )
+    spy_window = None
+    if (
+        spy_df is None
+        or spy_df.empty
+        or not {"Date", "Close"} <= set(spy_df.columns)
+    ):
+        st.caption(
+            "SPY overlay unavailable — no SPY daily_close rows "
+            "returned for the Fear & Greed date range."
+        )
+    elif overlay_spy:
+        # Window-slice SPY to the history chart's window (the fetch
+        # covered the full F&G range).  ``Date`` arrives object-dtype
+        # via Flight — normalize before the bounds comparison.
+        spy_window = spy_df.copy()
+        spy_window["Date"] = pd.to_datetime(spy_window["Date"])
+        spy_window = spy_window[
+            (spy_window["Date"] >= df["date"].min())
+            & (spy_window["Date"] <= df["date"].max())
+        ]
     st.plotly_chart(
-        fear_greed_dashboard.build_history_figure(df, show_ma),
+        fear_greed_dashboard.build_history_figure(
+            df, show_ma, spy_df=spy_window
+        ),
         width="stretch",
     )
     st.plotly_chart(
