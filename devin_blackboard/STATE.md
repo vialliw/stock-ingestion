@@ -479,3 +479,5 @@ efresh_fear_greed.py %*`). `requirements.txt` + `requests>=2.31`.
 ## F24-T1+T2 — signal pipeline migration — DEPLOYED (2026-09-22)
 - Flight Server restarted; schema v7 live; `signal_pipeline` action verified E2E via scripts/orchestrator.py (SUCCESS, 51ms, 8 steps; NO_FILES since no `*_active_signal_combined.xlsx` currently in folder — correct).
 - Non-blocking notes carried forward: (n1 LOW) Drift_Warning `.strip()` deviation; (n2 LOW) non-numeric strings coerce to NULL vs legacy raise; (n3 LOW) missing_tickers uses untrimmed Ticker (verbatim legacy); (n4 LOW) delay_s-style validators share the non-finite gap harmlessly.
+
+- Live smoke on real sample files (version_p, 30d backdate): SUCCESS 7.65s — 1572 ingested, 293 deduped, 163 NULL Closes repaired (GIS 09-10 unmatched), 1120 pruned -> 159 remaining, 71 perf rows. Pipeline is live and correct on production data.
