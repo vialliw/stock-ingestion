@@ -2737,4 +2737,4 @@ Evidence map:
     "passed": true,
     "output": ""
   }
-]
+][2026-09-22T15:17:06+00:00] [executor] F24-T2 done (commit 98eeb90) -> Challenger F1 MODERATE closed: math.isfinite() guards added to min_reward_risk + min_target_pct validators in src/flight_server.py signal_pipeline action (import math added; bool/type checks preserved; NaN/Infinity/-Infinity -> FlightServerError "must be a finite number"). delay_s validators deliberately untouched (harmless, out of scope). tests/test_flight_server.py TestSignalPipelineAction +13: test_non_finite_thresholds_raise (2 params x NaN/Inf/-Inf via json round-trip -> FlightServerError, engine not called), test_finite_thresholds_accepted (0.0/1.39/int 5 forwarded verbatim), test_non_finite_threshold_over_wire (literal NaN token over real gRPC -> FlightError). Gates: pytest 1141/1141 (1128 baseline +13), check_loops --src-dir src exit 0 (15 files), git status clean (only output_files + blackboard modified). --verify ALL PASS (3 ACs).
