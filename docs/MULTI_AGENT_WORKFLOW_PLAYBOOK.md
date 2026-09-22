@@ -184,7 +184,9 @@ see nothing of your session):
   the code.
 - **Live smoke catches what unit tests can't** — run a real end-to-end check
   after the C/D verdict (this project's live smoke caught a dtype bug all
-  787 tests missed). Deployment is an orchestrator duty, after the cycle.
+  787 tests missed; later smokes caught an unguarded `LN` crashing on newly
+  loaded data, a stale running server, and an API retention boundary no spec
+  predicted). Deployment is an orchestrator duty, after the cycle.
 - **Single pass, then report** — subagents must not background-poll; the
   orchestrator re-spawns them. Polling loops inside subagents just burn
   tokens and queue messages.
@@ -195,6 +197,28 @@ see nothing of your session):
   is fine; decide per task.
 - **Keep the blackboard in git** — commits are the durability + ordering
   mechanism; every state mutation is a commit.
+- **Shell hygiene for agents** — `python -c` strings with backticks or
+  `>`-adjacent quoting produced stray files (`=`, `nul`); `2>nul` under
+  Git Bash writes a literal file named `nul` that then broke the poll
+  script's `git add -A` commit. Have agents write helper scripts to
+  `%TEMP%`/tmp `.py` files instead of heavy inline `-c` quoting, and have
+  reviewers check `git status` for strays.
+- **Worktree sweeps** — the poll script's `git add -A` sweeps pre-existing
+  uncommitted changes into the cycle's commits (a doc rename rode in on an
+  executor commit here). Start each task on a clean tree and have reviewers
+  audit `git show --stat` for out-of-scope files.
+- **TASKS.json schema drift** — an entry registered with the wrong schema
+  (`task_id` vs `id`, missing `assigned_to`, `pending` vs `todo`) crashed
+  `find_task`/`cmd_claim` mid-cycle; the executor had to normalize it.
+  Copy a recent entry verbatim when registering.
+- **Match reviewer profile to the job** — the read-only explore profile
+  can't run pytest/git; challengers and critics that must execute probes
+  need a write-capable profile (`subagent_general`), or log the limitation
+  of a static-only review.
+- **Route moderate findings back through the loop** — a challenger flagged
+  a residual correctness bug post-approval; the fix pattern is a narrow
+  follow-up task through the same B→C→D cycle (here: F23-T2), not an
+  out-of-band patch.
 
 ## 8. Optional quality gate — loop checker
 

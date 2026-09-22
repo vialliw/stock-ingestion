@@ -98,6 +98,15 @@ PK `(Date, Ticker)`. ~10-year history (config `initial_load_years`).
 > point-in-time share count for market cap. If your use case needs raw
 > prices, flag it to the pipeline owner before building on `Close`.
 
+> **Non-equity series:** `daily_close` also holds non-equity series —
+> `^TNX`, `CL=F` and `^IRX` (macro series added for the Correlation
+> dashboard). `Close` is a yield percent for the `^` indices and
+> USD/bbl for `CL=F` — not a share price. Calendars are ragged
+> (`CL=F` prints on equity-market holidays; partial-day index rows
+> can be absent) and non-positive closes exist (`CL=F` Apr-2020
+> negative, `^IRX` ~0% in Mar-2020) — inner-align on `Date` when
+> combining tickers and do not assume `Close > 0`.
+
 ### 3.2 `weekly_close` — weekly OHLCV derived from `daily_close`
 
 Same columns/types/PK as `daily_close`, but `Date` is the **nominal
@@ -124,6 +133,10 @@ PK `(Date, Ticker)`, `Date` on the same Friday basis as
 
 Early rows have NULLs during window warmup (13/19/25/39-week windows)
 — legacy-identical behavior; filter with `IS NOT NULL` as needed.
+`Log_Close_EMA18`/`Log_Close_EMA40` are additionally NULL wherever
+`Close/EMA <= 0` (non-positive closes like the `CL=F` Apr-2020
+negative print, or a negative EMA window) — the guarded `LN` writes
+NULL instead of failing the rebuild.
 
 ### 3.4 `company_metadata` — per-ticker reference data
 

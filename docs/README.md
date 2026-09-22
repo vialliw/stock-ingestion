@@ -745,6 +745,8 @@ The DuckDB database contains eight tables:
 
 Primary key: `(Date, Ticker)` — upsert semantics on conflict.
 
+Non-equity series can live here too: `^TNX`, `CL=F` and `^IRX` (the macro series for the Correlation tab) share the table — `Close` is a yield percent for the `^` indices and USD/bbl for `CL=F`, not a share price. Trading calendars differ by series (`CL=F` prints on equity-market holidays; partial-day index rows can be absent) and non-positive closes exist (`CL=F` Apr-2020 negative, `^IRX` ~0% in Mar-2020) — consumers combining tickers should inner-align on `Date` and not assume `Close > 0`.
+
 ### `splits_processed` (split adjustment tracking)
 
 | Column | Type | Description |
@@ -818,7 +820,7 @@ Rebuilt from `daily_close` by `rebuild_weekly_close()` (`INSERT ... ON CONFLICT 
 | `Log_Close_EMA18` | DOUBLE | `LN(Close / EMA18)` (18-week mean) |
 | `Log_Close_EMA40` | DOUBLE | `LN(Close / EMA40)` (40-week mean) |
 
-Rebuilt from `weekly_close` by `rebuild_weekly_indicators()` (`INSERT OR REPLACE` over the legacy `update_weekly_indicators_01` CTE chain — the `_01` column set under the base name).
+Rebuilt from `weekly_close` by `rebuild_weekly_indicators()` (`INSERT OR REPLACE` over the legacy `update_weekly_indicators_01` CTE chain — the `_01` column set under the base name). `Log_Close_EMA18`/`Log_Close_EMA40` are NULL where `Close/EMA <= 0` (a non-positive close, or a negative EMA window such as the `CL=F` Apr-2020 stretch) — the guarded `LN` writes NULL instead of failing the rebuild (F22-T2).
 
 ### `fear_greed_history` (CNN Fear & Greed index)
 
@@ -985,6 +987,14 @@ These issues were identified during review but are non-blocking. They may be add
 11. **Scheduler timezone validation** — invalid timezone strings crash on `scheduler.start()` instead of being caught earlier.
 12. **do_put read_all** — uses `reader.read_all()` instead of `pyarrow.Table.from_batches()` (functionally equivalent).
 13. **health_check column swap** — `get_health_info()` swaps `schema_version` and `last_run` columns, causing JSON serialization issues in some cases.
+14. **`do_get` `WITH…INSERT` gap** — the prefix validator passes any `WITH`-led statement; DML is rejected only by the read-only transaction fallback — the protection is incidental, not by-design (the challenger impl's `_FORBIDDEN_RE` closes it).
+15. **`do_put` ignores `descriptor`** — uploads are hardcoded to `daily_close` regardless of the flight descriptor path.
+16. **Macro tickers share `daily_close`** — `^TNX`/`CL=F`/`^IRX` join breadth denominators (3/~1213, negligible) and `CL=F`'s large notional can surface in dollar-volume rankings.
+17. **Correlation tab residuals** — the coverage warning is computed on full history, so it can fire when the differing range lies outside the selected window preset; a degenerate-Y scatter draws a slope-0 trendline under "corr n/a"; rolling `window=1` renders an all-NaN line (unreachable via the UI minimum of 10).
+18. **F&G guide legend wording** — says "Red / dark red" for fear though the band renders orange `#ff7f0e` (inherited from the source doc).
+19. **`pending_session` WARN is expected** — `data_health` warns while today's session is still open; it self-resolves after close.
+20. **`INDICATORS`/`FEAR_GREED_SUB_INDICATORS` drift risk** — the heatmap's label list duplicates the ingestion constant; a future rename produces a silent all-gap heatmap row, not a mislabel.
+21. **RRG Custom benchmark not normalized** — a lowercase `spy` errors rather than uppercasing (pre-existing preset behavior).
 
 ---
 
