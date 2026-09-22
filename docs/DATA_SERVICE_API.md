@@ -6,7 +6,7 @@ This document is the complete contract: endpoint, query protocol,
 schema, semantics, and caveats. You do not need the rest of this repo —
 only `pyarrow` and this page.
 
-**Version:** schema v6 / service live as of 2026-09-20.
+**Version:** schema v7 / service live as of 2026-09-22.
 
 ---
 
@@ -177,10 +177,53 @@ once against the undated `graphdata` URL (rolling ~1 year) and reports
 Timeouts/connection errors do not fall back (same host), and a failing
 retry surfaces as `FAILED`.
 
-### 3.6 Audit/internal tables (available but not a stable contract)
+### 3.6 `signal_records` — ingested trading signals
+
+One row per signal row ingested from `*_active_signal_combined.xlsx`
+files (written by the `signal_pipeline` action — see §4). NUMERIC
+types are verbatim from the legacy `signals.duckdb` schema.
+
+| Column | Type | Notes |
+|---|---|---|
+| `Signal_File` `Model` `Ticker` | VARCHAR | source file name, model name, symbol |
+| `Trading_Date` | DATE | signal date |
+| `Open` `High` `Low` `Close` `Hist_WinRate` `ATR` `best_k` `Target` `Current_Price` `Stop_Price` `Target_Percent` `Stop_Percent` `Reward_Risk_Ratio` `Centroid_Dist` | NUMERIC(12,2) | NULL `Close` rows are repaired from `daily_close` during the pipeline run |
+| `Cluster` | NUMERIC(1,0) | cluster id 0–5 (see `cluster_metadata`) |
+| `Shares_to_buy` `Max_Drawdown` | NUMERIC(5,0) | position sizing / worst historical drawdown |
+| `Drift_Warning` | BOOLEAN | feature-drift flag |
+
+PK `(Ticker, Trading_Date, Cluster, Model, Signal_File)` — re-ingesting
+the same file is a no-op. A dedupe step keeps only the latest
+`Signal_File` per `(Trading_Date, Model, Ticker)`, and a prune step
+deletes rows failing the configured thresholds.
+
+### 3.7 `signal_performance` — forward-return outcome per signal
+
+PK `(Ticker, Trading_Date, Cluster, Model, Signal_File)` — one row per
+evaluated signal, computed from `daily_close` prices strictly after
+`Trading_Date`:
+
+| Column | Type | Notes |
+|---|---|---|
+| `Hit_Target_Date` / `Hit_Target_T` | DATE / INTEGER | first forward day with `Close >= Target` |
+| `Hit_Stop_Date` / `Hit_Stop_T` | DATE / INTEGER | first forward day with `Close <= Stop_Price` |
+| `Time_Exit_Close` | NUMERIC(12,2) | window-end close when neither hit (and `total_forward_days >= max_holding_days`) |
+| `T` | INTEGER | `LEAST` of the hit Ts when both occur, else the single hit T, else `max_holding_days` |
+
+Signals without enough forward days (no hit AND
+`total_forward_days < max_holding_days`) are skipped entirely.
+`signals.overwrite_existing` selects `INSERT OR REPLACE` vs
+`INSERT ... ON CONFLICT DO NOTHING` on re-runs.
+
+### 3.8 `cluster_metadata` — cluster id lookup
+
+`Cluster` INTEGER PK, `Description` VARCHAR; 6 rows (0–5), refreshed
+verbatim on every `signal_pipeline` run.
+
+### 3.9 Audit/internal tables (available but not a stable contract)
 
 `ingestion_runs` (run log), `splits_processed` (split-repair
-bookkeeping), `schema_version` (migration markers — current `6`).
+bookkeeping), `schema_version` (migration markers — current `7`).
 
 ---
 
@@ -199,6 +242,7 @@ result rows. Payloads are optional JSON objects unless noted.
 | `metadata_load` | `{tickers?: [str], refresh?: bool, delay_s?: num≥0, max_tickers?: int≥1}` | `{status: SUCCESS\|PARTIAL\|ABORTED, ...}` | `company_metadata` backfill (write, yfinance-paced) |
 | `weekly_refresh` | — (empty) | `{status: SUCCESS\|FAILED, weekly_close_rows, weekly_indicators_rows, duration_ms}` | Rebuild both weekly tables (write, pure SQL ~17 s) |
 | `fear_greed_refresh` | `{start_date?: "YYYY-MM-DD"}` | `{status: SUCCESS\|FAILED, rows_upserted, latest_date, fg_score, fg_rating, alert_triggered, alert_detail, missing_series, fetched_url, start_date_fallback, duration_ms}` | CNN Fear & Greed fetch + `fear_greed_history` upsert (write); HTTPError on the dated URL retries once on the undated URL (~6y retention floor — see §3.5) |
+| `signal_pipeline` | `{folder_path?: str, backdate_days?: int≥1, max_holding_days?: int≥1, overwrite_existing?: bool, min_reward_risk?: num, min_target_pct?: num, exclude_clusters?: [int], exclude_models?: [str], filter_below_open?: bool}` — all optional, each overrides the `signals:` config | `{status: SUCCESS\|FAILED, steps: {ingest, dedupe, repair, prune, performance, repair_sweep, null_verification, cluster_metadata}, duration_ms}` | Six-step signal pipeline server-side (write): ingest xlsx signals → dedupe → repair NULL closes from `daily_close` → prune (thresholds active; pruned rows returned in `steps.prune.pruned_records`, no log file) → `signal_performance` compute → silent repair sweep + NULL verification → `cluster_metadata` refresh |
 | `daily_report` | `{date?: "YYYY-MM-DD"}` | `{status, report}` | Top-20 dollar-volume report (also writes a file server-side) |
 | `get_run_history` | — | `{status, run_history: [...]}` | `ingestion_runs` audit log |
 | `sync_to_r2` | — | R2 sync result | Push DB artifact to Cloudflare R2 |

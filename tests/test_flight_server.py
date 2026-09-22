@@ -1113,3 +1113,264 @@ class TestWeeklyRefreshAction:
         assert data["status"] == "SUCCESS"
         assert data["weekly_close_rows"] == 7
         ingest_engine.run_weekly_refresh.assert_called_once_with()
+
+
+# =====================================================================
+# F24-T1: signal_pipeline action (executor module only — the challenger
+# variant is out of scope for F24, so these tests do NOT use the
+# parametrized ``module``/``wire_server`` fixtures)
+# =====================================================================
+
+_executor_module = importlib.import_module("src.flight_server")
+
+
+def _signal_pipeline_result(**overrides):
+    result = {
+        "status": "SUCCESS",
+        "steps": {
+            "ingest": {"status": "SUCCESS", "inserted": 2},
+            "dedupe": {"deleted": 0},
+            "repair": {"repaired": 0, "still_null": 0},
+            "prune": {"pruned_count": 1, "remaining": 1},
+            "performance": {"rows_processed": 1},
+            "repair_sweep": {"repaired": 0},
+            "null_verification": {"null_close_remaining": 0},
+            "cluster_metadata": {"rows": 6},
+        },
+        "duration_ms": 12,
+    }
+    result.update(overrides)
+    return result
+
+
+class TestSignalPipelineAction:
+    """The ``signal_pipeline`` action routes to
+    engine.run_signal_pipeline with validated payload overrides."""
+
+    def _server(self):
+        return make_server(_executor_module)
+
+    def test_signal_pipeline_success_no_overrides(self):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        ingest_engine.run_signal_pipeline.return_value = (
+            _signal_pipeline_result()
+        )
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("signal_pipeline"))
+        )
+        assert data["status"] == "SUCCESS"
+        assert data["steps"]["ingest"]["inserted"] == 2
+        assert data["steps"]["cluster_metadata"]["rows"] == 6
+        # Empty payload -> engine is called with no overrides (config
+        # defaults apply).
+        ingest_engine.run_signal_pipeline.assert_called_once_with()
+
+    def test_signal_pipeline_forwards_overrides(self):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        ingest_engine.run_signal_pipeline.return_value = (
+            _signal_pipeline_result()
+        )
+        payload = {
+            "folder_path": r"C:\tmp\signals",
+            "backdate_days": 5,
+            "max_holding_days": 10,
+            "overwrite_existing": False,
+            "min_reward_risk": 2.0,
+            "min_target_pct": 8.0,
+            "exclude_clusters": [0, 4],
+            "exclude_models": ["XRT"],
+            "filter_below_open": True,
+        }
+        data = parse_result(
+            server.do_action(
+                MagicMock(), make_action("signal_pipeline", payload)
+            )
+        )
+        assert data["status"] == "SUCCESS"
+        ingest_engine.run_signal_pipeline.assert_called_once_with(
+            **payload
+        )
+
+    def test_signal_pipeline_engine_failure_returns_failed(self):
+        """Engine exceptions surface as status=FAILED (weekly_refresh
+        precedent), not a transport error."""
+        server, db_mgr, ingest_engine, cfg = self._server()
+        ingest_engine.run_signal_pipeline.side_effect = RuntimeError(
+            "pipeline boom"
+        )
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("signal_pipeline"))
+        )
+        assert data["status"] == "FAILED"
+        assert "pipeline boom" in data["error"]
+
+    @pytest.mark.parametrize("bad", ["3", 2.5, True, 0, -1])
+    def test_invalid_backdate_days_raises(self, bad):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(),
+                make_action("signal_pipeline", {"backdate_days": bad}),
+            )
+        ingest_engine.run_signal_pipeline.assert_not_called()
+
+    @pytest.mark.parametrize("bad", ["8", 2.5, True, 0, -3])
+    def test_invalid_max_holding_days_raises(self, bad):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(),
+                make_action(
+                    "signal_pipeline", {"max_holding_days": bad}
+                ),
+            )
+        ingest_engine.run_signal_pipeline.assert_not_called()
+
+    @pytest.mark.parametrize("bad", ["yes", 1, 0])
+    def test_invalid_overwrite_existing_raises(self, bad):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(),
+                make_action(
+                    "signal_pipeline", {"overwrite_existing": bad}
+                ),
+            )
+        ingest_engine.run_signal_pipeline.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "key", ["min_reward_risk", "min_target_pct"]
+    )
+    @pytest.mark.parametrize("bad", ["high", True, [1.0]])
+    def test_invalid_thresholds_raise(self, key, bad):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(), make_action("signal_pipeline", {key: bad})
+            )
+        ingest_engine.run_signal_pipeline.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "bad", [0, "4", [True], ["a"], {"c": 4}]
+    )
+    def test_invalid_exclude_clusters_raises(self, bad):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(),
+                make_action(
+                    "signal_pipeline", {"exclude_clusters": bad}
+                ),
+            )
+        ingest_engine.run_signal_pipeline.assert_not_called()
+
+    @pytest.mark.parametrize("bad", ["XRT", [1, 2], {"m": "X"}])
+    def test_invalid_exclude_models_raises(self, bad):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(),
+                make_action("signal_pipeline", {"exclude_models": bad}),
+            )
+        ingest_engine.run_signal_pipeline.assert_not_called()
+
+    @pytest.mark.parametrize("bad", ["yes", 1])
+    def test_invalid_filter_below_open_raises(self, bad):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(),
+                make_action(
+                    "signal_pipeline", {"filter_below_open": bad}
+                ),
+            )
+        ingest_engine.run_signal_pipeline.assert_not_called()
+
+    @pytest.mark.parametrize("bad", ["", "   ", 123, ["x"]])
+    def test_invalid_folder_path_raises(self, bad):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(),
+                make_action("signal_pipeline", {"folder_path": bad}),
+            )
+        ingest_engine.run_signal_pipeline.assert_not_called()
+
+    def _wire_server(self):
+        """Spin up the executor server on an ephemeral port + real client.
+
+        Returns ``(server, client, db_mgr, ingest_engine, cfg, thread)``;
+        callers must shut down in a finally block (see tests below).
+        """
+        db_mgr = MagicMock()
+        ingest_engine = MagicMock()
+        cfg = MagicMock()
+        cfg.ingestion.daily_lookback_days = 4
+        cfg.reports.report_dir = "/tmp/test_reports"
+        location = _ephemeral_location()
+        server = _executor_module.MarketDataFlightServer(
+            location, db_mgr, ingest_engine, cfg
+        )
+        thread = threading.Thread(target=server.serve, daemon=True)
+        thread.start()
+        client = flight.FlightClient(location)
+        client.wait_for_available(timeout=10)
+        return server, client, db_mgr, ingest_engine, cfg, thread
+
+    def test_signal_pipeline_over_wire(self):
+        """Real gRPC: the action returns one parseable JSON Result."""
+        server, client, db_mgr, ingest_engine, cfg, thread = (
+            self._wire_server()
+        )
+        ingest_engine.run_signal_pipeline.return_value = (
+            _signal_pipeline_result()
+        )
+        try:
+            results = list(
+                client.do_action(
+                    flight.Action(
+                        "signal_pipeline",
+                        json.dumps({"backdate_days": 7}).encode("utf-8"),
+                    )
+                )
+            )
+            assert len(results) == 1
+            data = json.loads(
+                results[0].body.to_pybytes().decode("utf-8")
+            )
+            assert data["status"] == "SUCCESS"
+            ingest_engine.run_signal_pipeline.assert_called_once_with(
+                backdate_days=7
+            )
+        finally:
+            try:
+                server.shutdown()
+            except Exception:
+                pass
+            try:
+                thread.join(timeout=2)
+            except Exception:
+                pass
+
+    def test_signal_pipeline_validation_error_over_wire(self):
+        """Bad payload -> FlightServerError propagates to the client."""
+        server, client, db_mgr, ingest_engine, cfg, thread = (
+            self._wire_server()
+        )
+        try:
+            action = flight.Action(
+                "signal_pipeline",
+                json.dumps({"backdate_days": "3"}).encode("utf-8"),
+            )
+            with pytest.raises(flight.FlightError):
+                list(client.do_action(action))
+            ingest_engine.run_signal_pipeline.assert_not_called()
+        finally:
+            try:
+                server.shutdown()
+            except Exception:
+                pass
+            try:
+                thread.join(timeout=2)
+            except Exception:
+                pass

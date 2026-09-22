@@ -217,6 +217,113 @@ class FearGreedConfig(BaseModel):
         return v
 
 
+class SignalsConfig(BaseModel):
+    """Signal-pipeline settings (F24-T1).
+
+    Server-side port of the legacy ``quant_strategy_building/signal_input``
+    orchestrator constants.  ``folder_path`` is the directory scanned for
+    ``*_active_signal_combined.xlsx`` files.  The ``min_reward_risk`` /
+    ``min_target_pct`` prune thresholds stay ACTIVE (legacy 1.39 / 5.5);
+    only the cluster/model exclusion lists default to empty — the
+    orchestrator excludes nothing.
+    """
+
+    folder_path: str = r"C:\Intel\parquet\quant_strategy_building"
+    backdate_days: int = Field(default=3, ge=1)
+    max_holding_days: int = Field(default=8, ge=1)
+    overwrite_existing: bool = True
+    min_reward_risk: float = 1.39
+    min_target_pct: float = 5.5
+    exclude_clusters: List[int] = Field(default_factory=list)
+    exclude_models: List[str] = Field(default_factory=list)
+    filter_below_open: bool = False
+
+    @field_validator(
+        "backdate_days", "max_holding_days", mode="before"
+    )
+    @classmethod
+    def validate_int_days(cls, v, info) -> int:
+        """``None`` falls back to the field default; reject bools —
+        ``ge=1`` would silently accept ``True``."""
+        if v is None:
+            return 3 if info.field_name == "backdate_days" else 8
+        if isinstance(v, bool):
+            raise ValueError(
+                f"{info.field_name} must be an integer >= 1, "
+                f"got bool {v}"
+            )
+        return v
+
+    @field_validator(
+        "min_reward_risk", "min_target_pct", mode="before"
+    )
+    @classmethod
+    def validate_thresholds(cls, v, info):
+        """``None`` falls back to the field default; reject bools —
+        a bool is not a threshold number."""
+        if v is None:
+            return 1.39 if info.field_name == "min_reward_risk" else 5.5
+        if isinstance(v, bool):
+            raise ValueError(
+                f"{info.field_name} must be a number, got bool {v}"
+            )
+        return v
+
+    @field_validator(
+        "overwrite_existing", "filter_below_open", mode="before"
+    )
+    @classmethod
+    def validate_bools(cls, v, info) -> bool:
+        """``None`` falls back to the field default; only real bools
+        are accepted (no string coercion)."""
+        if v is None:
+            return info.field_name == "overwrite_existing"
+        if not isinstance(v, bool):
+            raise ValueError(
+                f"{info.field_name} must be a bool, "
+                f"got {type(v).__name__} {v!r}"
+            )
+        return v
+
+    @field_validator("exclude_clusters", mode="before")
+    @classmethod
+    def validate_exclude_clusters(cls, v) -> List[int]:
+        """``None`` -> ``[]``; every element must be an int (not bool)."""
+        if v is None:
+            return []
+        if not isinstance(v, (list, tuple)):
+            raise ValueError(
+                f"exclude_clusters must be a list, got {type(v).__name__}"
+            )
+        # justified: per-element type validation cannot be vectorized —
+        # we must raise ValueError on the first non-int element.
+        for c in v:
+            if isinstance(c, bool) or not isinstance(c, int):
+                raise ValueError(
+                    f"exclude_clusters elements must be integers, got {c!r}"
+                )
+        return list(v)
+
+    @field_validator("exclude_models", mode="before")
+    @classmethod
+    def validate_exclude_models(cls, v) -> List[str]:
+        """``None`` -> ``[]``; every element must be a string."""
+        if v is None:
+            return []
+        if not isinstance(v, (list, tuple)):
+            raise ValueError(
+                f"exclude_models must be a list, got {type(v).__name__}"
+            )
+        # justified: per-element type validation cannot be vectorized —
+        # we must raise ValueError on the first non-string element.
+        for m in v:
+            if not isinstance(m, str):
+                raise ValueError(
+                    f"exclude_models elements must be strings, got {m!r}"
+                )
+        return list(v)
+
+
 class R2Config(BaseModel):
     """Cloudflare R2 sync settings.
 
@@ -265,6 +372,7 @@ class PipelineConfig(BaseModel):
     r2: R2Config = Field(default_factory=R2Config)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     fear_greed: FearGreedConfig = Field(default_factory=FearGreedConfig)
+    signals: SignalsConfig = Field(default_factory=SignalsConfig)
 
     @property
     def db_path(self) -> str:

@@ -23,7 +23,7 @@ import pyarrow as pa
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # F16-T1: CNN Fear & Greed sub-indicator payload keys — each becomes a
 # ``<key> DOUBLE`` + ``<key>_rating VARCHAR`` column pair on
@@ -186,6 +186,60 @@ class DatabaseManager:
                     ingested_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                 );
             """)
+            # F24-T1: signal-pipeline tables — DDL ported verbatim from
+            # quant_strategy_building/signal_input (NUMERIC types kept to
+            # preserve the legacy rounding semantics).  The signal
+            # pipeline runs server-side via the ``signal_pipeline``
+            # Flight action and joins ``daily_close`` in-database.
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS signal_records (
+                    "Signal_File" VARCHAR,
+                    "Model" VARCHAR,
+                    "Trading_Date" DATE,
+                    "Ticker" VARCHAR,
+                    "Open" NUMERIC(12,2),
+                    "High" NUMERIC(12,2),
+                    "Low" NUMERIC(12,2),
+                    "Close" NUMERIC(12,2),
+                    "Cluster" NUMERIC(1,0),
+                    "Hist_WinRate" NUMERIC(12,2),
+                    "ATR" NUMERIC(12,2),
+                    "best_k" NUMERIC(12,2),
+                    "Target" NUMERIC(12,2),
+                    "Current_Price" NUMERIC(12,2),
+                    "Stop_Price" NUMERIC(12,2),
+                    "Target_Percent" NUMERIC(12,2),
+                    "Stop_Percent" NUMERIC(12,2),
+                    "Reward_Risk_Ratio" NUMERIC(12,2),
+                    "Shares_to_buy" NUMERIC(5,0),
+                    "Max_Drawdown" NUMERIC(5,0),
+                    "Centroid_Dist" NUMERIC(12,2),
+                    "Drift_Warning" BOOLEAN,
+                    PRIMARY KEY (Ticker, Trading_Date, Cluster, Model, Signal_File)
+                );
+            """)
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS signal_performance (
+                    "Ticker" VARCHAR,
+                    "Trading_Date" DATE,
+                    "Cluster" NUMERIC(1,0),
+                    "Model" VARCHAR,
+                    "Signal_File" VARCHAR,
+                    "Hit_Target_Date" DATE,
+                    "Hit_Target_T" INTEGER,
+                    "Hit_Stop_Date" DATE,
+                    "Hit_Stop_T" INTEGER,
+                    "Time_Exit_Close" NUMERIC(12,2),
+                    "T" INTEGER,
+                    PRIMARY KEY (Ticker, Trading_Date, Cluster, Model, Signal_File)
+                );
+            """)
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS cluster_metadata (
+                    Cluster INTEGER PRIMARY KEY,
+                    Description VARCHAR
+                );
+            """)
 
             # Determine current schema version (0 = fresh database).
             try:
@@ -236,6 +290,13 @@ class DatabaseManager:
             if current_version < 6:
                 self.conn.execute(
                     "INSERT INTO schema_version (version) VALUES (?)", [6]
+                )
+
+            # --- v6 -> v7: signal_records + signal_performance +
+            # cluster_metadata (created above; F24-T1) ---
+            if current_version < 7:
+                self.conn.execute(
+                    "INSERT INTO schema_version (version) VALUES (?)", [7]
                 )
 
     # ------------------------------------------------------------------

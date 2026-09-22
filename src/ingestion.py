@@ -21,6 +21,7 @@ import pandas_market_calendars as mcal
 import requests
 import yfinance as yf
 
+from src import signal_pipeline
 from src.config import PipelineConfig
 from src.db import DatabaseManager
 from src.r2_sync import R2SyncManager
@@ -1163,6 +1164,186 @@ class IngestionEngine:
                 "Fear & Greed bridge failed (load unaffected): %s", exc
             )
             return {"status": "FAILED", "error": str(exc)}
+
+    # ------------------------------------------------------------------
+    # Signal pipeline (F24-T1) — server-side port of
+    # quant_strategy_building/signal_input/orchestrator.py __main__
+    # ------------------------------------------------------------------
+
+    def run_signal_pipeline(
+        self,
+        folder_path: Optional[str] = None,
+        backdate_days: Optional[int] = None,
+        max_holding_days: Optional[int] = None,
+        overwrite_existing: Optional[bool] = None,
+        min_reward_risk: Optional[float] = None,
+        min_target_pct: Optional[float] = None,
+        exclude_clusters: Optional[List[int]] = None,
+        exclude_models: Optional[List[str]] = None,
+        filter_below_open: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """Run the six-step signal pipeline on the service DB.
+
+        Reproduces the legacy ``orchestrator.py`` ``__main__`` step
+        order exactly:
+
+        1. ingest — ``*_active_signal_combined.xlsx`` files modified
+           within ``backdate_days`` -> ``signal_records`` (vectorized
+           ``INSERT ... ON CONFLICT DO NOTHING``)
+        2. dedupe — keep the latest ``Signal_File`` per
+           ``(Trading_Date, Model, Ticker)``
+        3. repair — fill NULL ``Close`` from ``daily_close`` (in-DB
+           join; the legacy ``ATTACH``ed price DB is obsolete)
+        4. prune — delete signals failing the OR-filter
+           (``Reward_Risk_Ratio``/``Target_Percent`` thresholds,
+           cluster/model exclusions, optional below-open); the pruned
+           rows are RETURNED (the legacy log file is obsolete)
+        5. performance — forward-return outcomes into
+           ``signal_performance`` (verbatim CTE; ``overwrite_existing``
+           switches ``INSERT OR REPLACE`` vs ``ON CONFLICT DO NOTHING``)
+        6. terminal safeguard — silent repair sweep + NULL-close
+           verification, then ``cluster_metadata`` INSERT OR REPLACE
+
+        Every ``None`` parameter falls back to the ``signals:`` config
+        block; the ``signal_pipeline`` Flight action validates payload
+        overrides before calling this.  Each step's writes run on
+        ``self.db.conn`` under ``self.db._write_lock`` — the same
+        per-statement interleaving model as ``run_daily_load``.
+
+        Returns ``{status, steps: {ingest, dedupe, repair, prune,
+        performance, repair_sweep, null_verification,
+        cluster_metadata}, duration_ms}``.
+        """
+        sig = self.cfg.signals
+        folder_path = folder_path if folder_path is not None else sig.folder_path
+        backdate_days = (
+            backdate_days if backdate_days is not None else sig.backdate_days
+        )
+        max_holding_days = (
+            max_holding_days
+            if max_holding_days is not None
+            else sig.max_holding_days
+        )
+        overwrite_existing = (
+            overwrite_existing
+            if overwrite_existing is not None
+            else sig.overwrite_existing
+        )
+        min_reward_risk = (
+            min_reward_risk
+            if min_reward_risk is not None
+            else sig.min_reward_risk
+        )
+        min_target_pct = (
+            min_target_pct
+            if min_target_pct is not None
+            else sig.min_target_pct
+        )
+        exclude_clusters = (
+            exclude_clusters
+            if exclude_clusters is not None
+            else sig.exclude_clusters
+        )
+        exclude_models = (
+            exclude_models
+            if exclude_models is not None
+            else sig.exclude_models
+        )
+        filter_below_open = (
+            filter_below_open
+            if filter_below_open is not None
+            else sig.filter_below_open
+        )
+
+        start_time = datetime.now()
+        con = self.db.conn
+        steps: Dict[str, Any] = {}
+        logger.info(
+            "Starting signal pipeline (folder=%s, backdate=%dd, "
+            "max_holding=%dd, overwrite=%s, min_rr=%s, "
+            "min_target_pct=%s, exclude_clusters=%s, "
+            "exclude_models=%s, filter_below_open=%s)...",
+            folder_path,
+            backdate_days,
+            max_holding_days,
+            overwrite_existing,
+            min_reward_risk,
+            min_target_pct,
+            exclude_clusters,
+            exclude_models,
+            filter_below_open,
+        )
+
+        # 1. Ingest files into DB
+        with self.db._write_lock:
+            steps["ingest"] = signal_pipeline.ingest_signal_folder(
+                con, folder_path, backdate_days
+            )
+
+        # 2. Deduplicate older runs
+        with self.db._write_lock:
+            steps["dedupe"] = signal_pipeline.delete_older_signal_runs(con)
+
+        # 3. Primary data repair
+        with self.db._write_lock:
+            steps["repair"] = signal_pipeline.repair_missing_close_prices(
+                con
+            )
+
+        # 4. Filter generation metrics
+        with self.db._write_lock:
+            steps["prune"] = signal_pipeline.prune_unwanted_signals(
+                con,
+                min_reward_risk=min_reward_risk,
+                min_target_pct=min_target_pct,
+                exclude_clusters=exclude_clusters,
+                exclude_models=exclude_models,
+                filter_below_open=filter_below_open,
+            )
+
+        # 5. Process performance metrics
+        with self.db._write_lock:
+            steps["performance"] = (
+                signal_pipeline.calculate_and_save_performance(
+                    con,
+                    max_holding_days=max_holding_days,
+                    overwrite_existing=overwrite_existing,
+                )
+            )
+
+        # Terminal integrity safeguard: silent repair sweep + NULL
+        # verification (legacy __main__ lines 189-195)
+        with self.db._write_lock:
+            steps["repair_sweep"] = (
+                signal_pipeline.repair_missing_close_prices(
+                    con, silent=True
+                )
+            )
+            final_nulls = con.execute(
+                "SELECT COUNT(1) FROM signal_records WHERE Close IS NULL"
+            ).fetchone()[0]
+            steps["null_verification"] = {
+                "null_close_remaining": int(final_nulls)
+            }
+            logger.info(
+                "Verification Check: remaining un-repairable NULL "
+                "Close entries: %d",
+                final_nulls,
+            )
+
+        # 6. Finalize meta properties
+        with self.db._write_lock:
+            steps["cluster_metadata"] = (
+                signal_pipeline.setup_cluster_metadata(con)
+            )
+
+        duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+        logger.info("Signal pipeline execution completed successfully.")
+        return {
+            "status": "SUCCESS",
+            "steps": steps,
+            "duration_ms": duration_ms,
+        }
 
     # ------------------------------------------------------------------
     # Entry points

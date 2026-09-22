@@ -3,8 +3,10 @@
 Implements ``MarketDataFlightServer`` per spec §10 (reference
 implementation): a ``flight.FlightServerBase`` subclass that exposes a
 read-only ``do_get`` endpoint (SELECT-only SQL validated before reaching
-DuckDB) and a ``do_action`` endpoint routing four administrative actions
-(initial_load, daily_load, on_request_load, daily_report).
+DuckDB) and a ``do_action`` endpoint routing the administrative actions
+(initial_load, daily_load, on_request_load, metadata_load,
+weekly_refresh, fear_greed_refresh, signal_pipeline, daily_report,
+health_check, data_health, get_run_history, sync_to_r2).
 
 Spec reference: docs/tech_spec/gemini_tech_spec.1.0.2.md §5, §10.
 """
@@ -113,7 +115,7 @@ class MarketDataFlightServer(flight.FlightServerBase):
     ``DatabaseManager.execute_query`` and returns a
     ``flight.RecordBatchStream``.
 
-    ``do_action`` routes four action types to the
+    ``do_action`` routes administrative action types to the
     ``IngestionEngine`` / ``DatabaseManager`` and returns a
     ``flight.Result`` containing a JSON status payload.
     """
@@ -468,6 +470,128 @@ class MarketDataFlightServer(flight.FlightServerBase):
                 )
             except Exception as e:
                 logger.error("fear_greed_refresh failed: %s", e)
+                result = {"status": "FAILED", "error": str(e)}
+            return _ActionResult(json.dumps(result).encode("utf-8"))
+
+        elif action_type == "signal_pipeline":
+            # F24-T1: server-side signal pipeline — ingest xlsx signal
+            # files, dedupe, repair closes from daily_close, prune,
+            # compute signal_performance, populate cluster_metadata.
+            # Optional payload keys override the ``signals:`` config
+            # block; each is validated like the metadata_load
+            # precedent (type/bool checks -> FlightServerError, never
+            # silently coerced).
+            backdate_days = payload.get("backdate_days")
+            if backdate_days is not None and (
+                not isinstance(backdate_days, int)
+                or isinstance(backdate_days, bool)
+                or backdate_days < 1
+            ):
+                raise flight.FlightServerError(
+                    f"backdate_days must be an integer >= 1, "
+                    f"got {backdate_days!r}"
+                )
+            max_holding_days = payload.get("max_holding_days")
+            if max_holding_days is not None and (
+                not isinstance(max_holding_days, int)
+                or isinstance(max_holding_days, bool)
+                or max_holding_days < 1
+            ):
+                raise flight.FlightServerError(
+                    f"max_holding_days must be an integer >= 1, "
+                    f"got {max_holding_days!r}"
+                )
+            overwrite_existing = payload.get("overwrite_existing")
+            if overwrite_existing is not None and not isinstance(
+                overwrite_existing, bool
+            ):
+                raise flight.FlightServerError(
+                    f"overwrite_existing must be a bool, "
+                    f"got {overwrite_existing!r}"
+                )
+            min_reward_risk = payload.get("min_reward_risk")
+            if min_reward_risk is not None and (
+                isinstance(min_reward_risk, bool)
+                or not isinstance(min_reward_risk, (int, float))
+            ):
+                raise flight.FlightServerError(
+                    f"min_reward_risk must be a number, "
+                    f"got {min_reward_risk!r}"
+                )
+            min_target_pct = payload.get("min_target_pct")
+            if min_target_pct is not None and (
+                isinstance(min_target_pct, bool)
+                or not isinstance(min_target_pct, (int, float))
+            ):
+                raise flight.FlightServerError(
+                    f"min_target_pct must be a number, "
+                    f"got {min_target_pct!r}"
+                )
+            exclude_clusters = payload.get("exclude_clusters")
+            if exclude_clusters is not None and not (
+                isinstance(exclude_clusters, list)
+                and all(
+                    isinstance(c, int) and not isinstance(c, bool)
+                    for c in exclude_clusters
+                )
+            ):
+                raise flight.FlightServerError(
+                    f"exclude_clusters must be a list of integers, "
+                    f"got {exclude_clusters!r}"
+                )
+            exclude_models = payload.get("exclude_models")
+            if exclude_models is not None and not (
+                isinstance(exclude_models, list)
+                and all(isinstance(m, str) for m in exclude_models)
+            ):
+                raise flight.FlightServerError(
+                    f"exclude_models must be a list of strings, "
+                    f"got {exclude_models!r}"
+                )
+            filter_below_open = payload.get("filter_below_open")
+            if filter_below_open is not None and not isinstance(
+                filter_below_open, bool
+            ):
+                raise flight.FlightServerError(
+                    f"filter_below_open must be a bool, "
+                    f"got {filter_below_open!r}"
+                )
+            folder_path = payload.get("folder_path")
+            if folder_path is not None and not (
+                isinstance(folder_path, str) and folder_path.strip()
+            ):
+                raise flight.FlightServerError(
+                    f"folder_path must be a non-empty string, "
+                    f"got {folder_path!r}"
+                )
+
+            kwargs = {}
+            if folder_path is not None:
+                kwargs["folder_path"] = folder_path
+            if backdate_days is not None:
+                kwargs["backdate_days"] = backdate_days
+            if max_holding_days is not None:
+                kwargs["max_holding_days"] = max_holding_days
+            if overwrite_existing is not None:
+                kwargs["overwrite_existing"] = overwrite_existing
+            if min_reward_risk is not None:
+                kwargs["min_reward_risk"] = min_reward_risk
+            if min_target_pct is not None:
+                kwargs["min_target_pct"] = min_target_pct
+            if exclude_clusters is not None:
+                kwargs["exclude_clusters"] = exclude_clusters
+            if exclude_models is not None:
+                kwargs["exclude_models"] = exclude_models
+            if filter_below_open is not None:
+                kwargs["filter_below_open"] = filter_below_open
+            try:
+                result = self.engine.run_signal_pipeline(**kwargs)
+            except ValueError as e:
+                raise flight.FlightServerError(str(e)) from e
+            except Exception as e:
+                # Mirrors weekly_refresh — engine failures surface as
+                # status=FAILED in the JSON body, not a transport error.
+                logger.error("signal_pipeline failed: %s", e)
                 result = {"status": "FAILED", "error": str(e)}
             return _ActionResult(json.dumps(result).encode("utf-8"))
 

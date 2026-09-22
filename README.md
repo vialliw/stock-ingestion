@@ -98,13 +98,14 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 
 - **`do_get`** — read-only SQL queries returning Arrow record batches. SELECT/WITH statements only. Configurable query timeout (default 120s, no row limit).
 - **`do_put`** — accepts external Arrow record batches matching the `daily_close` schema (7 columns), validates schema, filters excluded tickers, and upserts in a single vectorized operation.
-- **`do_action`** — eleven administrative actions:
+- **`do_action`** — twelve administrative actions:
   - `initial_load` — run the initial historical load. Depth = `ingestion.initial_load_years` (default 6); an explicit `years` key in the action payload overrides it. `years` must be an integer in `[1, 30]` (bool/non-int rejected); invalid values raise `ValueError` in the engine and surface as a `FlightServerError` — never a silent empty download.
   - `daily_load` — run today's incremental load.
   - `on_request_load` — load a custom date range for specified tickers.
   - `metadata_load` — backfill `company_metadata` from `yf.Ticker(t).info` (see [Company Metadata](#company-metadata)). Payload: `tickers` (list of strings, optional — defaults to all configured tickers), `refresh` (bool, default `false` — `true` re-fetches even present tickers), `delay_s` (number ≥ 0, default 0.5 — pacing between `.info` calls), `max_tickers` (integer ≥ 1, optional cap). Returns `SUCCESS` (no failures), `PARTIAL` (some `tickers_failed`), or `ABORTED` (circuit breaker tripped).
   - `weekly_refresh` — rebuild `weekly_close` and `weekly_indicators` from `daily_close` (see [Weekly Layer](#weekly-layer)). No payload required. Returns `SUCCESS` with row counts, or `FAILED` with an `error` field — the daily tables are unaffected.
   - `fear_greed_refresh` — fetch CNN's Fear & Greed payload and upsert `fear_greed_history` (see [CNN Fear & Greed Index](#cnn-fear--greed-index)). Payload is optional; `start_date` (`YYYY-MM-DD`) overrides the configured backfill horizon — a malformed value raises `FlightServerError`. Returns `SUCCESS` with `rows_upserted`/`latest_date`/`fg_score`/`fg_rating`/`alert_triggered`/`missing_series`/`fetched_url`/`start_date_fallback`, or `FAILED` with an `error` field.
+  - `signal_pipeline` — run the six-step signal pipeline server-side (see [Signal Pipeline](#signal-pipeline)). Payload is optional; every key overrides the `signals:` config block and is validated (`backdate_days`/`max_holding_days` int ≥ 1, `overwrite_existing`/`filter_below_open` bool, `min_reward_risk`/`min_target_pct` number, `exclude_clusters` list of ints, `exclude_models` list of strings, `folder_path` non-empty string — invalid values raise `FlightServerError`). Returns `{status, steps: {ingest, dedupe, repair, prune, performance, repair_sweep, null_verification, cluster_metadata}, duration_ms}`.
   - `daily_report` — generate a top-20 dollar-volume report as JSON.
   - `health_check` — return server uptime, DB status, ticker count, row count, schema version.
   - `data_health` — run the full `daily_close` data-health report (see [Data Health Checks](#data-health-checks)).
@@ -236,6 +237,22 @@ python scripts/refresh_fear_greed.py 2020-08-01   # explicit backfill horizon
 
 `scripts/refresh_fear_greed.bat` is the double-clickable Windows wrapper.
 
+### Signal Pipeline
+
+The legacy `quant_strategy_building/signal_input/` orchestrator is ported server-side into the Flight service (schema v7 adds three tables to `stock_ingestion.duckdb`). Because the server holds the exclusive write lock on the DB file, the whole pipeline runs **inside** the service via the `signal_pipeline` action — and repair/performance steps join `daily_close` in-database (no `ATTACH`, no separate `signals.duckdb` / price-DB file, no pruned-signals log file — pruned rows come back in the action's JSON result).
+
+- **`signal_records`** — one row per signal: `Signal_File`, `Model`, `Trading_Date`, `Ticker`, OHLC + `Cluster`, `Hist_WinRate`, `ATR`, `best_k`, `Target`, `Current_Price`, `Stop_Price`, `Target_Percent`, `Stop_Percent`, `Reward_Risk_Ratio`, `Shares_to_buy`, `Max_Drawdown`, `Centroid_Dist`, `Drift_Warning` (NUMERIC types kept verbatim from legacy). PK `(Ticker, Trading_Date, Cluster, Model, Signal_File)`.
+- **`signal_performance`** — forward-return outcome per signal: `Hit_Target_Date`/`Hit_Target_T`, `Hit_Stop_Date`/`Hit_Stop_T`, `Time_Exit_Close`, `T`. PK same as `signal_records`. First-hit semantics over a `holding_t <= max_holding_days` window of prices strictly after the signal date; `LEAST` resolves days where both target and stop hit; a signal with neither hit is written only when `total_forward_days >= max_holding_days` (time-exit), so signals with insufficient forward history are skipped.
+- **`cluster_metadata`** — 6-row lookup (`Cluster` PK, `Description`), INSERT OR REPLACE'd verbatim on every run.
+
+Step order (identical to the legacy `__main__`): **ingest** (`*_active_signal_combined.xlsx` modified within `backdate_days`, header-validated, vectorized `INSERT ... ON CONFLICT DO NOTHING`) → **dedupe** (keep latest `Signal_File` per `Trading_Date,Model,Ticker`) → **repair** (fill NULL `Close` from `daily_close`) → **prune** (OR-filter: `Reward_Risk_Ratio`/`Target_Percent` thresholds + cluster/model exclusion lists + optional below-open) → **performance** → **silent repair sweep + NULL-close verification** → **cluster_metadata**. Each step's summary lands under `steps.<name>` in the result.
+
+- **On demand** — the `signal_pipeline` Flight action (empty payload uses the `signals:` config) or the CLI:
+
+```bash
+python scripts/orchestrator.py
+```
+
 ---
 
 ## Project Structure
@@ -250,6 +267,7 @@ stock-ingestion/
 │   ├── ingestion.py           # IngestionEngine — yfinance download + split adjustment
 │   ├── flight_server.py       # MarketDataFlightServer — Arrow Flight do_get/do_put/do_action
 │   ├── r2_sync.py             # R2SyncManager — Cloudflare R2 DuckDB file upload
+│   ├── signal_pipeline.py     # Signal pipeline — six ported steps on the service DuckDB conn
 │   ├── scheduler.py           # PipelineScheduler — APScheduler daily load
 │   ├── scheduler_main.py      # Standalone scheduler entrypoint
 │   ├── main.py                # Flight server entrypoint
@@ -284,6 +302,7 @@ stock-ingestion/
 │   ├── test_scheduler.py
 │   ├── test_store_csv.py
 │   ├── test_fear_greed.py      # CNN Fear & Greed: parse/resilience, upsert, bridge, action, config
+│   ├── test_signal_pipeline.py # Signal pipeline: schema v7, ingest/dedupe/repair/prune/perf/metadata
 │   └── test_weekly.py          # Weekly layer: Friday keys, OHLCV agg, indicators, bridge
 ├── scripts/
 │   ├── breadth_dashboard.bat   # Double-click wrapper for breadth_dashboard.py
@@ -298,6 +317,7 @@ stock-ingestion/
 │   ├── data_health_verify.bat  # Double-click wrapper for data_health_verify.py
 │   ├── data_health_verify.py   # Probes flagged gaps vs yfinance: download_gap vs halt_or_suspension
 │   ├── load_company_metadata.py   # company_metadata backfill via the metadata_load Flight action
+│   ├── orchestrator.py         # Signal-pipeline run via the signal_pipeline Flight action
 │   ├── poll_tasks.py           # Multi-agent task lifecycle manager
 │   ├── pre_commit_check_loops.py  # Pre-commit hook wrapper
 │   ├── register_daily_task.ps1 # schtasks registration (timezone conversion, idempotent)
@@ -417,6 +437,17 @@ fear_greed:
   start_date: "2020-08-01"    # backfill horizon — CNN retains only ~6y; older dates fall back to the undated URL
   timeout_seconds: 15         # HTTP GET timeout (must be > 0)
   alert_threshold: 25.0       # alert_triggered when latest fg_score <= this (0-100)
+
+signals:
+  folder_path: "C:\Intel\parquet\quant_strategy_building"  # dir scanned for *_active_signal_combined.xlsx
+  backdate_days: 3            # only files modified within this window are ingested
+  max_holding_days: 8         # forward-looking performance window (holding_t cap)
+  overwrite_existing: true    # signal_performance: INSERT OR REPLACE (false = ON CONFLICT DO NOTHING)
+  min_reward_risk: 1.39       # prune threshold — ACTIVE
+  min_target_pct: 5.5         # prune threshold — ACTIVE
+  exclude_clusters: []        # prune excludes no clusters by default
+  exclude_models: []          # prune excludes no models by default
+  filter_below_open: false    # true also prunes signals with Current_Price < Open
 ```
 
 ### Environment Variables (R2)

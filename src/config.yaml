@@ -1261,3 +1261,13 @@ fear_greed:
   start_date: '2020-08-01'
   timeout_seconds: 15
   alert_threshold: 25.0
+signals:
+  folder_path: C:\Intel\parquet\quant_strategy_building
+  backdate_days: 3
+  max_holding_days: 8
+  overwrite_existing: true
+  min_reward_risk: 1.39
+  min_target_pct: 5.5
+  exclude_clusters: []
+  exclude_models: []
+  filter_below_open: false
