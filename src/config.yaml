@@ -1221,6 +1221,10 @@ ingestion:
   - ZS
   - ZTS
   - ZYME
+  # macro series — Multi-Asset Correlation tab (F22-T1)
+  - ^TNX
+  - CL=F
+  - ^IRX
   exclude_tickers:
   - AVB
   - CCRN

@@ -277,8 +277,9 @@ stock-ingestion/
 │   ├── test_poll_tasks.py
 │   ├── test_query_timeout.py
 │   ├── test_r2_sync.py
+│   ├── test_correlation_dashboard.py  # Correlation dashboard module (SQL, wide pivot, returns, figures)
 │   ├── test_fear_greed_dashboard.py  # Fear & Greed dashboard module (SQL, window presets, figures)
-│   ├── test_report_app.py     # Streamlit report app (SQL builders, fetch fallback, xlsx, RRG + Fear & Greed tabs)
+│   ├── test_report_app.py     # Streamlit report app (SQL builders, fetch fallback, xlsx, RRG + Fear & Greed + Correlation tabs)
 │   ├── test_rrg_dashboard.py  # RRG dashboard (presets/SQL/RRG math/figure/LLM payload/CLI)
 │   ├── test_scheduler.py
 │   ├── test_store_csv.py
@@ -289,6 +290,7 @@ stock-ingestion/
 │   ├── breadth_dashboard.py    # Market breadth HTML dashboard (port of legacy breadth_builder02.py, Flight-first)
 │   ├── check_loops.py          # AST-based loop justification checker
 │   ├── ci_daily_load.py        # GitHub Actions one-shot daily load (R2 download/upload)
+│   ├── correlation_dashboard.py # Correlation tab module (SQL, wide pivot, returns, 5 figure builders)
 │   ├── daily_load_once.py      # Windows Task one-shot runner (Flight-first routing, catch-up mode, exit codes)
 │   ├── data_health.bat         # Double-click wrapper for data_health_report.py
 │   ├── load_company_metadata.bat  # Double-click wrapper for load_company_metadata.py
@@ -305,7 +307,7 @@ stock-ingestion/
 │   ├── refresh_weekly.py       # weekly_close + weekly_indicators rebuild via the weekly_refresh Flight action
 │   ├── register_flight_service.ps1  # AtStartup service task for the Flight server (restart-on-failure)
 │   ├── fear_greed_dashboard.py # Fear & Greed tab module (SQL, window presets, gauge/history/heatmap figures)
-│   ├── report_app.py           # Streamlit report app (2 daily + 3 weekly RVOL/regime tabs + Market Breadth + RRG + Fear & Greed)
+│   ├── report_app.py           # Streamlit report app (2 daily + 3 weekly RVOL/regime tabs + Market Breadth + RRG + Fear & Greed + Correlation)
 │   ├── report_top25_active.py  # Top-25 active xlsx report — "Avg Trade Money ($M)" column (Flight-first, read-only DuckDB fallback)
 │   ├── rrg_dashboard.bat       # Double-click wrapper for rrg_dashboard.py
 │   ├── rrg_dashboard.py        # RRG HTML+JSON dashboards (port of legacy plot_rrg_chart_gemini10b.py, Flight-first)
@@ -657,7 +659,7 @@ r2:
 
 ### Interactive Report App (Streamlit)
 
-`scripts/report_app.py` is a Streamlit app that renders the RVOL edge reports from `docs/report_idea/` plus the market-breadth, RRG and Fear & Greed dashboards as eight interactive tabs — the three weekly reports first, then the two daily ones, then Market Breadth, then Relative Rotation (RRG), then Fear & Greed:
+`scripts/report_app.py` is a Streamlit app that renders the RVOL edge reports from `docs/report_idea/` plus the market-breadth, RRG, Fear & Greed and multi-asset correlation dashboards as nine interactive tabs — the three weekly reports first, then the two daily ones, then Market Breadth, then Relative Rotation (RRG), then Fear & Greed, then Correlation:
 
 - **Weekly — Combined Regimes** — the combined weekly report (`report_weekly_trends.md`): all four non-Normal weekly volume regimes among the top-K most-liquid names, ordered by regime priority (Strong Acceleration, Acceleration, Strong Deceleration, Deceleration — matching the spec's recommended reading order) then `rvol` descending.
 - **Weekly — Acceleration** — weekly acceleration candidates only (`report_weekly_trend_accelerating.md`), ordered by `rvol` descending.
@@ -667,10 +669,11 @@ r2:
 - **Market Breadth** — the 5-panel breadth dashboard ported verbatim (SQL / indicator math / figure / guide) from the legacy `breadth_builder02.py`: SPY candlestick + 50-day EMA, % of stocks above their 50-/200-day SMA, net advances & volume ratio, and new highs vs. new lows over a 252-day lookback. Rendered via `st.plotly_chart`; a "Years of history" widget (default `reports.market_breadth_years`, `0` = all data) applies a post-query trailing-years cutoff.
 - **Relative Rotation (RRG)** — the animated Relative Rotation Graph ported verbatim (presets / `weekly_close` query / RS-Ratio & RS-Momentum math / spline trails / quadrant annotations) from the legacy `plot_rrg_chart_gemini10b.py`. A preset selectbox picks one of seven ticker universes — or **Custom**, an ad-hoc option taking a free-text comma-separated ticker list plus a benchmark (widget defaults: period 14, trail 3, 3-year lookback, SPY). Every symbol is regex-validated before it reaches the query, and requested tickers missing from `weekly_close` are dropped with a warning. Rendered via `st.plotly_chart`, with a latest-positions stats table and the LLM analysis-prompt JSON in an expander plus a download button. Requires the persisted `weekly_close` table.
 - **Fear & Greed** — the CNN Fear & Greed dashboard over the `fear_greed_history` table (all SQL / window slicing / figure construction lives in `scripts/fear_greed_dashboard.py`, lazily imported; plotly lazy-imported inside the builders): a headline 0–100 gauge with the five rating bands and a delta vs the previous trading day plus a 1d/5d/21d change caption; an `fg_score` history line over five semi-transparent rating-band zones with an optional MA20/MA50 overlay plus an optional SPY-price overlay (SPY close on a secondary right-side axis, inner-joined to the F&G trading days; degrades to a caption when SPY data is unavailable); and a rating heatmap covering the nine `*_rating` sub-indicator columns (cells colored by rating on a 0–4 ordinal scale, hover shows the raw metric value + rating). An `Interpretation guide` expander at the bottom of the tab renders `fear_greed_dashboard.FEAR_GREED_GUIDE` (adapted from `docs/enhancements/20260920b.md`) — band definitions, per-chart how-to-read, and caveats. A window radio slices the fetched frame post-query — `1M/3M/6M/YTD/1Y/2Y/Max`, default `1Y`; `YTD` anchors to Jan 1 of the latest year present in the data. Requires the `fear_greed_history` table (loaded by the `fear_greed_refresh` Flight action or `scripts/refresh_fear_greed.py`).
+- **Correlation** — the multi-asset correlation dashboard from `docs/enhancements/20260922a.md` over the existing `daily_close` table (all SQL / pandas shaping / figure construction lives in `scripts/correlation_dashboard.py`, lazily imported; plotly lazy-imported inside the builders): five series — `^TNX` 10-year yield, `CL=F` WTI crude, `^IRX` 13-week T-bill proxy, `SPY`, `SMH` — pivoted to a wide Date×label frame and inner-aligned via `dropna` (`CL=F` trades on equity-market holidays). Five chart sections — side-by-side levels vs returns correlation heatmaps (fixed −1…+1 diverging scale, annotated cells), a base-100 normalized overlay, a three-row multi-panel overlay (WTI vs TNX / SPY+SMH vs TNX / IRX+TNX sharing one % axis), rolling-window daily-return correlations with a dashed y=0 line (default 60 days), and a scatter with OLS trendline + Pearson corr in the title — each followed by a "How to read this chart" expander rendering `correlation_dashboard.CORR_GUIDE`; a data-table expander closes the tab with the wide frame plus a CSV download. Widgets: window radio (`1M/3M/6M/YTD/1Y/2Y/Max`, default `Max`), rolling-window input (10–252), correlation-type radio (Levels | Daily Returns | Log Returns), asset multi-select (min 2), rolling-pair multi-select (six default pairs) and scatter X/Y selectors. Configured tickers absent from `daily_close` are dropped with a warning — never a crash. Requires the three macro tickers (`^TNX`, `CL=F`, `^IRX`) in `ingestion.tickers` — Yahoo already returns `^TNX`/`^IRX` in percent.
 
 The weekly tabs aggregate `daily_close` into weekly bars (`DATE_TRUNC('week', Date)`, first-Open/last-Close via `ARRAY_AGG`, summed volume and dollar volume, `LAG`-based weekly pct change) and average over the last N **weeks**. Note the weekly deceleration defaults differ from the daily ones: `strong_decel=0.50` / `decel=0.70` (daily uses 0.6 / 0.8).
 
-**Guides:** a top-level "About / How to read these reports" expander under the app title renders the generic sections of `report_basic.md` verbatim (purpose, recommended usage, methodology — the session-specific data tables are excluded), and each of the six report tabs renders its own source spec's interpretation guide verbatim in an "Interpretation guide" expander (the RRG tab instead shows its LLM analysis-prompt JSON in an expander).
+**Guides:** a top-level "About / How to read these reports" expander under the app title renders the generic sections of `report_basic.md` verbatim (purpose, recommended usage, methodology — the session-specific data tables are excluded), and each of the six report tabs renders its own source spec's interpretation guide verbatim in an "Interpretation guide" expander (the RRG tab instead shows its LLM analysis-prompt JSON in an expander; the Correlation tab renders a per-chart "How to read this chart" expander after each of its five chart sections).
 
 Launch it with:
 
@@ -854,13 +857,14 @@ python -m pytest tests/test_flight_server.py -q
 python -m pytest tests/ -v
 ```
 
-The test suite includes 872 tests covering:
+The test suite includes 1040 tests covering:
 
 | Test File | Coverage |
 |-----------|----------|
 | `test_breadth_dashboard.py` | Market breadth dashboard: verbatim SQL, EMA seeding, indicators, figure, CLI |
 | `test_config.py` | `initial_load_years` + `market_breadth_years` config fields (both impls) |
 | `test_config_breaking.py` | Config validation, edge cases, breaking changes |
+| `test_correlation_dashboard.py` | Correlation dashboard module: SQL, to_wide/dropna, returns kinds, figure structure, CORR_GUIDE |
 | `test_db.py` | DatabaseManager: schema, migrations, upsert, queries |
 | `test_delisted_lifecycle.py` | Delisted ticker handling |
 | `test_do_put.py` | do_put schema validation, exclude filtering, upsert |
@@ -877,7 +881,7 @@ The test suite includes 872 tests covering:
 | `test_query_timeout.py` | Query timeout enforcement, no LIMIT injection |
 | `test_r2_sync.py` | R2 sync (mocked boto3), auto-sync, manual sync |
 | `test_fear_greed_dashboard.py` | Fear & Greed dashboard module: SQL builder, window presets, rating ordinals, figure structure |
-| `test_report_app.py` | Streamlit report app: SQL builders, fetch fallback, xlsx, Market Breadth + RRG + Fear & Greed tabs |
+| `test_report_app.py` | Streamlit report app: SQL builders, fetch fallback, xlsx, Market Breadth + RRG + Fear & Greed + Correlation tabs |
 | `test_rrg_dashboard.py` | RRG dashboard: verbatim presets, weekly_close SQL, RRG math, figure, LLM payload, CLI |
 | `test_scheduler.py` | PipelineScheduler (mocked APScheduler) |
 | `test_store_csv.py` | CSV store (legacy) |

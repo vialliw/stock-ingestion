@@ -1732,3 +1732,295 @@ class TestFearGreedTab:
         # st.markdown receives the guide constant (the tab's only
         # markdown call).
         st.markdown.assert_called_once_with(fgd.FEAR_GREED_GUIDE)
+
+
+class TestCorrelationTab:
+    """The "Correlation" tab — 9th tab, after Fear & Greed (F22-T1).
+    The heavy lifting lives in ``scripts/correlation_dashboard.py``;
+    here we only check the tab is wired into ``main()`` and that the
+    render path drives the shared cached fetch + five
+    ``st.plotly_chart`` sections each followed by a "How to read this
+    chart" expander."""
+
+    @staticmethod
+    def _keyed_widgets(
+        st, assets=None, pairs=None, scatter_x="WTI", scatter_y="TNX_10Y"
+    ):
+        """Wire a MagicMock ``st`` for ``_render_correlation_tab``:
+        radios/multiselects/selectboxes dispatch on the widget key."""
+        import correlation_dashboard as cd
+
+        labels = list(cd.CORR_TICKERS.values())
+        if assets is None:
+            assets = labels
+        if pairs is None:
+            pairs = [
+                cd.pair_label(p) for p in cd.DEFAULT_ROLLING_PAIRS
+            ]
+
+        def fake_radio(label, *args, **kwargs):
+            key = kwargs.get("key")
+            if key == "corr_window":
+                return "Max"
+            if key == "corr_type":
+                return "Daily Returns"
+            return kwargs.get("options", [None])[0]
+
+        def fake_multiselect(label, *args, **kwargs):
+            return {
+                "corr_assets": assets,
+                "corr_pairs": pairs,
+            }[kwargs["key"]]
+
+        def fake_selectbox(label, *args, **kwargs):
+            return {
+                "corr_scatter_x": scatter_x,
+                "corr_scatter_y": scatter_y,
+            }[kwargs["key"]]
+
+        st.radio.side_effect = fake_radio
+        st.multiselect.side_effect = fake_multiselect
+        st.selectbox.side_effect = fake_selectbox
+        st.number_input.return_value = 60
+        st.button.return_value = False
+        st.columns.return_value = (MagicMock(), MagicMock())
+        return st
+
+    @staticmethod
+    def _corr_long_df(n: int = 80) -> pd.DataFrame:
+        """Synthetic long (Date, Ticker, Close) frame covering all
+        five correlation tickers."""
+        import correlation_dashboard as cd
+
+        dates = pd.date_range(end="2026-09-18", periods=n, freq="B")
+        recs = [
+            {
+                "Date": d,
+                "Ticker": t,
+                "Close": float(50.0 * (k + 1) + i),
+            }
+            for k, t in enumerate(cd.CORR_TICKERS)
+            for i, d in enumerate(dates)
+        ]
+        return pd.DataFrame.from_records(recs)
+
+    def test_tab_label_in_main_tab_list(self):
+        import inspect
+
+        src = inspect.getsource(report_app.main)
+        assert '"Correlation"' in src
+        # Ninth and last tab — after Fear & Greed.
+        assert src.index('"Fear & Greed"') < src.index('"Correlation"')
+        assert src.index("_render_correlation_tab") > src.index(
+            '"Correlation"'
+        )
+        # All nine tab names registered in the st.tabs list.
+        for label in (
+            '"Weekly — Combined Regimes"',
+            '"Weekly — Acceleration"',
+            '"Weekly — Deceleration"',
+            '"Daily — Top 25 by Dollar Volume"',
+            '"Daily — Acceleration Candidates"',
+            '"Market Breadth"',
+            '"Relative Rotation (RRG)"',
+            '"Fear & Greed"',
+            '"Correlation"',
+        ):
+            assert label in src
+
+    def test_render_drives_five_charts_and_guides(
+        self, tmp_path, monkeypatch
+    ):
+        pytest.importorskip("plotly")
+        df = self._corr_long_df()
+        seen_sql = []
+
+        def fake_fetch(st, sql, config):
+            seen_sql.append(sql)
+            return df
+
+        monkeypatch.setattr(
+            report_app, "cached_fetch_dataframe", fake_fetch
+        )
+        st = self._keyed_widgets(MagicMock())
+
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        # One fetch through the shared cached path — the 5-ticker
+        # daily_close query.
+        assert len(seen_sql) == 1
+        assert "FROM daily_close" in seen_sql[0]
+        for t in ("^TNX", "CL=F", "^IRX", "SPY", "SMH"):
+            assert f"'{t}'" in seen_sql[0]
+        # 5 chart sections: levels+returns heatmaps in st.columns(2)
+        # (two plotly_chart calls) + normalized + multipanel + rolling
+        # + scatter = 6 plotly_chart calls total.
+        assert st.plotly_chart.call_count == 6
+        st.error.assert_not_called()
+        # Expanders: Parameters + 5x "How to read this chart" + the
+        # data-table expander.
+        expander_labels = [
+            c.args[0] for c in st.expander.call_args_list
+        ]
+        assert expander_labels[0] == "Parameters"
+        assert expander_labels.count("How to read this chart") == 5
+        assert expander_labels[-1] == "Data table (aligned window)"
+        # Data table + CSV download rendered.
+        st.dataframe.assert_called_once()
+        st.download_button.assert_called_once()
+        assert (
+            st.download_button.call_args.kwargs["file_name"]
+            == "correlation_window.csv"
+        )
+
+    def test_widget_defaults_and_keys(self, tmp_path, monkeypatch):
+        pytest.importorskip("plotly")
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: self._corr_long_df(),
+        )
+        st = self._keyed_widgets(MagicMock())
+
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        radio_calls = {
+            c.kwargs["key"]: c.kwargs for c in st.radio.call_args_list
+        }
+        # Window radio: 7 presets, default Max, horizontal.
+        win = radio_calls["corr_window"]
+        assert win["options"][win["index"]] == "Max"
+        assert win["horizontal"] is True
+        # Corr-type radio: Levels | Daily Returns | Log Returns.
+        ctype = radio_calls["corr_type"]
+        assert ctype["options"] == [
+            "Levels",
+            "Daily Returns",
+            "Log Returns",
+        ]
+        # Rolling-window input: 10-252, default 60.
+        num = st.number_input.call_args.kwargs
+        assert num["key"] == "corr_rollwin"
+        assert num["min_value"] == 10
+        assert num["max_value"] == 252
+        assert num["value"] == 60
+        # Asset multiselect defaults to all five labels.
+        ms_calls = {
+            c.kwargs["key"]: c.kwargs
+            for c in st.multiselect.call_args_list
+        }
+        assert ms_calls["corr_assets"]["default"] == [
+            "TNX_10Y",
+            "WTI",
+            "IRX_3M",
+            "SPY",
+            "SMH",
+        ]
+        # Rolling-pair multiselect defaults to the six doc pairs.
+        assert len(ms_calls["corr_pairs"]["default"]) == 6
+        # Scatter selectboxes keyed.
+        sb_keys = [
+            c.kwargs["key"] for c in st.selectbox.call_args_list
+        ]
+        assert sb_keys == ["corr_scatter_x", "corr_scatter_y"]
+        # Refresh button clears the shared cache when pressed.
+        assert (
+            st.button.call_args.kwargs["key"] == "corr_refresh"
+        )
+
+    def test_min_two_assets_guard(self, tmp_path, monkeypatch):
+        """Fewer than 2 selected assets -> st.warning + early return,
+        before any fetch."""
+        fetch = MagicMock()
+        monkeypatch.setattr(
+            report_app, "cached_fetch_dataframe", fetch
+        )
+        st = self._keyed_widgets(MagicMock(), assets=["SPY"])
+
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        st.warning.assert_called_once()
+        fetch.assert_not_called()
+        st.plotly_chart.assert_not_called()
+
+    def test_missing_ticker_warns_and_renders(self, tmp_path, monkeypatch):
+        """A configured ticker absent from daily_close is dropped with
+        a visible st.warning naming the label — the survivors render."""
+        pytest.importorskip("plotly")
+        df = self._corr_long_df()
+        df = df[df["Ticker"] != "^TNX"]  # ^TNX not yet loaded
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: df,
+        )
+        # Scatter pair over two surviving labels — the missing-ticker
+        # path is what is under test, not the scatter guard.
+        st = self._keyed_widgets(
+            MagicMock(), scatter_x="SPY", scatter_y="SMH"
+        )
+
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        st.warning.assert_called_once()
+        assert "TNX_10Y" in str(st.warning.call_args)
+        st.error.assert_not_called()
+        # All 5 chart sections still render for the 4 survivors
+        # (rolling pairs referencing TNX_10Y are skipped inside the
+        # figure builder, so its call still happens).
+        assert st.plotly_chart.call_count == 6
+        # The rolling figure only carries the three fully-loaded pairs.
+        rolling_fig = st.plotly_chart.call_args_list[4].args[0]
+        assert len(rolling_fig.data) == 3
+
+    def test_render_errors_when_fetch_returns_none(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: None,
+        )
+        st = self._keyed_widgets(MagicMock())
+
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        st.error.assert_called_once()
+        assert "Flight server" in str(st.error.call_args)
+        st.plotly_chart.assert_not_called()
+
+    def test_render_errors_when_frame_empty(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: pd.DataFrame(),
+        )
+        st = self._keyed_widgets(MagicMock())
+
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        st.error.assert_called_once()
+        assert "daily_close" in str(st.error.call_args)
+        st.plotly_chart.assert_not_called()
+
+    def test_refresh_button_clears_cached_fetch(
+        self, tmp_path, monkeypatch
+    ):
+        pytest.importorskip("plotly")
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: self._corr_long_df(),
+        )
+        sentinel = MagicMock()
+        monkeypatch.setattr(
+            report_app, "_get_cached_fetch", lambda st: sentinel
+        )
+        st = self._keyed_widgets(MagicMock())
+        st.button.return_value = True
+
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        sentinel.clear.assert_called_once()

@@ -2478,3 +2478,44 @@ Evidence map:
 [2026-09-21T09:14:09.311909+00:00] [CHALLENGER] F21-T1 APPROVED — independent review of 95ebad5 (docs/client_dml_sql_study.md, 570 lines). STUDY review: all probed claims re-verified live on duckdb 1.5.5. CITATIONS (spot-checked ~20, all accurate): _write_lock threading.Lock db.py:71 held by all 11 cited write paths (:288/:310/:327/:357/:369/:475/:521/:556/:607/:746/:785/:1742); single RW self.conn :72; _read_only_conn cursor+BEGIN TRANSACTION READ ONLY :259-261 with in-process RO-open ConnectionException fallback probed; do_get prefix validator flight_server.py:35-47; do_put :578-620 exists and descriptor param genuinely never referenced; timeout worker+Timer :259-292, query_timeout_seconds=120 config.yaml:1240; fetch_and_clean OUTSIDE lock at ingestion.py:1299/:1333 with discrete lock holds :1302/:1338/:1354/:227-243/:884-885 — 'worst-case wait ~ one weekly rebuild' reasoning sound (~17s attributed to DATA_SERVICE_API.md:187, hedged as workload-dependent). DUCKDB PROBES ALL CONFIRM: GRANT->ParserException; extract_statements .type — CREATE SECRET/VIEW/MACRO/SEQUENCE=CREATE, WITH..INSERT=INSERT, PRAGMA=SELECT, CHECKPOINT=CALL, BEGIN=TRANSACTION, ATTACH=ATTACH, MERGE=MERGE_INTO; ATTACH separate file+WAL + per-DB database_size rows; cross-catalog write txn->TransactionException; USE research->search_path='research.main', unqualified DROP on main_db table->CatalogException 'Did you mean main_db.victim?'; schema/search_path LOCAL scope, cursor USE does not leak to parent conn; no statement_timeout, interrupt() exists; ATTACH IF NOT EXISTS works; two-process probe: external read_only open REFUSED while RW held ('being used by another process'). WITH..INSERT nuance verified end-to-end: passes do_get prefix check (startswith WITH) then rejected by RO txn (TransactionException read-only mode) — study's characterization accurate. VERDICT SOUNDNESS: Phase 1 (server-hosted canonical week_calendar under weekly_refresh, zero write surface) does solve the stated motivating use case (shared week_id); Phase 2 (ATTACH research catalog + descriptor do_put + research_admin enum + audit/registry + quota + interrupt-timeout) coherent; free-form execute_dml rejection justified — parser fragility argued honestly, SQL never crosses wire under (b+c). All 5 study questions in dedicated sections; open-DML comparison present; risk list + verify-vs-assumed disclosure present. GATES: --verify F21-T1 ALL PASS 5/5; check_loops clean 14 files; README.md==docs/README.md byte-identical (filecmp shallow=False); git status clean, no stray files; commit touches only study doc+blackboard. NON-BLOCKING nits: (n1) MERGE cite :290-305 is off-by-one (MERGE at :291); (n2) fallback docstring cited :249-254, actual :248-254; (n3, impl note) returning search_path after USE research needs explicit SET — 'USE main_db' fails with 'No catalog + schema named main_db' (study doesn't claim otherwise; flag for Phase-2 implementers); (n4) ~17s figure inherited from API doc not re-measured — appropriately hedged.
 [2026-09-21T09:19:15.452656+00:00] [CRITIC] F21-T1 PASS — independently verified docs/client_dml_sql_study.md (570 lines @ 95ebad5). Completeness: dedicated sections for all 5 study questions (S1 concurrency/locking, S2 API shape with ONE recommendation = descriptor do_put + research_admin hybrid, S3 schema scoping/guardrails, S4 consistency/failure modes, S5 alternatives) + clear S6 verdict (implement-with-restrictions: Phase-1 server-hosted week_calendar, Phase-2 ATTACH research catalog, free-form execute_dml rejected). Citations: 20+ file:line refs spot-verified against source — all accurate; only the 2 known cosmetic off-by-ones (MERGE at db.py:291 cited as :290-305; RO-conn fallback docstring :248-254 cited as :249-254). Live probes on duckdb 1.5.5 ALL CONFIRM: WITH..INSERT->INSERT, PRAGMA->SELECT, CREATE SECRET->CREATE, BEGIN->TRANSACTION, MERGE->MERGE_INTO, CHECKPOINT->CALL, GRANT->ParserException; cross-catalog write txn->TransactionException; USE research->search_path='research.main', unqualified CREATE lands in research.main, unqualified DROP on main_db table->CatalogException 'Did you mean main_db.victim?'; no statement_timeout (SET->unrecognized parameter), interrupt() present; research.duckdb.wal exists; pragma_database_size per-DB rows; search_path LOCAL scope (cursor SET does not leak); two-process probe: external RO and RW opens both refused while RW conn held. Gates: check_loops exit 0 (14 files); README.md == docs/README.md byte-identical; poll_tasks --verify F21-T1 ALL PASS 5/5; worktree clean (no '=' stray). Non-blocking: (d1) S2 'create_as' wording implies source SELECT validated under READ-ONLY txn — implementers must run CTAS itself under _write_lock on RW conn (CTAS inside RO txn raises TransactionException); (d2) EVENTS.log has uncommitted challenger entry (normal blackboard traffic).
 [2026-09-22T08:13:47.750509+00:00] [executor] claimed F22-T1
+[2026-09-22T08:29:58.777872+00:00] [executor] completed F22-T1 -> F22-T1 Correlation tab implemented. config.yaml: ^TNX/CL=F/^IRX appended to ingestion.tickers, PipelineConfig.from_yaml loads (1221 tickers, verified). NEW scripts/correlation_dashboard.py: CORR_TICKERS ordered map, build_corr_sql() emits the exact 5-ticker daily_close query (tested against seeded DuckDB with real DDL), normalize_dates/to_wide (Date-normalize + pivot + label rename + dropna inner-align; CL=F-only holiday date drops), returns() levels/daily/log, filter_window presets (default Max), build_heatmap_figures (2 annotated go.Heatmap, zmin=-1/zmax=1 RdBu_r), build_normalized_figure (base=100, verified math), build_multipanel_figure (3 rows, secondary y on rows 1-2, IRX+TNX shared % axis row 3), build_rolling_figure (rolling(window).corr on daily returns + dashed y=0, matches pandas reference), build_scatter_figure (markers+OLS np.polyfit trendline+corr in title), CORR_GUIDE dict for all 5 charts (levels-vs-returns caveat, regime shifts, SMH duration, ^IRX proxy caveat, corr!=causation; no screenshot refs). report_app.py: _render_correlation_tab 9th tab registered+dispatched in main(), all widgets keyed (corr_window/rollwin/type/assets/pairs/scatter_x/scatter_y/refresh), min-2 guard, missing-ticker st.warning path, None/empty fetch error guards, 6 plotly_chart calls across 5 sections each + 'How to read this chart' expander, data-table expander + CSV download. Tests: +34 in tests/test_correlation_dashboard.py, +8 TestCorrelationTab in tests/test_report_app.py. pytest tests/ -q: 1040 passed (baseline 998). check_loops --src-dir src: clean (14 files). README.md == docs/README.md byte-identical via filecmp.
+Evidence map:
+[
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]
+[EXECUTOR] F22-T1 commit remediation: poll_tasks commit_blackboard failed on a stray "nul" file accidentally created by a shell redirect (2>nul); file removed, re-running the same git add/commit/push the script intended.

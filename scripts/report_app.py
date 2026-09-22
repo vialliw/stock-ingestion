@@ -1,6 +1,6 @@
-"""Interactive Streamlit report app with eight tabs — the three weekly
+"""Interactive Streamlit report app with nine tabs — the three weekly
 reports first, then the two daily ones, then Market Breadth, then
-Relative Rotation (RRG), then Fear & Greed:
+Relative Rotation (RRG), then Fear & Greed, then Correlation:
 
 * **"Weekly — Combined Regimes"**: the combined weekly report from
   ``docs/report_idea/report_weekly_trends.md`` — all four non-Normal
@@ -64,6 +64,24 @@ Relative Rotation (RRG), then Fear & Greed:
   raw value + rating in the hover).  A window radio slices the frame
   post-query in pandas — ``1M/3M/6M/YTD/1Y/2Y/Max``, default ``1Y``;
   ``YTD`` anchors to Jan 1 of the latest year present *in the data*.
+* **"Correlation"**: the multi-asset correlation dashboard from
+  ``docs/enhancements/20260922a.md`` over the existing ``daily_close``
+  table (F22-T1) — five series (^TNX 10Y yield, CL=F WTI crude, ^IRX
+  13-week T-bill proxy, SPY, SMH) pivoted to a wide Date x label frame
+  and inner-aligned via ``dropna`` (CL=F trades on equity holidays).
+  All SQL / pandas shaping / figure construction lives in
+  ``scripts/correlation_dashboard.py`` (lazily imported — it in turn
+  lazy-imports ``plotly``): side-by-side levels vs returns correlation
+  heatmaps, a base-100 normalized overlay, a three-row multi-panel
+  overlay (WTI vs TNX / SPY+SMH vs TNX / IRX+TNX), rolling-window
+  return correlations with a dashed y=0 line, and a scatter with OLS
+  trendline + Pearson corr in the title.  Each chart is followed by a
+  "How to read this chart" expander rendering the matching
+  ``correlation_dashboard.CORR_GUIDE`` entry; a data-table expander
+  closes the tab with the wide frame + a CSV download button.  A
+  window radio slices post-query (``1M/3M/6M/YTD/1Y/2Y/Max``, default
+  ``Max``); configured tickers absent from ``daily_close`` are dropped
+  with a warning — never a crash.
 
 The weekly tabs aggregate ``daily_close`` into weekly bars
 (``DATE_TRUNC('week', Date)``, first-Open/last-Close via
@@ -83,7 +101,10 @@ source md's interpretation guide verbatim in an "Interpretation
 guide" expander (``WEEKLY_*_GUIDE`` for the weekly tabs,
 ``DAILY_*_GUIDE`` for the daily ones, and
 ``fear_greed_dashboard.FEAR_GREED_GUIDE`` — adapted from
-``docs/enhancements/20260920b.md`` — for the Fear & Greed tab).
+``docs/enhancements/20260920b.md`` — for the Fear & Greed tab; the
+Correlation tab instead renders a per-chart
+``correlation_dashboard.CORR_GUIDE`` entry in a "How to read this
+chart" expander after each of its five charts).
 
 Every tab's bar chart is drawn through
 :func:`_render_ordered_bar_chart` — an Altair bar chart with
@@ -2259,6 +2280,223 @@ def _render_fear_greed_tab(st, config: PipelineConfig) -> None:
         st.markdown(fear_greed_dashboard.FEAR_GREED_GUIDE)
 
 
+def _render_correlation_tab(st, config: PipelineConfig) -> None:
+    """Correlation — the multi-asset correlation dashboard over
+    ``daily_close`` (F22-T1 — the five panels of
+    ``docs/enhancements/20260922a.md``).
+
+    All SQL / wide-frame shaping / figure construction lives in
+    ``scripts/correlation_dashboard.py`` (imported lazily — it in turn
+    lazy-imports ``plotly`` inside the figure builders, so this module
+    stays importable without plotly).  The single
+    (Date, Ticker, Close) query goes through
+    :func:`cached_fetch_dataframe` like every other tab; the fetched
+    frame is pivoted to a Date x display-label wide frame and
+    ``dropna`` inner-aligned (CL=F trades on equity-market holidays),
+    then window-sliced post-query in pandas via ``filter_window``.
+
+    A configured asset whose column is absent from the wide frame
+    (e.g. ``^TNX`` not yet loaded) is dropped with a visible
+    ``st.warning`` naming the missing labels — the survivors still
+    render, never a crash.
+    """
+    import correlation_dashboard as corr_dash
+
+    all_labels = list(corr_dash.CORR_TICKERS.values())
+    pair_options = [
+        corr_dash.pair_label(p) for p in corr_dash.DEFAULT_ROLLING_PAIRS
+    ]
+
+    with st.expander("Parameters", expanded=True):
+        presets = list(corr_dash.WINDOW_PRESETS)
+        window = st.radio(
+            "Window",
+            options=presets,
+            index=presets.index(corr_dash.DEFAULT_WINDOW),
+            horizontal=True,
+            key="corr_window",
+        )
+        roll_window = st.number_input(
+            "Rolling window (trading days)",
+            min_value=corr_dash.ROLLING_WINDOW_MIN,
+            max_value=corr_dash.ROLLING_WINDOW_MAX,
+            value=corr_dash.DEFAULT_ROLLING_WINDOW,
+            step=1,
+            key="corr_rollwin",
+        )
+        corr_type = st.radio(
+            "Correlation type",
+            options=list(corr_dash.CORR_TYPE_OPTIONS),
+            index=list(corr_dash.CORR_TYPE_OPTIONS).index(
+                corr_dash.DEFAULT_CORR_TYPE
+            ),
+            horizontal=True,
+            key="corr_type",
+        )
+        assets = st.multiselect(
+            "Assets",
+            options=all_labels,
+            default=all_labels,
+            key="corr_assets",
+        )
+        selected_pair_labels = st.multiselect(
+            "Rolling-correlation pairs",
+            options=pair_options,
+            default=pair_options,
+            key="corr_pairs",
+        )
+        scatter_x = st.selectbox(
+            "Scatter X",
+            options=all_labels,
+            index=all_labels.index("WTI") if "WTI" in all_labels else 0,
+            key="corr_scatter_x",
+        )
+        scatter_y = st.selectbox(
+            "Scatter Y",
+            options=all_labels,
+            index=(
+                all_labels.index("TNX_10Y")
+                if "TNX_10Y" in all_labels
+                else 0
+            ),
+            key="corr_scatter_y",
+        )
+        if st.button("Refresh data", key="corr_refresh"):
+            _get_cached_fetch(st).clear()
+
+    # Min-2-assets guard — a correlation matrix needs at least two
+    # series; warn and bail before hitting the database.
+    if len(assets) < 2:
+        st.warning(
+            "Select at least two assets — a correlation needs a pair."
+        )
+        return
+
+    df = cached_fetch_dataframe(st, corr_dash.build_corr_sql(), config)
+    if df is None:
+        st.error(
+            "Could not fetch report data — the Flight server is "
+            "unreachable and the direct read-only DuckDB fallback "
+            "failed (the database write lock is probably held by "
+            "another process, or the database file is unavailable)."
+        )
+        return
+    if df.empty:
+        st.error(
+            "No daily_close data returned for the correlation tickers "
+            "(^TNX, CL=F, ^IRX, SPY, SMH) — the table is empty or the "
+            "macro series have not been loaded yet."
+        )
+        return
+
+    wide = corr_dash.to_wide(df)
+
+    # Drop configured-but-absent series with a visible warning (a
+    # ticker that has not been backfilled yet must not crash the tab).
+    missing_selected = [l for l in assets if l not in wide.columns]
+    if missing_selected:
+        st.warning(
+            "No daily_close rows for: "
+            + ", ".join(missing_selected)
+            + " — excluded from every chart (run a backfill to load "
+            "them)."
+        )
+    selected = [l for l in assets if l in wide.columns]
+    if len(selected) < 2:
+        st.warning(
+            "Fewer than two selected assets have data — nothing to "
+            "correlate yet."
+        )
+        return
+    wide = wide[selected]
+
+    wide = corr_dash.filter_window(wide, window)
+    if wide.empty:
+        st.error(
+            f"No aligned correlation rows inside the {window} window "
+            "— pick a wider preset."
+        )
+        return
+
+    st.caption(
+        f"{len(wide)} aligned trading day(s) · {len(selected)} series"
+    )
+    ret_kind = corr_dash.CORR_TYPE_TO_KIND.get(corr_type, "daily")
+
+    def _guide(key: str) -> None:
+        with st.expander("How to read this chart"):
+            st.markdown(corr_dash.CORR_GUIDE[key])
+
+    # 1) Heatmaps — levels (left) vs the chosen return type (right).
+    levels_fig, returns_fig = corr_dash.build_heatmap_figures(
+        wide, ret_kind
+    )
+    col_levels, col_returns = st.columns(2)
+    with col_levels:
+        st.plotly_chart(levels_fig, width="stretch")
+    with col_returns:
+        st.plotly_chart(returns_fig, width="stretch")
+    _guide("heatmap")
+
+    # 2) Normalized base=100 overlay.
+    st.plotly_chart(
+        corr_dash.build_normalized_figure(wide), width="stretch"
+    )
+    _guide("normalized")
+
+    # 3) Multi-panel overlay (dual-axis rows + shared-% row).
+    st.plotly_chart(
+        corr_dash.build_multipanel_figure(wide), width="stretch"
+    )
+    _guide("multipanel")
+
+    # 4) Rolling correlations of daily returns for the chosen pairs.
+    pairs = [
+        corr_dash.parse_pair_label(text)
+        for text in selected_pair_labels
+    ]
+    pairs = [
+        (a, b)
+        for a, b in pairs
+        if a in wide.columns and b in wide.columns
+    ]
+    if pairs:
+        st.plotly_chart(
+            corr_dash.build_rolling_figure(wide, roll_window, pairs),
+            width="stretch",
+        )
+    else:
+        st.info(
+            "No rolling-correlation pairs selected with data — pick "
+            "at least one pair."
+        )
+    _guide("rolling")
+
+    # 5) Scatter + OLS trendline for the chosen pair.
+    if scatter_x in wide.columns and scatter_y in wide.columns:
+        st.plotly_chart(
+            corr_dash.build_scatter_figure(wide, scatter_x, scatter_y),
+            width="stretch",
+        )
+    else:
+        st.info(
+            "The selected scatter pair is not both loaded — pick two "
+            "series with data."
+        )
+    _guide("scatter")
+
+    # Data table + CSV download of the windowed wide frame.
+    with st.expander("Data table (aligned window)"):
+        st.dataframe(wide, width="stretch")
+        st.download_button(
+            label="Download as CSV",
+            data=wide.to_csv().encode("utf-8"),
+            file_name="correlation_window.csv",
+            mime="text/csv",
+            key="corr_download",
+        )
+
+
 def main() -> None:
     """Streamlit entrypoint — run via ``streamlit run scripts/report_app.py``."""
     import streamlit as st
@@ -2283,6 +2521,7 @@ def main() -> None:
         tab_breadth,
         tab_rrg,
         tab_fear_greed,
+        tab_correlation,
     ) = st.tabs(
         [
             "Weekly — Combined Regimes",
@@ -2293,6 +2532,7 @@ def main() -> None:
             "Market Breadth",
             "Relative Rotation (RRG)",
             "Fear & Greed",
+            "Correlation",
         ]
     )
     with tab_weekly_combined:
@@ -2311,6 +2551,8 @@ def main() -> None:
         _render_rrg_tab(st, config)
     with tab_fear_greed:
         _render_fear_greed_tab(st, config)
+    with tab_correlation:
+        _render_correlation_tab(st, config)
 
 
 # ``streamlit run`` executes this file as __main__, while unit tests
