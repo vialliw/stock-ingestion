@@ -2295,13 +2295,19 @@ def _render_correlation_tab(st, config: PipelineConfig) -> None:
     ``dropna`` inner-aligned (CL=F trades on equity-market holidays),
     then window-sliced post-query in pandas via ``filter_window``.
 
-    A configured asset whose column is absent from the wide frame
+    The long frame is filtered to the SELECTED tickers before
+    coverage/alignment (F23-T2 — challenger n1): ``to_wide``'s
+    ``dropna`` inner-aligns over every column it is given, so
+    aligning over all five fetched series would let a DESELECTED
+    short-history ticker silently collapse the window.  A configured
+    asset whose column is absent from the wide frame
     (e.g. ``^TNX`` not yet loaded) is dropped with a visible
     ``st.warning`` naming the missing labels — the survivors still
     render, never a crash.  A second ``st.warning`` fires when the
     selected series' pre-alignment coverage differs (per
-    :func:`correlation_dashboard.series_coverage` on the long frame),
-    naming the limiting series and its range.  The "Returns basis"
+    :func:`correlation_dashboard.series_coverage` on the
+    selected-only long frame), naming the limiting series and its
+    range.  The "Returns basis"
     radio (Daily | Log returns) drives the right-hand heatmap, the
     rolling chart and the scatter; the left heatmap is always Levels.
     Sections with fewer than two usable aligned rows render
@@ -2395,6 +2401,20 @@ def _render_correlation_tab(st, config: PipelineConfig) -> None:
             "macro series have not been loaded yet."
         )
         return
+
+    # Restrict the long frame to the SELECTED tickers BEFORE the
+    # coverage check and to_wide's dropna inner-alignment (F23-T2 —
+    # challenger n1): aligning over every fetched series would let a
+    # deselected short-history ticker collapse the aligned window
+    # anyway, and the coverage warning would name series that are not
+    # even plotted.  Labels map back to raw tickers via the inverse of
+    # CORR_TICKERS; an unknown label simply contributes no ticker and
+    # is reported by the missing-column warning below.
+    label_to_ticker = {l: t for t, l in corr_dash.CORR_TICKERS.items()}
+    selected_raw = [
+        label_to_ticker[l] for l in assets if l in label_to_ticker
+    ]
+    df = df[df["Ticker"].isin(selected_raw)]
 
     # Coverage check BEFORE to_wide's dropna inner-alignment: if the
     # selected series do not share the same (first, last) valid range,

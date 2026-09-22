@@ -2135,3 +2135,89 @@ class TestCorrelationTab:
 
         captions = [str(c.args[0]) for c in st.caption.call_args_list]
         assert not any("clamp" in c.lower() for c in captions)
+
+    def test_deselected_limiter_recovers_full_window(
+        self, tmp_path, monkeypatch
+    ):
+        """F23-T2 regression (challenger n1): the long frame is
+        filtered to the SELECTED tickers before ``to_wide``'s dropna
+        inner-alignment — a DESELECTED short-history series can no
+        longer collapse the aligned window, and a SELECTED one still
+        triggers the coverage warning naming it."""
+        pytest.importorskip("plotly")
+        import correlation_dashboard as cd
+
+        dates = pd.date_range(end="2026-09-18", periods=80, freq="B")
+        df = self._corr_long_df(80)
+        # Truncate ^IRX to its last 25 business days — when selected
+        # it limits the aligned window to 25 rows; when deselected it
+        # must not affect the window at all.
+        df = df[
+            (df["Ticker"] != "^IRX") | (df["Date"] >= dates[-25])
+        ]
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: df,
+        )
+        four = [l for l in cd.CORR_TICKERS.values() if l != "IRX_3M"]
+
+        # 1) ^IRX deselected -> the full 80-day window is recovered
+        # and no coverage/missing warning fires.
+        st = self._keyed_widgets(MagicMock(), assets=four)
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        st.warning.assert_not_called()
+        st.error.assert_not_called()
+        wide = st.dataframe.call_args.args[0]
+        assert len(wide) == 80
+        assert list(wide.columns) == four
+
+        # 2) ^IRX selected -> the coverage warning names it and the
+        # aligned window collapses to its 25-day coverage.
+        st = self._keyed_widgets(MagicMock())
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        warnings = [str(c.args[0]) for c in st.warning.call_args_list]
+        assert any(
+            "IRX_3M" in w and "covers" in w for w in warnings
+        ), warnings
+        wide = st.dataframe.call_args.args[0]
+        assert len(wide) == 25
+
+    def test_deselected_missing_ticker_still_warns(
+        self, tmp_path, monkeypatch
+    ):
+        """F23-T2: a selected-but-absent ticker still warns and is
+        dropped, while a DESELECTED absent ticker is simply ignored —
+        no warning, full window for the survivors."""
+        pytest.importorskip("plotly")
+        import correlation_dashboard as cd
+
+        df = self._corr_long_df(80)
+        df = df[df["Ticker"] != "^IRX"]  # ^IRX not loaded at all
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: df,
+        )
+        four = [l for l in cd.CORR_TICKERS.values() if l != "IRX_3M"]
+
+        # ^IRX absent but deselected -> silent, full 80-day window.
+        st = self._keyed_widgets(MagicMock(), assets=four)
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        st.warning.assert_not_called()
+        wide = st.dataframe.call_args.args[0]
+        assert len(wide) == 80
+        assert list(wide.columns) == four
+
+        # ^IRX absent and selected -> the missing-column warning
+        # still names it.
+        st = self._keyed_widgets(
+            MagicMock(), scatter_x="SPY", scatter_y="SMH"
+        )
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        warnings = [str(c.args[0]) for c in st.warning.call_args_list]
+        assert any("IRX_3M" in w for w in warnings), warnings

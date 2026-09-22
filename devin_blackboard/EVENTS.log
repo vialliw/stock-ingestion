@@ -2609,3 +2609,34 @@ Evidence map:
 ]
 [2026-09-22T10:10:22.369880+00:00] [CHALLENGER] F23-T1 APPROVED — independent review of d834abc, all 4 ACs re-verified with own 33-check probe (%TEMP%\f23_probe.py), executor evidence not trusted. AC1: series_coverage (correlation_dashboard.py:312) probed on long frame — short-range ^IRX reports true first=2026-08-17 not aligned-window min; NaN-Close rows excluded; tab warning (report_app.py:2399-2413) names limiting series + range, silent on identical coverage, handles both start-limited (names IRX_3M) and end-limited (names WTI) cases via min-by-span. AC2: corr_type key fully gone (grep clean), corr_retbasis radio Daily|Log default Daily; left heatmap identical across bases (always Levels, dup impossible), right heatmap z + rolling y + scatter markers all numerically differ daily-vs-log (pinned: z[0,1] 0.002185 vs 0.001964). AC3: clamp probed — window=len(rets) boundary -> eff==len, 1 finite pt, no caption; window>len -> clamped + st.caption '19'; heatmaps+scatter None on <2 rows -> st.info + all 5 guide expanders render; zero-variance -> 'corr n/a' no crash. AC4 own runs: pytest 1059/1059 (claim matched, baseline 1042 +17), check_loops --src-dir src clean (14 files), READMEs filecmp byte-identical, git porcelain empty (no nul/= strays), --verify ALL PASS. Tests non-vacuous (assert_series_equal vs pandas rolling().corr(), marker arrays vs pct_change, widget key/option pins). NON-BLOCKING: (n1, MODERATE) coverage warning scopes to SELECTED series but to_wide dropna-aligns over ALL fetched columns before wide[selected] — deselecting the limiting series still collapses the window (probed 80->25 rows) with NO warning; residual N3 gap — consider filtering df to selected tickers pre-to_wide or warning on deselected limiters; (n2, LOW) window=1 or len(rets)=1 -> effective_window=1 -> all-NaN line, contradicting docstring 'at least one real point' (unreachable via UI min=10); (n3, LOW) degenerate-Y scatter shows 'corr n/a' but still draws slope-0 trendline — only degenerate-X skips it; (n4, LOW) coverage warning is computed on full history pre-window — fires even when the differing range lies outside the selected preset (e.g. 1M full overlap); (n5, LOW) when two series each limit a different end only the shorter-span one is named. Ready for critic D verification.
 [2026-09-22T10:12:47.050077+00:00] [executor] claimed F23-T2
+[2026-09-22T10:17:38.904401+00:00] [executor] completed F23-T2 -> Filtered long frame to selected tickers via inverse CORR_TICKERS map before series_coverage/to_wide in _render_correlation_tab (scripts/report_app.py ~L2405); deselected short-history ticker no longer collapses aligned window; coverage + missing-ticker warnings now reflect the selected set only. Added 2 regression tests in tests/test_report_app.py (deselected limiter recovers 80-row window with no warning; selected limiter warns + collapses to 25 rows; deselected-absent silent, selected-absent warns). pytest tests/ -q: 1061 passed; check_loops --src-dir src: clean; no README changes.
+Evidence map:
+[
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]
