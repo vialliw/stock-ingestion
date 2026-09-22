@@ -349,9 +349,12 @@ def deduplicate_signals(con, schema: str) -> Dict[str, Any]:
         f"SELECT COUNT(1) FROM {raw}"
     ).fetchone()[0]
 
-    # Identify older runs per (Trading_Date, Model, Ticker)
+    # Identify older runs per (Trading_Date, Model, Ticker). The helper
+    # temp table carries the aly_ prefix like every object this
+    # enhancement creates, and is dropped in the finally block below so
+    # nothing leaks onto the long-lived service connection.
     con.execute(f"""
-        CREATE OR REPLACE TEMP TABLE temp_dedup_keys AS
+        CREATE OR REPLACE TEMP TABLE aly_temp_dedup_keys AS
         WITH ranked_signals AS (
             SELECT
                 Trading_Date,
@@ -370,14 +373,17 @@ def deduplicate_signals(con, schema: str) -> Dict[str, Any]:
     """)
 
     # Delete older runs from aly_signal_records_raw
-    con.execute(f"""
-        DELETE FROM {raw}
-        USING temp_dedup_keys
-        WHERE {raw}.Trading_Date = temp_dedup_keys.Trading_Date
-          AND {raw}.Model = temp_dedup_keys.Model
-          AND {raw}.Ticker = temp_dedup_keys.Ticker
-          AND {raw}.Signal_File = temp_dedup_keys.Signal_File;
-    """)
+    try:
+        con.execute(f"""
+            DELETE FROM {raw}
+            USING aly_temp_dedup_keys
+            WHERE {raw}.Trading_Date = aly_temp_dedup_keys.Trading_Date
+              AND {raw}.Model = aly_temp_dedup_keys.Model
+              AND {raw}.Ticker = aly_temp_dedup_keys.Ticker
+              AND {raw}.Signal_File = aly_temp_dedup_keys.Signal_File;
+        """)
+    finally:
+        con.execute("DROP TABLE IF EXISTS aly_temp_dedup_keys")
 
     after_count = con.execute(f"SELECT COUNT(1) FROM {raw}").fetchone()[0]
     logger.info(

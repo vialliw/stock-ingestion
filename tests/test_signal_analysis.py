@@ -935,6 +935,19 @@ class TestRunSignalAnalysis:
             tmp_path,
             [SignalAnalysisSetConfig(name="eng", folder=str(folder_a))],
         )
+
+        def _all_objects():
+            """Every (schema, name, type) visible in information_schema —
+            includes conn-scoped LOCAL TEMPORARY objects under 'main'."""
+            return {
+                (r[0], r[1], r[2])
+                for r in db.conn.execute(
+                    "SELECT table_schema, table_name, table_type "
+                    "FROM information_schema.tables"
+                ).fetchall()
+            }
+
+        before = _all_objects()
         eng.run_signal_analysis(set_name="eng")
         objs = db.conn.execute(
             "SELECT table_name, table_type FROM information_schema.tables "
@@ -943,6 +956,22 @@ class TestRunSignalAnalysis:
         assert objs, "expected objects in signals_eng"
         assert all(n.startswith("aly_") for n, _ in objs)
         assert {t for _, t in objs} == {"BASE TABLE", "VIEW"}
+
+        # Challenger-C C1 guard: the pipeline must leave NOTHING outside
+        # its per-set schema — the old unprefixed temp_dedup_keys used to
+        # leak as a LOCAL TEMPORARY under 'main' on the long-lived
+        # service connection. Diff information_schema before/after.
+        leaked = _all_objects() - before
+        outside = sorted(o for o in leaked if o[0] != "signals_eng")
+        assert outside == [], (
+            f"pipeline leaked objects outside signals_eng: {outside}"
+        )
+        unprefixed = sorted(
+            o for o in leaked if not o[1].startswith("aly_")
+        )
+        assert unprefixed == [], (
+            f"pipeline created unprefixed objects: {unprefixed}"
+        )
         db.close()
 
     def test_set_name_selects_one_set(self, tmp_path):

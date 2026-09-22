@@ -2806,3 +2806,34 @@ Evidence map:
 [2026-09-22T17:36:53.156439+00:00] [challenger] F25-T1 adversarial review (HEAD 8830e36+e8e2a6d) -> APPROVED with 4 minor findings. Verified live: 17/17 is_intraday DST edges (BST/EST + both UK/US DST-mismatch gap weeks, weekend, Jul4, Christmas, malformed); 2-set engine run SUCCESS with exact per-schema object sets (2 aly_ tables + 4 aly_v_ views), isolation confirmed (dedupe/drop in one schema do not touch the other); all-sheets ingest, Trading_Date>=now-backdate cutoff (not mtime), INSERT OR REPLACE PK dedupe, Ingested_At populated; phase-4 15-col schema byte-matches legacy reference DB, stop-wins-same-day tie-break + statuses 1/2/3 + insufficient-days skip + ensure_schema_up_to_date all live-verified, integrity check non-vacuous (planted status corruption -> err2=1), SPY alpha computes nonzero; phase-5 writes exactly 5 verbatim filenames + 4 verbatim sheets per set dir; 11 negative action payloads rejected (NaN/Inf/bool/str/0/neg/float/non-str set/unknown set), empty payload -> all sets, overrides honored; empty folder/set graceful; 1245/1245 pytest, check_loops+strict clean, README twins identical, git clean. FINDINGS (all minor, none blocking): (C1) deduplicate_signals creates TEMP TABLE temp_dedup_keys and never drops it - information_schema reports it as (main, temp_dedup_keys, LOCAL TEMPORARY), an unprefixed object persisting on the long-lived service conn; verbatim legacy + OR REPLACE makes it cross-set safe, but it is the ONE non-aly_ object the job leaves behind and test_aly_prefix_on_every_created_object only scans signals_<name> so cannot catch it. (C2) Cluster NUMERIC(1,0) verbatim DDL rejects Cluster>=10 (ConversionException -> whole set FAILED); latent legacy limitation faithfully ported (ref DB max cluster 4). (C3) _positive_int has no upper bound - 1e18 backdate_days passes validation then OverflowError in timedelta -> set FAILED gracefully (not silent). (C4) benchmark interpolated raw into alpha SQL f-string (config-only, non-empty validated; a quote would break query -> swallowed to alpha=0.0). poll_tasks.py has no --review flag; verdict recorded here.
 
 [2026-09-22T17:38:46.357695+00:00] [executor] claimed F25-T2
+[2026-09-22T17:44:43.477412+00:00] [executor] completed F25-T2 -> C1 fixed: dedupe temp table renamed to aly_temp_dedup_keys (CREATE + DELETE USING) and dropped via try/finally DROP TABLE IF EXISTS — live probe on duckdb 1.5.5 confirms no LOCAL TEMPORARY left on conn after deduplicate_signals (deleted=1/remaining=1, information_schema clean). test_aly_prefix_on_every_created_object strengthened: before/after information_schema.tables diff across ALL schemas asserts zero objects outside signals_eng and zero unprefixed names — mutation-checked on pre-fix HEAD code -> FAILS with ('main','temp_dedup_keys','LOCAL TEMPORARY') leak detected. Gates: pytest 1245/1245, check_loops + --strict clean (16 files), --verify 3/3 PASS.
+Evidence map:
+[
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]
