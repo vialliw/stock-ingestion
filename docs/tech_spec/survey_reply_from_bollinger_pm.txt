@@ -1,0 +1,305 @@
+Reply — Bollinger pivot study PM (weekly-BB-pivot-hypothesis)
+================================================================
+Re: survey_to_bollinger_pm.txt — pre-defined table DML on the
+canonical Flight service. Short version: we endorse the proposal and
+would like to eliminate our local pivot.duckdb entirely. Answers to
+your seven questions below; DDL for every table we need is at the end.
+
+Headline: the two heavy tables disappear. daily_bars is replaced by a
+VIEW over daily_close ⋈ week_calendar; weekly_bars is canonical
+weekly_close ⋈ weekly_indicators plus two derived columns (tr, atr14)
+— a thin server-side CTAS, not a 581k-row client copy. Combined with
+canonical reads via do_get, our "extract" phase shrinks to: verify +
+audit + derive.
+
+1. Hosted vs local
+------------------
+Host everything tabular under a dedicated `pivot` schema:
+  P1:  week_calendar, weekly_bars, v_daily_bars (VIEW),
+       data_quality_report, ca_boundary_checks, ca_exclusion_windows,
+       reference_basis_checks, run_config
+  P2+: bb_events, bb_outcomes (+ bb_outcome_flags), bb_features,
+       analysis_results
+NOT hosted: main.splits_processed / main.company_metadata — we now
+read those directly via do_get (your survey's original assumption of a
+provenance copy is dropped; our audit tables persist the computed
+evidence instead). File artifacts (CSV/parquet mirrors, PNGs,
+REPORT.md) stay on our side at C:\Intel\parquet\pivot\reports —
+they're files, not tables. Nothing tabular remains local.
+
+2. Schemas / PKs
+----------------
+See DDL below. All types are DATE/INTEGER/DOUBLE/VARCHAR/BOOLEAN/
+TIMESTAMP — nothing exotic. PKs: (week_id), (week_id,Ticker),
+(Date,Ticker), (ticker,week_id[,side]) as marked. bb_outcomes uses the
+normalized (ticker, week_id, analysis_side, horizon, outcome, value)
+form our spec permits — it avoids a ~400-column wide table and keeps
+DML trivial.
+
+3. Population
+-------------
+(b) server-side CTAS for everything heavy:
+  - week_calendar    <- CTAS from weekly_close distinct Date
+  - weekly_bars      <- CTAS: weekly_close ⋈ weekly_indicators +
+                       windowed tr / atr14 (SMA of TR, 14 bars)
+  - v_daily_bars     <- CREATE VIEW: daily_close ⋈ week_calendar
+  - bb_events        <- CTAS: weekly_bars filters vs bb_* columns
+  - bb_outcomes      <- CTAS: forward-window joins over weekly_bars /
+                       v_daily_bars
+  - bb_features      <- CTAS: windowed features over weekly_bars
+(a) do_put for small client-computed frames:
+  - data_quality_report (append — audit ledger rows)
+  - ca_boundary_checks, ca_exclusion_windows, reference_basis_checks,
+    run_config (create_or_replace — small frozen-evidence tables)
+
+4. Write patterns
+-----------------
+Full rebuilds only — deterministic per-phase reruns. Everything is
+create_or_replace (or drop+create_as); data_quality_report is append
+per run. No row-level UPDATE/DELETE, no upsert-by-PK needed.
+
+5. DDL needs
+------------
+Need: create_as (CTAS from SELECT-only-validated source), create_view
+(v_daily_bars — please add it to the enum; saves materializing 2.8M
+rows), drop_table. Do NOT need: ALTER (we rebuild), explicit
+transactions (single-statement auto-commit per request is fine —
+our rebuilds are per-table idempotent).
+Registry + audit log: welcome — please record source_sql_sha256 +
+rows_written + timestamp per create_as; our evidence packets consume
+that. TTL cleanup: acceptable ONLY with a pin flag — study artifacts
+must survive the project lifetime; default our namespace to pinned.
+
+6. Volume / frequency
+---------------------
+  week_calendar        ~523 rows          rebuild: per P1 run
+  weekly_bars          ~581k rows         rebuild: per P1 run
+  v_daily_bars         view (0 rows)
+  bb_events            tens of thousands  rebuild: per P2 run
+  bb_outcomes(+flags)  ~581k x 2 sides x 5 horizons normalized
+                       (~5-15M thin rows worst case)  per P3 run
+  bb_features          ~581k rows         per P4 run
+  audit/config tables  hundreds           per run
+  analysis_results     thousands          per P5+ run
+Rewrite frequency: a handful of times per phase total, never daily.
+
+7. Local copy
+-------------
+Not needed — Flight-only, single door. Our tests use synthetic
+fixtures, not production mirrors.
+
+Design feedback
+---------------
+- Descriptor-driven do_put + closed-enum admin action: endorsed — no
+  arbitrary SQL is exactly right, and create_as through the existing
+  SELECT-only validator covers our entire (b) path.
+- Dedicated `pivot` schema (not prefixed tables in main): preferred —
+  matches your own signals_<name> precedent from signal_analysis.
+- Lock coupling: our CTAS rebuilds scan up to 2.8M rows under your
+  _write_lock — that stalls daily-load writes for the duration. Rare
+  enough to accept, but if you can run the CTAS read side on a
+  read-conn and take the write lock only for the final commit, better.
+- One conditional: this all assumes our P1 audit confirms the source
+  is already split-continuous (split-boundary tests on AAPL 2020-08-31,
+  TSLA 2020-08-31, NVDA 2024-06-10 — High/Low transform on Close's
+  basis, Volume inverse). If it is NOT, we either exclude contaminated
+  windows (still no copies) or need one adjusted-bars transform table.
+- BB bands: we consume weekly_indicators.BB_Upper/Central/Lower
+  verbatim — pending a P1 audit that your BB parameters match our
+  frozen spec (window 20, mult 2, STDDEV_SAMP). If they don't match,
+  we'll need a derived bb_bands CTAS instead — please confirm the
+  exact parameters your weekly_refresh uses.
+
+DDL — pivot schema (DuckDB)
+---------------------------
+
+CREATE SCHEMA IF NOT EXISTS pivot;
+
+-- P1: week calendar (~523 rows). Rebuilt per extract.
+CREATE TABLE pivot.week_calendar (
+    week_id INTEGER PRIMARY KEY,
+    week_date DATE NOT NULL,
+    n_trading_days INTEGER,
+    is_partial_week BOOLEAN NOT NULL DEFAULT FALSE,
+    is_exploration_window BOOLEAN
+);
+
+-- P1: weekly bars + indicators + derived TR/ATR14 (~581k rows).
+-- Populated by create_as from main.weekly_close ⋈ main.weekly_indicators
+-- + windowed TR/ATR14 — no client round-trip.
+CREATE TABLE pivot.weekly_bars (
+    week_id INTEGER NOT NULL,
+    Date DATE NOT NULL,
+    Ticker VARCHAR NOT NULL,
+    Open DOUBLE, High DOUBLE, Low DOUBLE, Close DOUBLE, Volume DOUBLE,
+    tr DOUBLE,          -- true range; NULL on a ticker's first bar
+    atr14 DOUBLE,       -- SMA of TR over 14 bars; NULL until 14 TRs
+    ca_excluded BOOLEAN NOT NULL DEFAULT FALSE,
+    Slow_K DOUBLE, Slow_D DOUBLE, Stoch_Crossover INTEGER,
+    Slow_D_80_20_Crossover INTEGER,
+    BB_Upper DOUBLE, BB_Central DOUBLE, BB_Lower DOUBLE,
+    BB_Reversal_Signal INTEGER,
+    PPO DOUBLE, PPO_Signal DOUBLE, PPO_Hist_Crossover INTEGER,
+    PPO_Zero_Crossover INTEGER,
+    Force_Index DOUBLE, Force_Zero_Crossover INTEGER,
+    Log_Close_EMA18 DOUBLE, Log_Close_EMA40 DOUBLE,
+    PRIMARY KEY (week_id, Ticker)
+);
+
+-- P1: daily bars — VIEW, not a table (2.8M-row copy avoided).
+-- Requires create_view in the admin enum.
+CREATE VIEW pivot.v_daily_bars AS
+SELECT wc.week_id, d.Date, d.Ticker, d.Open, d.High, d.Low, d.Close,
+       d.Volume
+FROM main.daily_close d
+JOIN pivot.week_calendar wc
+  ON d.Date <= wc.week_date
+ AND d.Date >  wc.week_date - INTERVAL 7 DAY;
+-- (exact join predicate is owned by our P1 code; shape shown for
+--  planning — Date → week_id mapping only, no derived columns)
+
+-- P1 audit tables (small; data_quality_report appends per run,
+-- the rest create_or_replace).
+CREATE TABLE pivot.data_quality_report (
+    check_name VARCHAR,
+    section VARCHAR,
+    status VARCHAR,          -- PASS | FAIL | INFO
+    value DOUBLE,
+    detail VARCHAR,
+    recorded_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE pivot.ca_boundary_checks (
+    Ticker VARCHAR,
+    SplitDate DATE,
+    SplitFactor DOUBLE,
+    frequency VARCHAR,       -- daily | weekly
+    pre_date DATE,
+    post_date DATE,
+    close_ret DOUBLE,
+    high_ret DOUBLE,
+    low_ret DOUBLE,
+    med_vol_ratio DOUBLE,
+    verdict VARCHAR,         -- CONTINUOUS | DISCONTINUOUS | INCONCLUSIVE
+    volume_verdict VARCHAR   -- SPLIT_CONSISTENT | RAW_SUSPECT | SKIP
+);
+
+CREATE TABLE pivot.ca_exclusion_windows (
+    Ticker VARCHAR,
+    SplitDate DATE,
+    SplitFactor DOUBLE,
+    frequency VARCHAR,
+    boundary_week_id INTEGER,
+    boundary_week_date DATE,
+    excl_start_week_id INTEGER,
+    excl_end_week_id INTEGER,
+    boundary_verdict VARCHAR,
+    boundary_volume_verdict VARCHAR
+);
+
+CREATE TABLE pivot.reference_basis_checks (
+    Ticker VARCHAR,
+    ref_date DATE,
+    raw_close_ref DOUBLE,
+    cum_split_factor DOUBLE,
+    observed_close DOUBLE,
+    residual DOUBLE,
+    role VARCHAR,            -- dividend_payer | non_payer_control
+    verdict VARCHAR
+);
+
+CREATE TABLE pivot.run_config (
+    key VARCHAR PRIMARY KEY,
+    value VARCHAR
+);
+
+-- P2: event ledger (~tens of thousands of rows). create_or_replace.
+CREATE TABLE pivot.bb_events (
+    event_id BIGINT,
+    ticker VARCHAR NOT NULL,
+    week_id INTEGER NOT NULL,
+    week_date DATE,
+    event_side VARCHAR,              -- UPPER | LOWER | BOTH
+    in_warmup BOOLEAN,
+    is_first_after_quiet4 BOOLEAN,
+    open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume DOUBLE,
+    bb_upper DOUBLE, bb_central DOUBLE, bb_lower DOUBLE,
+    penetration_upper_pct DOUBLE,    -- populated on UPPER leg
+    penetration_lower_pct DOUBLE,    -- populated on LOWER leg
+    close_back_inside BOOLEAN,
+    clv DOUBLE,                      -- NULL when High==Low
+    already_beyond_central BOOLEAN,
+    data_end BOOLEAN,                -- descriptive only, NOT a gate
+    PRIMARY KEY (ticker, week_id)
+);
+-- deterministic order contract: rows ordered by (ticker, week_id)
+
+-- P3: outcomes — normalized form per our spec's storage option.
+-- One row per (ticker, week_id, analysis_side, horizon, outcome).
+-- outcome values per horizon h in {1,2,4,8,13}:
+--   r1_x3|r1_x5|r1_x10, r1b_x3|r1b_x5|r1b_x10, r1t_x3|r1t_x5|r1t_x10,
+--   r2, r3_k|NULL, r3_static_k|NULL, r4_class
+--   (reversal|continuation|order_ambiguous|unresolved),
+--   fwd_ret, mfe, mae, central_cross_k, new_extreme_k
+CREATE TABLE pivot.bb_outcomes (
+    ticker VARCHAR NOT NULL,
+    week_id INTEGER NOT NULL,
+    analysis_side VARCHAR NOT NULL,  -- UPPER | LOWER
+    horizon INTEGER NOT NULL,        -- 1|2|4|8|13
+    outcome VARCHAR NOT NULL,        -- outcome_definition enum
+    value DOUBLE,                    -- numeric value; NULL = not hit /
+                                     -- censored (see flags table)
+    PRIMARY KEY (ticker, week_id, analysis_side, horizon, outcome)
+);
+-- r4_class is categorical: stored via a companion row outcome='r4_class'
+-- with value as a small int code, or add value_text VARCHAR — your call
+-- on the registry shape; we can live with either.
+
+CREATE TABLE pivot.bb_outcome_flags (
+    ticker VARCHAR NOT NULL,
+    week_id INTEGER NOT NULL,
+    analysis_side VARCHAR NOT NULL,
+    horizon INTEGER NOT NULL,
+    label_censored BOOLEAN NOT NULL, -- operative censoring gate
+    gap_flag BOOLEAN NOT NULL,       -- diagnostic only, never promotes
+    n_fwd_weeks INTEGER,
+    PRIMARY KEY (ticker, week_id, analysis_side, horizon)
+);
+
+-- P4: features (~581k rows). All computable from week_id <= t only.
+CREATE TABLE pivot.bb_features (
+    ticker VARCHAR NOT NULL,
+    week_id INTEGER NOT NULL,
+    -- band geometry
+    penetration_upper_pct DOUBLE, penetration_lower_pct DOUBLE,
+    close_back_inside BOOLEAN, dist_central_bw DOUBLE,
+    bandwidth DOUBLE, bandwidth_d1 DOUBLE, bandwidth_pctile52 DOUBLE,
+    -- candle anatomy
+    clv DOUBLE, body_pct DOUBLE, upper_wick_pct DOUBLE,
+    lower_wick_pct DOUBLE, gap_vs_prior DOUBLE,
+    -- BB dynamics
+    central_slope DOUBLE, central_decel DOUBLE,
+    streak INTEGER, touches_13w INTEGER,
+    -- momentum
+    ret_1w DOUBLE, ret_3w DOUBLE, ret_5w DOUBLE,
+    rsi14 DOUBLE, ema18_dist DOUBLE, ema40_dist DOUBLE,
+    -- volume
+    vol_z20 DOUBLE, vol_ratio DOUBLE,
+    -- regime (diagnostic-only per spec — never promotable features)
+    spy_ret_1w DOUBLE, spy_ret_13w DOUBLE, spy_above_band BOOLEAN,
+    events_this_week INTEGER, vol52 DOUBLE,
+    PRIMARY KEY (ticker, week_id)
+);
+
+-- P5+: analysis results sink (small, append or create_or_replace).
+CREATE TABLE pivot.analysis_results (
+    run_id VARCHAR NOT NULL,
+    section VARCHAR,         -- e.g. manifest_hash, contrast_id, family
+    key VARCHAR,
+    value_num DOUBLE,
+    value_text VARCHAR,
+    recorded_at TIMESTAMP DEFAULT now()
+);
+
+End of reply. Nothing above is committed scope — it's the requirements
+answer you asked for; happy to iterate on the enum/descriptor details.
