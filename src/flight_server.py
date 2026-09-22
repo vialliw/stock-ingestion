@@ -5,8 +5,8 @@ implementation): a ``flight.FlightServerBase`` subclass that exposes a
 read-only ``do_get`` endpoint (SELECT-only SQL validated before reaching
 DuckDB) and a ``do_action`` endpoint routing the administrative actions
 (initial_load, daily_load, on_request_load, metadata_load,
-weekly_refresh, fear_greed_refresh, signal_pipeline, daily_report,
-health_check, data_health, get_run_history, sync_to_r2).
+weekly_refresh, fear_greed_refresh, signal_pipeline, signal_analysis,
+daily_report, health_check, data_health, get_run_history, sync_to_r2).
 
 Spec reference: docs/tech_spec/gemini_tech_spec.1.0.2.md §5, §10.
 """
@@ -599,6 +599,78 @@ class MarketDataFlightServer(flight.FlightServerBase):
                 # Mirrors weekly_refresh — engine failures surface as
                 # status=FAILED in the JSON body, not a transport error.
                 logger.error("signal_pipeline failed: %s", e)
+                result = {"status": "FAILED", "error": str(e)}
+            return _ActionResult(json.dumps(result).encode("utf-8"))
+
+        elif action_type == "signal_analysis":
+            # F25-T1: server-side 5-phase signal-analysis job — per-set
+            # signals_<name> schema holding aly_-prefixed tables/views:
+            # ingest xlsx -> dedupe -> repair closes from daily_close ->
+            # 4 views -> 15-col aly_signal_performance + scorecard +
+            # edge validator -> phase-5 matrix reports.
+            # Optional payload keys override the ``signal_analysis:``
+            # config block; each is validated like the signal_pipeline
+            # precedent (type/bool/isfinite -> FlightServerError, never
+            # silently coerced).
+            set_name = payload.get("set")
+            if set_name is not None:
+                if not isinstance(set_name, str) or not set_name:
+                    raise flight.FlightServerError(
+                        f"set must be a non-empty string, "
+                        f"got {set_name!r}"
+                    )
+                configured = {
+                    s.name for s in self.cfg.signal_analysis.sets
+                }
+                if set_name not in configured:
+                    raise flight.FlightServerError(
+                        f"unknown signal_analysis set {set_name!r}; "
+                        f"configured: {sorted(configured)}"
+                    )
+
+            def _positive_int(name):
+                """Validate an optional positive-integer payload key.
+
+                Numbers (int/float) must be finite (math.isfinite —
+                json.loads accepts bare NaN/Infinity literals) and
+                integral; bools/strings are rejected outright.
+                """
+                v = payload.get(name)
+                if v is None:
+                    return None
+                if (
+                    isinstance(v, bool)
+                    or not isinstance(v, (int, float))
+                    or not math.isfinite(v)
+                    or v < 1
+                    or int(v) != v
+                ):
+                    raise flight.FlightServerError(
+                        f"{name} must be an integer >= 1, got {v!r}"
+                    )
+                return int(v)
+
+            backdate_days = _positive_int("backdate_days")
+            max_holding_days = _positive_int("max_holding_days")
+            mc_iterations = _positive_int("mc_iterations")
+
+            kwargs = {}
+            if set_name is not None:
+                kwargs["set_name"] = set_name
+            if backdate_days is not None:
+                kwargs["backdate_days"] = backdate_days
+            if max_holding_days is not None:
+                kwargs["max_holding_days"] = max_holding_days
+            if mc_iterations is not None:
+                kwargs["mc_iterations"] = mc_iterations
+            try:
+                result = self.engine.run_signal_analysis(**kwargs)
+            except ValueError as e:
+                raise flight.FlightServerError(str(e)) from e
+            except Exception as e:
+                # Mirrors weekly_refresh — engine failures surface as
+                # status=FAILED in the JSON body, not a transport error.
+                logger.error("signal_analysis failed: %s", e)
                 result = {"status": "FAILED", "error": str(e)}
             return _ActionResult(json.dumps(result).encode("utf-8"))
 

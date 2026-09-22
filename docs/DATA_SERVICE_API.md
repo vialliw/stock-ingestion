@@ -220,7 +220,32 @@ Signals without enough forward days (no hit AND
 `Cluster` INTEGER PK, `Description` VARCHAR; 6 rows (0–5), refreshed
 verbatim on every `signal_pipeline` run.
 
-### 3.9 Audit/internal tables (available but not a stable contract)
+### 3.9 `signals_<name>` — per-set signal-analysis schemas
+
+The `signal_analysis` action creates one isolated schema per configured
+`signal_analysis.sets` entry (`signals_version_p`,
+`signals_version_q`, …). Every object carries the `aly_` prefix and
+lives only inside its set's schema:
+
+- `aly_signal_records_raw` — 24-column raw ingest table; PK
+  `(Trading_Date, Model, Ticker, Signal_File)`; dropped & recreated on
+  every run.
+- Four views built from the raw table:
+  `aly_v_signals_baseline_all_signals`,
+  `aly_v_signals_strict_eod_price_above_open`,
+  `aly_v_signals_intraday_high_rr`,
+  `aly_v_signals_atr_target_multiple_filter`.
+- `aly_signal_performance` — 15-column forward-outcome table; unlike
+  `main.signal_performance` (§3.7) it includes `Time_Exit_Date`,
+  `Next_Day_Open`, `Open_Gap_Pct`, `Execution_Status`, and **stop wins
+  same-day target/stop ties** (`Hit_Target_T` only when
+  `Raw_Target_T < Raw_Stop_T`).
+
+These are runtime-created schemas — no `SCHEMA_VERSION` migration (stays
+`7`). Reports land under
+`reports.report_dir/signal_analysis/<name>/`.
+
+### 3.10 Audit/internal tables (available but not a stable contract)
 
 `ingestion_runs` (run log), `splits_processed` (split-repair
 bookkeeping), `schema_version` (migration markers — current `7`).
@@ -243,6 +268,7 @@ result rows. Payloads are optional JSON objects unless noted.
 | `weekly_refresh` | — (empty) | `{status: SUCCESS\|FAILED, weekly_close_rows, weekly_indicators_rows, duration_ms}` | Rebuild both weekly tables (write, pure SQL ~17 s) |
 | `fear_greed_refresh` | `{start_date?: "YYYY-MM-DD"}` | `{status: SUCCESS\|FAILED, rows_upserted, latest_date, fg_score, fg_rating, alert_triggered, alert_detail, missing_series, fetched_url, start_date_fallback, duration_ms}` | CNN Fear & Greed fetch + `fear_greed_history` upsert (write); HTTPError on the dated URL retries once on the undated URL (~6y retention floor — see §3.5) |
 | `signal_pipeline` | `{folder_path?: str, backdate_days?: int≥1, max_holding_days?: int≥1, overwrite_existing?: bool, min_reward_risk?: num, min_target_pct?: num, exclude_clusters?: [int], exclude_models?: [str], filter_below_open?: bool}` — all optional, each overrides the `signals:` config | `{status: SUCCESS\|FAILED, steps: {ingest, dedupe, repair, prune, performance, repair_sweep, null_verification, cluster_metadata}, duration_ms}` | Six-step signal pipeline server-side (write): ingest xlsx signals → dedupe → repair NULL closes from `daily_close` → prune (thresholds active; pruned rows returned in `steps.prune.pruned_records`, no log file) → `signal_performance` compute → silent repair sweep + NULL verification → `cluster_metadata` refresh |
+| `signal_analysis` | `{set?: str, backdate_days?: int≥1, max_holding_days?: int≥1, mc_iterations?: int≥1}` — all optional; `set` must match a configured `signal_analysis.sets` name (omit = all sets), numbers override the `signal_analysis:` config | `{status: SUCCESS\|PARTIAL\|FAILED, sets: {<name>: {status, schema: signals_<name>, report_dir, steps: {ingest, dedupe, repair, views, performance, phase5}}}, duration_ms}` | Five-phase `signal_input2` analyzer server-side (write): ingest all sheets of `*_active_signal_combined.xlsx` into `signals_<name>.aly_signal_records_raw` → dedupe + NULL/NaN `Close` repair from `daily_close` → four `aly_v_*` views → 15-col `aly_signal_performance` + per-view `scorecard` + `edge_validation` metrics (expectancy, profit factor, fill rate, SPY alpha, MC) under `steps.performance` → phase-5 analytics matrix + xlsx/heatmap reports |
 | `daily_report` | `{date?: "YYYY-MM-DD"}` | `{status, report}` | Top-20 dollar-volume report (also writes a file server-side) |
 | `get_run_history` | — | `{status, run_history: [...]}` | `ingestion_runs` audit log |
 | `sync_to_r2` | — | R2 sync result | Push DB artifact to Cloudflare R2 |

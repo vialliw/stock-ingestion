@@ -1436,3 +1436,209 @@ class TestSignalPipelineAction:
                 thread.join(timeout=2)
             except Exception:
                 pass
+
+
+# =====================================================================
+# F25-T1: signal_analysis action (executor module only — mirrors
+# TestSignalPipelineAction; the challenger variant is out of scope)
+# =====================================================================
+
+
+def _signal_analysis_result(**overrides):
+    result = {
+        "status": "SUCCESS",
+        "sets": {
+            "version_p": {
+                "status": "SUCCESS",
+                "schema": "signals_version_p",
+                "folder": r"C:\Intel\parquet\quant_strategy_building\version_p",
+                "report_dir": r"C:\Intel\parquet\signal_analysis\version_p",
+                "steps": {
+                    "ingest": {"status": "SUCCESS", "inserted": 3},
+                    "dedupe": {"deleted": 0, "remaining": 3},
+                    "repair": {"repaired": 0, "still_null": 0},
+                    "views": {"status": "SUCCESS", "views": {}},
+                    "performance": {"rows_processed": 2},
+                    "phase5": {"status": "SUCCESS"},
+                },
+                "duration_ms": 42,
+            }
+        },
+        "duration_ms": 42,
+    }
+    result.update(overrides)
+    return result
+
+
+class TestSignalAnalysisAction:
+    """The ``signal_analysis`` action routes to
+    engine.run_signal_analysis with validated payload overrides."""
+
+    def _server(self, set_names=("version_p", "version_q")):
+        import types
+
+        server, db_mgr, ingest_engine, cfg = make_server(_executor_module)
+        # SimpleNamespace: MagicMock(name=...) clashes with the mock's
+        # own ``name`` kwarg, so use real namespaces for set entries.
+        cfg.signal_analysis.sets = [
+            types.SimpleNamespace(name=n) for n in set_names
+        ]
+        return server, db_mgr, ingest_engine, cfg
+
+    def test_signal_analysis_success_no_overrides(self):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        ingest_engine.run_signal_analysis.return_value = (
+            _signal_analysis_result()
+        )
+        data = parse_result(
+            server.do_action(
+                MagicMock(), make_action("signal_analysis")
+            )
+        )
+        assert data["status"] == "SUCCESS"
+        assert data["sets"]["version_p"]["schema"] == "signals_version_p"
+        ingest_engine.run_signal_analysis.assert_called_once_with()
+
+    def test_signal_analysis_forwards_overrides(self):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        ingest_engine.run_signal_analysis.return_value = (
+            _signal_analysis_result()
+        )
+        payload = {
+            "set": "version_q",
+            "backdate_days": 30,
+            "max_holding_days": 10,
+            "mc_iterations": 20,
+        }
+        data = parse_result(
+            server.do_action(
+                MagicMock(), make_action("signal_analysis", payload)
+            )
+        )
+        assert data["status"] == "SUCCESS"
+        ingest_engine.run_signal_analysis.assert_called_once_with(
+            set_name="version_q",
+            backdate_days=30,
+            max_holding_days=10,
+            mc_iterations=20,
+        )
+
+    def test_signal_analysis_engine_failure_returns_failed(self):
+        """Engine exceptions surface as status=FAILED (weekly_refresh
+        precedent), not a transport error."""
+        server, db_mgr, ingest_engine, cfg = self._server()
+        ingest_engine.run_signal_analysis.side_effect = RuntimeError(
+            "analysis boom"
+        )
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("signal_analysis"))
+        )
+        assert data["status"] == "FAILED"
+        assert "analysis boom" in data["error"]
+
+    def test_signal_analysis_engine_valueerror_raises(self):
+        """A ValueError from the engine (unknown set) becomes a
+        FlightServerError, not a FAILED status."""
+        server, db_mgr, ingest_engine, cfg = self._server()
+        ingest_engine.run_signal_analysis.side_effect = ValueError(
+            "unknown signal_analysis set 'x'"
+        )
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(), make_action("signal_analysis")
+            )
+
+    @pytest.mark.parametrize("bad", ["nope", "Version_P", "", " other"])
+    def test_unknown_or_invalid_set_rejected(self, bad):
+        """A ``set`` payload must match a configured set name."""
+        server, db_mgr, ingest_engine, cfg = self._server()
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(),
+                make_action("signal_analysis", {"set": bad}),
+            )
+        ingest_engine.run_signal_analysis.assert_not_called()
+
+    @pytest.mark.parametrize("bad", [123, ["version_p"], {"s": 1}, True])
+    def test_non_string_set_rejected(self, bad):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(),
+                make_action("signal_analysis", {"set": bad}),
+            )
+        ingest_engine.run_signal_analysis.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "key", ["backdate_days", "max_holding_days", "mc_iterations"]
+    )
+    @pytest.mark.parametrize(
+        "bad", ["90", 2.5, True, 0, -3, [5], {"x": 1}]
+    )
+    def test_invalid_numeric_params_raise(self, key, bad):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(), make_action("signal_analysis", {key: bad})
+            )
+        ingest_engine.run_signal_analysis.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "key", ["backdate_days", "max_holding_days", "mc_iterations"]
+    )
+    @pytest.mark.parametrize(
+        "bad", [float("nan"), float("inf"), float("-inf")]
+    )
+    def test_non_finite_numeric_params_raise(self, key, bad):
+        """NaN/Infinity survive the json round-trip as bare literals —
+        math.isfinite must reject them (F24-T2 lesson carried forward:
+        a NaN bound silently poisons DuckDB comparisons)."""
+        server, db_mgr, ingest_engine, cfg = self._server()
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(), make_action("signal_analysis", {key: bad})
+            )
+        ingest_engine.run_signal_analysis.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "key", ["backdate_days", "max_holding_days", "mc_iterations"]
+    )
+    def test_integral_float_accepted(self, key):
+        """An integral float (e.g. ``90.0``) is finite + integral —
+        forwarded to the engine as a real int."""
+        server, db_mgr, ingest_engine, cfg = self._server()
+        ingest_engine.run_signal_analysis.return_value = (
+            _signal_analysis_result()
+        )
+        data = parse_result(
+            server.do_action(
+                MagicMock(),
+                make_action("signal_analysis", {key: 90.0}),
+            )
+        )
+        assert data["status"] == "SUCCESS"
+        ingest_engine.run_signal_analysis.assert_called_once_with(
+            **{key: 90}
+        )
+
+    def _wire_server(self):
+        """Spin up the executor server on an ephemeral port + real client."""
+        import types
+
+        db_mgr = MagicMock()
+        ingest_engine = MagicMock()
+        cfg = MagicMock()
+        cfg.ingestion.daily_lookback_days = 4
+        cfg.reports.report_dir = "/tmp/test_reports"
+        cfg.signal_analysis.sets = [
+            types.SimpleNamespace(name="version_p")
+        ]
+        location = _ephemeral_location()
+        server = _executor_module.MarketDataFlightServer(
+            location, db_mgr, ingest_engine, cfg
+        )
+        thread = threading.Thread(target=server.serve, daemon=True)
+        thread.start()
+        client = flight.FlightClient(location)
+        client.wait_for_available(timeout=10)
+        return server, client, db_mgr, ingest_engine, cfg, 

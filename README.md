@@ -98,7 +98,7 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 
 - **`do_get`** — read-only SQL queries returning Arrow record batches. SELECT/WITH statements only. Configurable query timeout (default 120s, no row limit).
 - **`do_put`** — accepts external Arrow record batches matching the `daily_close` schema (7 columns), validates schema, filters excluded tickers, and upserts in a single vectorized operation.
-- **`do_action`** — twelve administrative actions:
+- **`do_action`** — thirteen administrative actions:
   - `initial_load` — run the initial historical load. Depth = `ingestion.initial_load_years` (default 6); an explicit `years` key in the action payload overrides it. `years` must be an integer in `[1, 30]` (bool/non-int rejected); invalid values raise `ValueError` in the engine and surface as a `FlightServerError` — never a silent empty download.
   - `daily_load` — run today's incremental load.
   - `on_request_load` — load a custom date range for specified tickers.
@@ -106,6 +106,7 @@ The project was built using a coordinated multi-agent workflow (executor → cha
   - `weekly_refresh` — rebuild `weekly_close` and `weekly_indicators` from `daily_close` (see [Weekly Layer](#weekly-layer)). No payload required. Returns `SUCCESS` with row counts, or `FAILED` with an `error` field — the daily tables are unaffected.
   - `fear_greed_refresh` — fetch CNN's Fear & Greed payload and upsert `fear_greed_history` (see [CNN Fear & Greed Index](#cnn-fear--greed-index)). Payload is optional; `start_date` (`YYYY-MM-DD`) overrides the configured backfill horizon — a malformed value raises `FlightServerError`. Returns `SUCCESS` with `rows_upserted`/`latest_date`/`fg_score`/`fg_rating`/`alert_triggered`/`missing_series`/`fetched_url`/`start_date_fallback`, or `FAILED` with an `error` field.
   - `signal_pipeline` — run the six-step signal pipeline server-side (see [Signal Pipeline](#signal-pipeline)). Payload is optional; every key overrides the `signals:` config block and is validated (`backdate_days`/`max_holding_days` int ≥ 1, `overwrite_existing`/`filter_below_open` bool, `min_reward_risk`/`min_target_pct` number, `exclude_clusters` list of ints, `exclude_models` list of strings, `folder_path` non-empty string — invalid values raise `FlightServerError`). Returns `{status, steps: {ingest, dedupe, repair, prune, performance, repair_sweep, null_verification, cluster_metadata}, duration_ms}`.
+  - `signal_analysis` — run the five-phase `signal_input2` signal-analysis pipeline server-side (see [Signal Analysis Pipeline](#signal-analysis-pipeline)). Payload is optional; `set` selects one configured `signal_analysis.sets` entry (omit/`null` = all sets) and `backdate_days` (int ≥ 1), `max_holding_days` (int ≥ 1), `mc_iterations` (int ≥ 1) override the config block — invalid values or an unknown `set` raise `FlightServerError`. Returns `{status, sets: {<name>: {status, schema, report_dir, steps: {ingest, dedupe, repair, views, performance, phase5}}}, duration_ms}` — including the per-view scorecard and `edge_validation` metrics under `steps.performance`.
   - `daily_report` — generate a top-20 dollar-volume report as JSON.
   - `health_check` — return server uptime, DB status, ticker count, row count, schema version.
   - `data_health` — run the full `daily_close` data-health report (see [Data Health Checks](#data-health-checks)).
@@ -253,6 +254,24 @@ Step order (identical to the legacy `__main__`): **ingest** (`*_active_signal_co
 python scripts/orchestrator.py
 ```
 
+### Signal Analysis Pipeline
+
+The legacy `quant_strategy_building/signal_input2/` five-phase analyzer is ported server-side into the Flight service. Unlike `signal_pipeline` (single folder, `main`-schema tables), `signal_analysis` runs **per configured signal set** — each `signal_analysis.sets` entry gets its own isolated schema `signals_<name>` (e.g. `signals_version_p`) inside `stock_ingestion.duckdb`, and every created object carries the `aly_` prefix. The service's `daily_close` is joined in-database — no `ATTACH`, no separate DuckDB files — and reports land under `reports.report_dir/signal_analysis/<name>/`.
+
+Phase order (identical to the legacy `orchestrator_generic.py`):
+
+1. **`phase1_ingest`** — drop & recreate `aly_signal_records_raw` (24 columns, PK `(Trading_Date, Model, Ticker, Signal_File)`), read every sheet of each `*_active_signal_combined.xlsx`, flag `Is_Intraday` by converting the filename's `YYYYMMDD_HHMM` stamp from Europe/London to America/New_York and requiring an NYSE trading day between 09:30–16:00, filter `Trading_Date >= today - backdate_days`, `INSERT OR REPLACE`.
+2. **`phase2_dedup_and_repair`** — dedupe to the latest `Signal_File` per `(Trading_Date, Model, Ticker)`, then repair `Close` (NULL or NaN) from `daily_close` in the same DB.
+3. **`phase3_views`** — create four views: `aly_v_signals_baseline_all_signals`, `aly_v_signals_strict_eod_price_above_open`, `aly_v_signals_intraday_high_rr`, `aly_v_signals_atr_target_multiple_filter` (legacy predicates preserved verbatim).
+4. **`phase4_backtest`** — build the 15-column `aly_signal_performance` (adds `Time_Exit_Date`, `Next_Day_Open`, `Open_Gap_Pct`, `Execution_Status` vs F24's table; **stop wins same-day target/stop ties** — target only counts when `Raw_Target_T < Raw_Stop_T`), run the execution-status integrity check, write `RPT_signal_performance.xlsx`, and produce a per-view **scorecard** plus `SignalEdgeValidator` metrics (expectancy, profit factor, fill rate, SPY alpha, unseeded normalized Monte Carlo).
+5. **`phase5_matrix`** — grouped analytics (Model × Cluster, Target% bin × RR bin, Target-ATR bin × RR bin), trend-decay analysis, three PNG heatmaps (`heatmap_expectancy_target_atr_rr`, `heatmap_expectancy_target_rr`, `heatmap_winrate_model_cluster`) and `RPT_phase5_analytics_matrix.xlsx`.
+
+- **On demand** — the `signal_analysis` Flight action (`{"set": "version_p"}` for one set, empty payload for all) or the CLI:
+
+```bash
+python scripts/run_signal_analysis.py
+```
+
 ---
 
 ## Project Structure
@@ -268,6 +287,7 @@ stock-ingestion/
 │   ├── flight_server.py       # MarketDataFlightServer — Arrow Flight do_get/do_put/do_action
 │   ├── r2_sync.py             # R2SyncManager — Cloudflare R2 DuckDB file upload
 │   ├── signal_pipeline.py     # Signal pipeline — six ported steps on the service DuckDB conn
+│   ├── signal_analysis.py     # Signal analysis — five ported signal_input2 phases, signals_<name> schemas
 │   ├── scheduler.py           # PipelineScheduler — APScheduler daily load
 │   ├── scheduler_main.py      # Standalone scheduler entrypoint
 │   ├── main.py                # Flight server entrypoint
@@ -303,6 +323,7 @@ stock-ingestion/
 │   ├── test_store_csv.py
 │   ├── test_fear_greed.py      # CNN Fear & Greed: parse/resilience, upsert, bridge, action, config
 │   ├── test_signal_pipeline.py # Signal pipeline: schema v7, ingest/dedupe/repair/prune/perf/metadata
+│   ├── test_signal_analysis.py # Signal analysis: aly_ schema isolation, phases, DST, views, perf, reports
 │   └── test_weekly.py          # Weekly layer: Friday keys, OHLCV agg, indicators, bridge
 ├── scripts/
 │   ├── breadth_dashboard.bat   # Double-click wrapper for breadth_dashboard.py
@@ -332,6 +353,7 @@ stock-ingestion/
 │   ├── rrg_dashboard.bat       # Double-click wrapper for rrg_dashboard.py
 │   ├── rrg_dashboard.py        # RRG HTML+JSON dashboards (port of legacy plot_rrg_chart_gemini10b.py, Flight-first)
 │   ├── run_flight_server.py    # cwd-safe wrapper launching src.main.main() for the service task
+│   ├── run_signal_analysis.py  # Signal-analysis run via the signal_analysis Flight action
 │   └── workflow_phase2.py      # Dynamic Workflow orchestration script
 ├── .github/workflows/
 │   ├── daily_load.yml          # CI daily load (cron, trading days)
@@ -448,6 +470,17 @@ signals:
   exclude_clusters: []        # prune excludes no clusters by default
   exclude_models: []          # prune excludes no models by default
   filter_below_open: false    # true also prunes signals with Current_Price < Open
+
+signal_analysis:
+  sets:                        # each set gets schema signals_<name> + reports under signal_analysis/<name>/
+    - name: version_p          # must match [a-z0-9_]+
+      folder: "C:\Intel\parquet\quant_strategy_building\version_p"
+    - name: version_q
+      folder: "C:\Intel\parquet\quant_strategy_building\version_q"
+  backdate_days: 90            # Trading_Date cutoff for phase-1 ingest
+  max_holding_days: 8          # forward window cap for phase-4 backtest
+  mc_iterations: 50            # edge-validator Monte Carlo iteration count
+  benchmark: "SPY"             # benchmark ticker for SPY-alpha metric
 ```
 
 ### Environment Variables (R2)

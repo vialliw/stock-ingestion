@@ -1271,3 +1271,13 @@ signals:
   exclude_clusters: []
   exclude_models: []
   filter_below_open: false
+signal_analysis:
+  backdate_days: 90
+  max_holding_days: 8
+  mc_iterations: 50
+  benchmark: SPY
+  sets:
+  - name: version_p
+    folder: C:\Intel\parquet\quant_strategy_building\version_p
+  - name: version_q
+    folder: C:\Intel\parquet\quant_strategy_building\version_q

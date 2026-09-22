@@ -324,6 +324,118 @@ class SignalsConfig(BaseModel):
         return list(v)
 
 
+class SignalAnalysisSetConfig(BaseModel):
+    """One signal-analysis engine set (F25-T1).
+
+    ``name`` is the engine identifier — a ``[a-z0-9_]+`` slug that drives
+    the per-set schema ``signals_<name>`` and the report subfolder
+    ``signal_analysis/<name>/``.  ``folder`` is the directory scanned
+    for ``*_active_signal_combined.xlsx`` files.
+    """
+
+    name: str
+    folder: str
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def validate_name(cls, v) -> str:
+        """The name is interpolated into SQL identifiers
+        (``signals_<name>`` schema), so it must be a strict slug."""
+        if not isinstance(v, str) or not re.fullmatch(r"[a-z0-9_]+", v):
+            raise ValueError(
+                f"signal_analysis set name must match [a-z0-9_]+, "
+                f"got {v!r}"
+            )
+        return v
+
+    @field_validator("folder", mode="before")
+    @classmethod
+    def validate_folder(cls, v) -> str:
+        """``folder`` must be a non-empty string."""
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError(
+                f"signal_analysis set folder must be a non-empty "
+                f"string, got {v!r}"
+            )
+        return v
+
+
+class SignalAnalysisConfig(BaseModel):
+    """Signal-analysis pipeline settings (F25-T1).
+
+    Server-side port of the legacy
+    ``quant_strategy_building/signal_input2`` orchestrator constants and
+    the ``process_mutli_sets_signals.py`` set loop: ``sets`` is the list
+    of ``{name, folder}`` engine sets — ``run_signal_analysis`` iterates
+    all of them (or one when the action payload names a ``set``).
+    """
+
+    sets: List[SignalAnalysisSetConfig] = Field(default_factory=list)
+    backdate_days: int = Field(default=90, ge=1)
+    max_holding_days: int = Field(default=8, ge=1)
+    mc_iterations: int = Field(default=50, ge=1)
+    benchmark: str = "SPY"
+
+    @field_validator(
+        "backdate_days", "max_holding_days", "mc_iterations",
+        mode="before",
+    )
+    @classmethod
+    def validate_int_days(cls, v, info) -> int:
+        """``None`` falls back to the field default; reject bools —
+        ``ge=1`` would silently accept ``True``."""
+        defaults = {
+            "backdate_days": 90,
+            "max_holding_days": 8,
+            "mc_iterations": 50,
+        }
+        if v is None:
+            return defaults[info.field_name]
+        if isinstance(v, bool):
+            raise ValueError(
+                f"{info.field_name} must be an integer >= 1, "
+                f"got bool {v}"
+            )
+        return v
+
+    @field_validator("benchmark", mode="before")
+    @classmethod
+    def validate_benchmark(cls, v) -> str:
+        """``None`` falls back to SPY; must be a non-empty string (it is
+        interpolated into the alpha query)."""
+        if v is None:
+            return "SPY"
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError(
+                f"benchmark must be a non-empty string, got {v!r}"
+            )
+        return v
+
+    @field_validator("sets", mode="before")
+    @classmethod
+    def validate_sets(cls, v) -> list:
+        """``None`` -> ``[]``; must be a list of {name, folder} maps."""
+        if v is None:
+            return []
+        if not isinstance(v, (list, tuple)):
+            raise ValueError(
+                f"signal_analysis sets must be a list, "
+                f"got {type(v).__name__}"
+            )
+        return list(v)
+
+    @field_validator("sets")
+    @classmethod
+    def validate_unique_set_names(cls, v) -> List[SignalAnalysisSetConfig]:
+        """Set names drive schema names — duplicates would collide."""
+        names = [s.name for s in v]
+        if len(names) != len(set(names)):
+            raise ValueError(
+                f"signal_analysis set names must be unique, got {names}"
+            )
+        return v
+
+
 class R2Config(BaseModel):
     """Cloudflare R2 sync settings.
 
@@ -373,6 +485,9 @@ class PipelineConfig(BaseModel):
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     fear_greed: FearGreedConfig = Field(default_factory=FearGreedConfig)
     signals: SignalsConfig = Field(default_factory=SignalsConfig)
+    signal_analysis: SignalAnalysisConfig = Field(
+        default_factory=SignalAnalysisConfig
+    )
 
     @property
     def db_path(self) -> str:

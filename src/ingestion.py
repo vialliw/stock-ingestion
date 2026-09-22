@@ -11,6 +11,7 @@ Spec reference: docs/tech_spec/gemini_tech_spec.1.0.2.md §10.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -21,7 +22,7 @@ import pandas_market_calendars as mcal
 import requests
 import yfinance as yf
 
-from src import signal_pipeline
+from src import signal_analysis, signal_pipeline
 from src.config import PipelineConfig
 from src.db import DatabaseManager
 from src.r2_sync import R2SyncManager
@@ -1342,6 +1343,213 @@ class IngestionEngine:
         return {
             "status": "SUCCESS",
             "steps": steps,
+            "duration_ms": duration_ms,
+        }
+
+    # ------------------------------------------------------------------
+    # Signal analysis (F25-T1) — server-side port of
+    # quant_strategy_building/signal_input2 (orchestrator_generic +
+    # process_mutli_sets_signals multi-set loop)
+    # ------------------------------------------------------------------
+
+    def run_signal_analysis(
+        self,
+        set_name: Optional[str] = None,
+        backdate_days: Optional[int] = None,
+        max_holding_days: Optional[int] = None,
+        mc_iterations: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Run the five-phase signal-analysis job over the configured
+        engine sets.
+
+        Reproduces the ``process_mutli_sets_signals.py`` loop: every
+        configured ``signal_analysis.sets`` entry (or the single set
+        named by ``set_name``) gets its own schema ``signals_<name>``
+        (``CREATE SCHEMA IF NOT EXISTS`` — runtime, SCHEMA_VERSION stays
+        7) and runs the phases in the legacy order:
+
+        1. ingest — ``*_active_signal_combined.xlsx`` (all sheets) ->
+           ``{schema}.aly_signal_records_raw`` (DROP+recreate per run,
+           ``Trading_Date >= today - backdate_days`` cutoff)
+        2. dedupe — keep the latest ``Signal_File`` per
+           ``(Trading_Date, Model, Ticker)``
+        3. repair — fill NULL/NaN ``Close`` from ``daily_close`` (in-DB
+           join; no ATTACH)
+        4. views — the four ``aly_v_signals_*`` views (verbatim
+           predicates)
+        5. backtest — ``aly_signal_performance`` (15 cols,
+           stop-wins-same-day tie-break, Execution_Status 1/2/3) +
+           integrity check + ``RPT_signal_performance.xlsx`` + per-view
+           scorecard + ``SignalEdgeValidator`` metrics
+        6. phase5 — matrix analytics -> 3 heatmap PNGs +
+           ``RPT_phase5_analytics_matrix.xlsx`` under
+           ``reports.report_dir/signal_analysis/<name>/``
+
+        ``None`` parameters fall back to the ``signal_analysis:`` config
+        block; the ``signal_analysis`` Flight action validates payload
+        overrides before calling this.  Each step's writes run on
+        ``self.db.conn`` under ``self.db._write_lock``.
+
+        Returns ``{status, sets: {<name>: {status, schema, folder,
+        report_dir, steps: {...}, duration_ms}}, duration_ms}`` — status
+        is SUCCESS when every set succeeded, PARTIAL when some failed,
+        FAILED when all failed.  An unknown ``set_name`` raises
+        ``ValueError``; an empty ``sets`` config returns SUCCESS with an
+        empty ``sets`` map.
+        """
+        acfg = self.cfg.signal_analysis
+        backdate_days = (
+            backdate_days if backdate_days is not None else acfg.backdate_days
+        )
+        max_holding_days = (
+            max_holding_days
+            if max_holding_days is not None
+            else acfg.max_holding_days
+        )
+        mc_iterations = (
+            mc_iterations
+            if mc_iterations is not None
+            else acfg.mc_iterations
+        )
+        benchmark = acfg.benchmark
+
+        configured = {s.name: s for s in acfg.sets}
+        if set_name is not None:
+            if set_name not in configured:
+                raise ValueError(
+                    f"unknown signal_analysis set {set_name!r}; "
+                    f"configured: {sorted(configured)}"
+                )
+            target_sets = [configured[set_name]]
+        else:
+            target_sets = list(acfg.sets)
+
+        start_time = datetime.now()
+        con = self.db.conn
+        sets_result: Dict[str, Any] = {}
+        logger.info(
+            "Starting signal analysis (sets=%s, backdate=%dd, "
+            "max_holding=%dd, mc_iterations=%d, benchmark=%s)...",
+            [s.name for s in target_sets],
+            backdate_days,
+            max_holding_days,
+            mc_iterations,
+            benchmark,
+        )
+
+        # justified: per-set pipeline iteration — each configured engine
+        # set runs the full 5-phase job against its own schema (mirrors
+        # the legacy process_mutli_sets_signals folders_and_dbs loop);
+        # sets are config entries, not data rows.
+        for sig_set in target_sets:
+            schema = signal_analysis.schema_for_set(sig_set.name)
+            report_dir = os.path.join(
+                self.cfg.reports.report_dir, "signal_analysis", sig_set.name
+            )
+            os.makedirs(report_dir, exist_ok=True)
+            set_start = datetime.now()
+            steps: Dict[str, Any] = {}
+            set_status = "SUCCESS"
+            try:
+                with self.db._write_lock:
+                    con.execute(
+                        f"CREATE SCHEMA IF NOT EXISTS {schema}"
+                    )
+                    steps["ingest"] = signal_analysis.ingest_signals(
+                        con, schema, sig_set.folder, backdate_days
+                    )
+                    raw_exists = signal_analysis._table_exists(
+                        con, schema, signal_analysis.RAW_TABLE
+                    )
+
+                if not raw_exists:
+                    # Graceful: nothing ingested and no leftover raw
+                    # table — the downstream phases have no inputs.
+                    # justified: emitting the same SKIPPED marker per
+                    # remaining step is reporting, not data work.
+                    for step_name in (
+                        "dedupe",
+                        "repair",
+                        "views",
+                        "performance",
+                        "phase5",
+                    ):
+                        steps[step_name] = {
+                            "status": "SKIPPED",
+                            "reason": (
+                                "aly_signal_records_raw absent "
+                                "(no signal files ingested)"
+                            ),
+                        }
+                else:
+                    with self.db._write_lock:
+                        steps["dedupe"] = (
+                            signal_analysis.deduplicate_signals(
+                                con, schema
+                            )
+                        )
+                    with self.db._write_lock:
+                        steps["repair"] = (
+                            signal_analysis.repair_missing_close_prices(
+                                con, schema
+                            )
+                        )
+                    with self.db._write_lock:
+                        steps["views"] = signal_analysis.build_views(
+                            con, schema
+                        )
+                    with self.db._write_lock:
+                        steps["performance"] = (
+                            signal_analysis.run_backtest(
+                                con,
+                                schema,
+                                report_dir,
+                                max_holding_days=max_holding_days,
+                                benchmark=benchmark,
+                                mc_iterations=mc_iterations,
+                            )
+                        )
+                    with self.db._write_lock:
+                        steps["phase5"] = signal_analysis.run_phase5(
+                            con, schema, report_dir
+                        )
+            except Exception as exc:
+                logger.error(
+                    "signal_analysis set %s failed: %s", sig_set.name, exc
+                )
+                steps["error"] = str(exc)
+                set_status = "FAILED"
+
+            sets_result[sig_set.name] = {
+                "status": set_status,
+                "schema": schema,
+                "folder": sig_set.folder,
+                "report_dir": report_dir,
+                "steps": steps,
+                "duration_ms": int(
+                    (datetime.now() - set_start).total_seconds() * 1000
+                ),
+            }
+
+        duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+        succeeded = sum(
+            1 for s in sets_result.values() if s["status"] == "SUCCESS"
+        )
+        if not sets_result or succeeded == len(sets_result):
+            status = "SUCCESS"
+        elif succeeded == 0:
+            status = "FAILED"
+        else:
+            status = "PARTIAL"
+        logger.info(
+            "Signal analysis completed (%s): %d/%d sets succeeded.",
+            status,
+            succeeded,
+            len(sets_result),
+        )
+        return {
+            "status": status,
+            "sets": sets_result,
             "duration_ms": duration_ms,
         }
 
