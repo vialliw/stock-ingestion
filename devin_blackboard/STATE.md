@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-20T22:30:00.000000+00:00
+Last Updated: 2026-09-22T09:15:00.000000+00:00
 Current Branch: main
 
 ## Active Blocker
@@ -431,3 +431,9 @@ efresh_fear_greed.py %*`). `requirements.txt` + `requests>=2.31`.
 - Key verified facts: _write_lock (src/db.py:71) serializes all writes but run_daily_load holds it only per-statement (upsert/record calls), not for the whole load — yfinance fetch runs outside the lock; do_get reads use cursor+READ ONLY txn fallback (src/db.py:245-268) without the lock; do_put exists but ignores descriptor (flight_server.py:578-620); DuckDB 1.5.5 has no GRANT; extract_statements exists and classifies CREATE SECRET as CREATE (must sub-classify); ATTACH gives a separate catalog+file+WAL with single-catalog-per-txn write restriction; USE research confines unqualified writes to the attached catalog; while the server holds the DB RW, external processes cannot open it at all (even read_only) — verified via two-process probe.
 - Verdict in doc: implement-with-restrictions — Phase 1 = server-hosted canonical week_calendar under weekly_refresh (zero new write surface, the actual motivating use case); Phase 2 = ATTACH research.duckdb catalog + generalized do_put descriptor {table,mode,pk} + closed-enum research_admin action + client_dml_audit/research_registry tables + quota/TTL; free-form execute_dml SQL endpoint and open DML recommended AGAINST (parser fragility).
 - VERIFY: --verify F21-T1 -> ALL PASS (5/5 prose ACs); check_loops --src-dir src clean (14 files); README.md == docs/README.md byte-identical (67,696 B, both UNTOUCHED — no docs-index section lists individual study docs, so no README update per task instruction); probe scripts written to %TEMP% (probe_duckdb*.py), no repo files created besides the deliverable.
+
+## F22-T2 — LN() domain guard in weekly_indicators rebuild — fixed by executor B (commit 0afc3d3), CHALLENGER-C APPROVED (2026-09-22)
+- Fix: `CASE WHEN Close / NULLIF(ema,0) > 0 THEN LN(...) END` guards the RATIO (not just Close) for log_ema18/log_ema40 at src/db.py:673-676 and src/db_challenger.py:446-449 — the SMA windows themselves go <= 0 around non-positive prints (CL=F Apr-2020), so Close/ema <= 0 even when Close > 0. NULL for non-positive/NULL ratio; no clamping. Names/positions unchanged.
+- Regression test tests/test_weekly.py::test_indicators_nonpositive_close_log_ema_null (both impls): NEG single-negative-week ticker (NULL only at wk8) + NEGSMA deep-negative-run ticker (NULL at wks 3-5 incl. NULLIF(ema,0)->NULL-ratio path and wks 11-12 where Close>0 but SMA<0). C verdict: test is non-vacuous — own mutation probe replayed the OLD unguarded LN on the same fixture and it raised OutOfRangeException; SMA window math independently recomputed (NULL weeks exactly {3,4,5,11,12} for both ema18/ema40).
+- Audit: only LN/LOG/SQRT/power calls in all of src/ are the two guarded LNs (case-insensitive grep incl. store*.py, ingestion*.py); scripts-level np.log/np.sqrt are NaN-safe or non-negative-arg.
+- Gates re-run by C: pytest 1042 passed; check_loops --src-dir src clean (14 files); READMEs byte-identical and untouched; git clean, no strays. Non-blocking N1: ratio evaluated twice per column (guard + THEN) — cosmetic only.
