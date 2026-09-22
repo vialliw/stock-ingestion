@@ -2567,3 +2567,43 @@ Evidence map:
 [2026-09-22T09:11:57.658815+00:00] [CRITIC] F22-T2 PASS — independently verified 0afc3d3: CASE guard on ratio at db.py:673-676 & db_challenger.py:446-449 (identical, positions/columns unchanged). Own SMA re-derivation: NEGSMA NULL wks {3,4,5,11,12} both EMAs, NEG wk8 only; all non-NULL values == math.log(close/ema) incl. all-positive POS fixture (no drift). Mutation: reverted LN raised OutOfRangeException in both impls. Audit: no other unguarded LN/LOG/SQRT/POW in src/. Gates: pytest 1042 passed; check_loops clean (14 files); READMEs byte-identical+untouched; git clean.
 [2026-09-22T09:13:41.346910+00:00] [ORCHESTRATOR] F22 deployed: server restarted w/ new config; on_request_load backfilled ^TNX/CL=F/^IRX (7547 rows, 2016-09-16..); weekly bridge exposed LN(neg) defect -> F22-T2 fixed+verified; weekly_refresh now SUCCESS (581146=581146 parity); metadata_load 3/3; health OK except benign pending_session 2026-09-22; live smoke: corr SQL 12579 rows -> wide 2514x5, all 5 figures build.
 [2026-09-22T09:52:08.227272+00:00] [executor] claimed F23-T1
+[2026-09-22T10:03:27.960908+00:00] [executor] completed F23-T1 -> pytest 1059/1059 green (baseline 1042, +17); check_loops --src-dir src clean (14 files); README.md == docs/README.md filecmp byte-identical (one Correlation bullet clause updated in both). series_coverage(df) added (vectorized groupby min/max on non-NaN Close, pre-dropna, label-keyed); corr-type radio replaced by Returns basis radio (Daily|Log, default Daily, key corr_retbasis) driving right heatmap+rolling+scatter, left heatmap always Levels; rolling window clamps to len(returns) returning (fig,effective_window) + st.caption when clamped; heatmaps+scatter return None on <2 usable aligned rows -> st.info per section (guides still render); scatter NaN corr -> 'corr n/a' title; tab st.warning names limiting series+range on differing coverage; CORR_GUIDE updated (no stale Correlation-type/Levels| wording); --verify F23-T1 ALL PASS (4/4 prose ACs).
+Evidence map:
+[
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

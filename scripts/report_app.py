@@ -2298,7 +2298,14 @@ def _render_correlation_tab(st, config: PipelineConfig) -> None:
     A configured asset whose column is absent from the wide frame
     (e.g. ``^TNX`` not yet loaded) is dropped with a visible
     ``st.warning`` naming the missing labels — the survivors still
-    render, never a crash.
+    render, never a crash.  A second ``st.warning`` fires when the
+    selected series' pre-alignment coverage differs (per
+    :func:`correlation_dashboard.series_coverage` on the long frame),
+    naming the limiting series and its range.  The "Returns basis"
+    radio (Daily | Log returns) drives the right-hand heatmap, the
+    rolling chart and the scatter; the left heatmap is always Levels.
+    Sections with fewer than two usable aligned rows render
+    ``st.info`` instead of a figure — the guide expanders still render.
     """
     import correlation_dashboard as corr_dash
 
@@ -2324,14 +2331,14 @@ def _render_correlation_tab(st, config: PipelineConfig) -> None:
             step=1,
             key="corr_rollwin",
         )
-        corr_type = st.radio(
-            "Correlation type",
-            options=list(corr_dash.CORR_TYPE_OPTIONS),
-            index=list(corr_dash.CORR_TYPE_OPTIONS).index(
-                corr_dash.DEFAULT_CORR_TYPE
+        ret_basis = st.radio(
+            "Returns basis",
+            options=list(corr_dash.RET_BASIS_OPTIONS),
+            index=list(corr_dash.RET_BASIS_OPTIONS).index(
+                corr_dash.DEFAULT_RET_BASIS
             ),
             horizontal=True,
-            key="corr_type",
+            key="corr_retbasis",
         )
         assets = st.multiselect(
             "Assets",
@@ -2389,6 +2396,22 @@ def _render_correlation_tab(st, config: PipelineConfig) -> None:
         )
         return
 
+    # Coverage check BEFORE to_wide's dropna inner-alignment: if the
+    # selected series do not share the same (first, last) valid range,
+    # warn and name the limiting (shortest-span) series — the aligned
+    # window is silently shortened to its coverage otherwise.
+    coverage = corr_dash.series_coverage(df)
+    sel_cov = {l: r for l, r in coverage.items() if l in assets}
+    if len(set(sel_cov.values())) > 1:
+        limit_label, (cov_first, cov_last) = min(
+            sel_cov.items(), key=lambda kv: kv[1][1] - kv[1][0]
+        )
+        st.warning(
+            f"{limit_label} only covers "
+            f"{cov_first:%Y-%m-%d} → {cov_last:%Y-%m-%d} — "
+            "aligned window shortened."
+        )
+
     wide = corr_dash.to_wide(df)
 
     # Drop configured-but-absent series with a visible warning (a
@@ -2421,21 +2444,27 @@ def _render_correlation_tab(st, config: PipelineConfig) -> None:
     st.caption(
         f"{len(wide)} aligned trading day(s) · {len(selected)} series"
     )
-    ret_kind = corr_dash.CORR_TYPE_TO_KIND.get(corr_type, "daily")
+    ret_kind = corr_dash.RET_BASIS_TO_KIND.get(ret_basis, "daily")
 
     def _guide(key: str) -> None:
         with st.expander("How to read this chart"):
             st.markdown(corr_dash.CORR_GUIDE[key])
 
-    # 1) Heatmaps — levels (left) vs the chosen return type (right).
-    levels_fig, returns_fig = corr_dash.build_heatmap_figures(
-        wide, ret_kind
-    )
-    col_levels, col_returns = st.columns(2)
-    with col_levels:
-        st.plotly_chart(levels_fig, width="stretch")
-    with col_returns:
-        st.plotly_chart(returns_fig, width="stretch")
+    # 1) Heatmaps — levels (left, always) vs the chosen returns basis
+    # (right).  None -> insufficient aligned rows -> st.info.
+    heatmaps = corr_dash.build_heatmap_figures(wide, ret_kind)
+    if heatmaps is None:
+        st.info(
+            "Insufficient aligned data for the correlation heatmaps "
+            "— need at least two aligned rows."
+        )
+    else:
+        levels_fig, returns_fig = heatmaps
+        col_levels, col_returns = st.columns(2)
+        with col_levels:
+            st.plotly_chart(levels_fig, width="stretch")
+        with col_returns:
+            st.plotly_chart(returns_fig, width="stretch")
     _guide("heatmap")
 
     # 2) Normalized base=100 overlay.
@@ -2450,7 +2479,9 @@ def _render_correlation_tab(st, config: PipelineConfig) -> None:
     )
     _guide("multipanel")
 
-    # 4) Rolling correlations of daily returns for the chosen pairs.
+    # 4) Rolling correlations of the chosen returns basis for the
+    # chosen pairs.  The effective window is clamped to the available
+    # returns history — caption it when the clamp engaged.
     pairs = [
         corr_dash.parse_pair_label(text)
         for text in selected_pair_labels
@@ -2461,10 +2492,16 @@ def _render_correlation_tab(st, config: PipelineConfig) -> None:
         if a in wide.columns and b in wide.columns
     ]
     if pairs:
-        st.plotly_chart(
-            corr_dash.build_rolling_figure(wide, roll_window, pairs),
-            width="stretch",
+        rolling_fig, effective_window = corr_dash.build_rolling_figure(
+            wide, roll_window, pairs, ret_kind
         )
+        if effective_window < int(roll_window):
+            st.caption(
+                f"Rolling window clamped to {effective_window} "
+                f"trading days — only {len(wide)} aligned rows in "
+                "the selected window."
+            )
+        st.plotly_chart(rolling_fig, width="stretch")
     else:
         st.info(
             "No rolling-correlation pairs selected with data — pick "
@@ -2472,12 +2509,19 @@ def _render_correlation_tab(st, config: PipelineConfig) -> None:
         )
     _guide("rolling")
 
-    # 5) Scatter + OLS trendline for the chosen pair.
+    # 5) Scatter + OLS trendline for the chosen pair on the chosen
+    # returns basis.  None -> insufficient aligned rows -> st.info.
     if scatter_x in wide.columns and scatter_y in wide.columns:
-        st.plotly_chart(
-            corr_dash.build_scatter_figure(wide, scatter_x, scatter_y),
-            width="stretch",
+        scatter_fig = corr_dash.build_scatter_figure(
+            wide, scatter_x, scatter_y, ret_kind
         )
+        if scatter_fig is None:
+            st.info(
+                "Insufficient aligned data for the scatter — need "
+                "at least two aligned rows for the pair."
+            )
+        else:
+            st.plotly_chart(scatter_fig, width="stretch")
     else:
         st.info(
             "The selected scatter pair is not both loaded — pick two "

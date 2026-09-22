@@ -1762,7 +1762,7 @@ class TestCorrelationTab:
             key = kwargs.get("key")
             if key == "corr_window":
                 return "Max"
-            if key == "corr_type":
+            if key == "corr_retbasis":
                 return "Daily Returns"
             return kwargs.get("options", [None])[0]
 
@@ -1891,13 +1891,12 @@ class TestCorrelationTab:
         win = radio_calls["corr_window"]
         assert win["options"][win["index"]] == "Max"
         assert win["horizontal"] is True
-        # Corr-type radio: Levels | Daily Returns | Log Returns.
-        ctype = radio_calls["corr_type"]
-        assert ctype["options"] == [
-            "Levels",
-            "Daily Returns",
-            "Log Returns",
-        ]
+        # Returns-basis radio (F23-T1 — replaces the old corr-type
+        # radio): Daily Returns | Log Returns, default Daily Returns.
+        rbasis = radio_calls["corr_retbasis"]
+        assert rbasis["options"] == ["Daily Returns", "Log Returns"]
+        assert rbasis["options"][rbasis["index"]] == "Daily Returns"
+        assert "corr_type" not in radio_calls
         # Rolling-window input: 10-252, default 60.
         num = st.number_input.call_args.kwargs
         assert num["key"] == "corr_rollwin"
@@ -2024,3 +2023,115 @@ class TestCorrelationTab:
         report_app._render_correlation_tab(st, _config(tmp_path))
 
         sentinel.clear.assert_called_once()
+
+    def test_coverage_warning_on_differing_ranges(
+        self, tmp_path, monkeypatch
+    ):
+        """N3: a selected series covering a shorter history -> a
+        st.warning naming the limiting series and its range."""
+        pytest.importorskip("plotly")
+        df = self._corr_long_df(80)
+        # Truncate ^IRX history — its first valid date is later.
+        df = df[
+            (df["Ticker"] != "^IRX")
+            | (df["Date"] >= pd.Timestamp("2026-08-15"))
+        ]
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: df,
+        )
+        st = self._keyed_widgets(MagicMock())
+
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        warnings = [str(c.args[0]) for c in st.warning.call_args_list]
+        assert any(
+            "IRX_3M" in w and "covers" in w and "aligned" in w
+            for w in warnings
+        ), warnings
+        st.error.assert_not_called()
+        # The tab still renders every chart section.
+        assert st.plotly_chart.call_count == 6
+
+    def test_no_coverage_warning_when_ranges_identical(
+        self, tmp_path, monkeypatch
+    ):
+        """Identical coverage across the selected series -> no
+        coverage warning at all."""
+        pytest.importorskip("plotly")
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: self._corr_long_df(),
+        )
+        st = self._keyed_widgets(MagicMock())
+
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        st.warning.assert_not_called()
+
+    def test_insufficient_aligned_rows_render_info(
+        self, tmp_path, monkeypatch
+    ):
+        """N4: a single aligned day -> heatmap + scatter builders
+        return None and the tab renders st.info per section; the
+        guide expanders still render."""
+        pytest.importorskip("plotly")
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: self._corr_long_df(1),
+        )
+        st = self._keyed_widgets(MagicMock())
+
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        infos = [str(c.args[0]) for c in st.info.call_args_list]
+        # Heatmap section + scatter section both degrade to st.info.
+        assert any("heatmap" in i for i in infos), infos
+        assert any("scatter" in i for i in infos), infos
+        # Normalized, multipanel and rolling still render figures.
+        assert st.plotly_chart.call_count == 3
+        # All five guide expanders still render.
+        expander_labels = [
+            c.args[0] for c in st.expander.call_args_list
+        ]
+        assert expander_labels.count("How to read this chart") == 5
+        st.error.assert_not_called()
+
+    def test_rolling_window_clamp_caption(self, tmp_path, monkeypatch):
+        """N5: roll window larger than the returns history -> the
+        effective window is clamped and a st.caption notes it."""
+        pytest.importorskip("plotly")
+        # 20 aligned rows -> 19 daily returns < default roll window 60.
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: self._corr_long_df(20),
+        )
+        st = self._keyed_widgets(MagicMock())
+
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        captions = [str(c.args[0]) for c in st.caption.call_args_list]
+        assert any(
+            "clamp" in c.lower() and "19" in c for c in captions
+        ), captions
+
+    def test_no_clamp_caption_when_window_fits(
+        self, tmp_path, monkeypatch
+    ):
+        """Window <= available returns -> no clamp caption."""
+        pytest.importorskip("plotly")
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: self._corr_long_df(80),
+        )
+        st = self._keyed_widgets(MagicMock())
+
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        captions = [str(c.args[0]) for c in st.caption.call_args_list]
+        assert not any("clamp" in c.lower() for c in captions)

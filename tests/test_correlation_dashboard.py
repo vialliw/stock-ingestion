@@ -321,6 +321,18 @@ class TestBuildHeatmapFigures:
             wide.pct_change().dropna(how="all").corr().values,
         )
 
+    def test_none_when_fewer_than_two_aligned_rows(self):
+        """N4 guard: a single aligned row cannot produce a Pearson
+        matrix — the builder returns None so the tab renders
+        st.info."""
+        pytest.importorskip("plotly")
+        assert cd.build_heatmap_figures(_wide(30).tail(1)) is None
+        # Two aligned level rows still leave only ONE daily return —
+        # insufficient for the returns heatmap.
+        assert cd.build_heatmap_figures(_wide(30).tail(2), "daily") is None
+        # …but sufficient for a levels right panel.
+        assert cd.build_heatmap_figures(_wide(30).tail(2), "levels") is not None
+
 
 class TestBuildNormalizedFigure:
     def test_base_100_and_trace_count(self):
@@ -423,7 +435,8 @@ class TestBuildRollingFigure:
             index=idx,
         )
         pairs = [("SMH", "SPY"), ("WTI", "SPY")]
-        fig = cd.build_rolling_figure(wide, 20, pairs)
+        fig, eff = cd.build_rolling_figure(wide, 20, pairs)
+        assert eff == 20
         assert len(fig.data) == 2
         rets = wide.pct_change().dropna(how="all")
         expected = rets["SMH"].rolling(20).corr(rets["SPY"])
@@ -442,17 +455,74 @@ class TestBuildRollingFigure:
     def test_pair_count_and_unknown_pair_skipped(self):
         pytest.importorskip("plotly")
         wide = _wide(80)
-        fig = cd.build_rolling_figure(
+        fig, _ = cd.build_rolling_figure(
             wide, 30, list(cd.DEFAULT_ROLLING_PAIRS)
         )
         assert len(fig.data) == 6
-        fig2 = cd.build_rolling_figure(
+        fig2, _ = cd.build_rolling_figure(
             wide, 30, [("SPY", "SMH"), ("NOPE", "SPY")]
         )
         assert len(fig2.data) == 1
         assert fig2.data[0].name == "SPY vs SMH"
         # Category x axis.
         assert fig.layout.xaxis.type == "category"
+
+    def test_ret_kind_selects_basis(self):
+        """ret_kind drives the returns() basis — daily vs log must
+        differ on synthetic data, and daily must match the pandas
+        pct_change reference."""
+        pytest.importorskip("plotly")
+        rng = np.random.default_rng(11)
+        n = 120
+        idx = pd.date_range("2025-01-02", periods=n, freq="B")
+        wide = pd.DataFrame(
+            {
+                "SPY": 100 * np.exp(np.cumsum(rng.normal(size=n)) * 0.02),
+                "SMH": 100
+                * np.exp(np.cumsum(rng.normal(size=n)) * 0.03),
+            },
+            index=idx,
+        )
+        fig_d, _ = cd.build_rolling_figure(
+            wide, 15, [("SPY", "SMH")], "daily"
+        )
+        fig_l, _ = cd.build_rolling_figure(
+            wide, 15, [("SPY", "SMH")], "log"
+        )
+        rets_d = wide.pct_change().dropna(how="all")
+        expected_d = rets_d["SPY"].rolling(15).corr(rets_d["SMH"])
+        got_d = pd.Series(
+            np.asarray(fig_d.data[0].y, dtype=float), index=rets_d.index
+        )
+        pd.testing.assert_series_equal(got_d, expected_d, check_names=False)
+        rets_l = np.log(wide).diff().dropna(how="all")
+        expected_l = rets_l["SPY"].rolling(15).corr(rets_l["SMH"])
+        got_l = pd.Series(
+            np.asarray(fig_l.data[0].y, dtype=float), index=rets_l.index
+        )
+        pd.testing.assert_series_equal(got_l, expected_l, check_names=False)
+        # The two bases genuinely differ on this data.
+        finite_d = got_d.dropna().to_numpy()
+        finite_l = got_l.dropna().to_numpy()
+        assert not np.allclose(finite_d, finite_l)
+        # Basis name flows into the axis/title text.
+        assert "Log Returns" in fig_l.layout.title.text
+        assert "Daily Returns" in fig_d.layout.title.text
+
+    def test_window_clamped_to_available_rows(self):
+        """window > len(returns) -> effective window returned clamped,
+        figure still renders with at least one non-NaN point."""
+        pytest.importorskip("plotly")
+        wide = _wide(30)  # 29 daily returns
+        fig, eff = cd.build_rolling_figure(
+            wide, 60, [("SPY", "SMH")]
+        )
+        assert eff == 29
+        y = np.asarray(fig.data[0].y, dtype=float)
+        assert np.isfinite(y).any()
+        # The clamped window is what the title/axis advertise.
+        assert "29-Day" in fig.layout.title.text
+        assert "29-day" in fig.layout.yaxis.title.text
 
 
 class TestBuildScatterFigure:
@@ -480,6 +550,123 @@ class TestBuildScatterFigure:
         # Axis titles are the selected labels.
         assert fig.layout.xaxis.title.text == "WTI"
         assert fig.layout.yaxis.title.text == "TNX_10Y"
+
+    def test_ret_kind_scatters_returns(self):
+        """ret_kind='daily'/'log' scatters the returns frame — markers
+        and the title corr are computed on the selected basis."""
+        pytest.importorskip("plotly")
+        rng = np.random.default_rng(5)
+        n = 120
+        idx = pd.date_range("2025-01-02", periods=n, freq="B")
+        wide = pd.DataFrame(
+            {
+                "WTI": 60 * np.exp(np.cumsum(rng.normal(size=n)) * 0.02),
+                "TNX_10Y": 4 * np.exp(np.cumsum(rng.normal(size=n)) * 0.03),
+            },
+            index=idx,
+        )
+        fig_d = cd.build_scatter_figure(wide, "WTI", "TNX_10Y", "daily")
+        rets_d = wide.pct_change().dropna()
+        markers = fig_d.data[0]
+        assert np.allclose(
+            np.asarray(markers.x, dtype=float), rets_d["WTI"].to_numpy()
+        )
+        assert np.allclose(
+            np.asarray(markers.y, dtype=float), rets_d["TNX_10Y"].to_numpy()
+        )
+        corr_d = float(rets_d["WTI"].corr(rets_d["TNX_10Y"]))
+        assert f"{corr_d:.2f}" in fig_d.layout.title.text
+        assert "Daily Returns" in fig_d.layout.title.text
+
+        fig_l = cd.build_scatter_figure(wide, "WTI", "TNX_10Y", "log")
+        rets_l = np.log(wide).diff().dropna()
+        corr_l = float(rets_l["WTI"].corr(rets_l["TNX_10Y"]))
+        assert f"{corr_l:.2f}" in fig_l.layout.title.text
+        # daily vs log genuinely differ on this data.
+        assert not np.isclose(corr_d, corr_l)
+
+    def test_none_when_fewer_than_two_aligned_rows(self):
+        """N4 guard: <2 usable aligned rows -> None (tab -> st.info)."""
+        pytest.importorskip("plotly")
+        assert cd.build_scatter_figure(_wide(30).tail(1), "SPY", "SMH") is None
+        # Two levels rows -> one daily return -> still insufficient.
+        assert (
+            cd.build_scatter_figure(_wide(30).tail(2), "SPY", "SMH", "daily")
+            is None
+        )
+        assert (
+            cd.build_scatter_figure(_wide(30).tail(2), "SPY", "SMH", "levels")
+            is not None
+        )
+
+    def test_nan_corr_renders_na_in_title(self):
+        """A zero-variance series gives a NaN Pearson corr — the title
+        must show 'corr n/a', never 'nan'."""
+        pytest.importorskip("plotly")
+        wide = pd.DataFrame(
+            {"SPY": [100.0, 101.0, 102.0], "SMH": [50.0, 50.0, 50.0]},
+            index=pd.date_range("2026-09-16", periods=3),
+        )
+        fig = cd.build_scatter_figure(wide, "SPY", "SMH")
+        assert fig is not None
+        title = fig.layout.title.text
+        assert "n/a" in title
+        assert "nan" not in title.lower()
+
+
+class TestSeriesCoverage:
+    """``series_coverage`` — per-series (first, last) valid-Date range
+    computed on the long frame BEFORE to_wide's dropna (N3)."""
+
+    def test_identical_coverage_all_series(self):
+        cov = cd.series_coverage(_long_df(40))
+        assert set(cov) == set(cd.CORR_TICKERS.values())
+        assert len(set(cov.values())) == 1
+        first, last = cov["SPY"]
+        assert first < last
+
+    def test_differing_range_detected(self):
+        """A shorter-history ticker reports its own first date — not
+        the aligned window's."""
+        df = _long_df(40)  # ends 2026-09-18, ~40 business days back
+        df = df[
+            (df["Ticker"] != "^IRX")
+            | (df["Date"] >= date(2026, 8, 15))
+        ]
+        cov = cd.series_coverage(df)
+        assert cov["IRX_3M"][0] >= pd.Timestamp("2026-08-15")
+        assert cov["IRX_3M"][0] > cov["SPY"][0]
+        # The last date is still shared.
+        assert cov["IRX_3M"][1] == cov["SPY"][1]
+
+    def test_nan_close_rows_excluded(self):
+        df = _long_df(10)
+        nan_row = pd.DataFrame(
+            {
+                "Date": pd.Series([date(2020, 1, 2)], dtype=object),
+                "Ticker": ["SPY"],
+                "Close": [np.nan],
+            }
+        )
+        df = pd.concat([df, nan_row], ignore_index=True)
+        cov = cd.series_coverage(df)
+        # The NaN-close 2020 row must not extend SPY's first date.
+        assert cov["SPY"][0] >= pd.Timestamp("2026-01-01")
+
+    def test_missing_ticker_absent(self):
+        df = _long_df(10)
+        df = df[df["Ticker"] != "^TNX"]
+        cov = cd.series_coverage(df)
+        assert "TNX_10Y" not in cov
+        assert set(cov) == {"WTI", "IRX_3M", "SPY", "SMH"}
+
+    def test_single_series(self):
+        df = _long_df(5)
+        df = df[df["Ticker"] == "SPY"]
+        cov = cd.series_coverage(df)
+        assert set(cov) == {"SPY"}
+        first, last = cov["SPY"]
+        assert first < last
 
 
 class TestCorrGuide:
@@ -518,3 +705,13 @@ class TestCorrGuide:
         # general caveats
         assert "causation" in guide.lower()
         assert "window" in guide.lower()
+
+    def test_no_stale_selector_wording(self):
+        """F23-T1: the corr-type radio was replaced by the
+        Returns-basis radio — no stale 'Correlation type' or
+        'Levels |' wording may linger in the guide."""
+        guide = "\n".join(cd.CORR_GUIDE.values())
+        assert "Correlation type" not in guide
+        assert "Correlation-type" not in guide
+        assert "Levels |" not in guide
+        assert "Returns basis" in guide or "Returns-basis" in guide
