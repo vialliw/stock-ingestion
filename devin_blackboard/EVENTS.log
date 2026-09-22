@@ -2646,3 +2646,61 @@ Evidence map:
 [2026-09-22T11:49:44.746102+00:00] [ORCHESTRATOR] notify-setup (user-requested): earlier toast silently dropped — root cause = unregistered 'PowerShell' AppID string (Win11 discards toasts from unregistered app IDs, no error). Fixed via registered AUMID {1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell1.0\powershell.exe — user confirmed delivery. Created scripts/notify_done.ps1 (param Title/Message, XML-escaped, registered AUMID); added 'Completion notification' rule to AGENTS.md — orchestrator MUST run the script when a cycle's tasks are done or a plan is ready for review; playbook §7 gained the AUMID lesson.
 
 [2026-09-22T14:31:31.324059+00:00] [executor] claimed F24-T1
+[2026-09-22T14:52:16.353003+00:00] [executor] completed F24-T1 -> commit 8ec35f3; pytest tests/ -q: 1128 passed (baseline 1061 + 29 new test_signal_pipeline + 38 new flight_server signal_pipeline tests); check_loops --src-dir src: clean incl --strict (15 files); README.md == docs/README.md byte-identical (filecmp); git status clean; --verify F24-T1 ALL PASS
+Evidence map:
+[
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]
