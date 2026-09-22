@@ -2745,3 +2745,61 @@ Evidence map:
 [2026-09-22T15:41:45.255174+00:00] [ORCHESTRATOR] F24 live smoke on real sample files (user-provided C:\Intel\parquet\quant_strategy_buildingersion_p, backdate_days=30 override): signal_pipeline SUCCESS in 7.65s — ingest 15 files/1572 rows inserted (0 header-skips, 0 dup-skips), dedupe deleted 293 older-run rows, repair filled 163/164 NULL Closes from daily_close (1 unmatched: GIS 2026-09-10), prune removed 1120 (1.39/5.5 thresholds active, empty exclude lists), performance wrote 71 rows (0 missing tickers), repair sweep clean, cluster_metadata=6. Pipeline verified on real data.
 
 [2026-09-22T16:37:35.814014+00:00] [executor] claimed F25-T1
+[2026-09-22T17:17:36.884037+00:00] [executor] completed F25-T1 -> F25-T1 signal_input2 5-phase pipeline migrated server-side (commit 8830e36). NEW src/signal_analysis.py (1720 lines): is_intraday_signal (London->NY, NYSE calendar), ingest_signals (DROP+rebuild aly_signal_records_raw 24-col PK(Trading_Date,Model,Ticker,Signal_File), all-sheets, backdate cutoff, INSERT OR REPLACE), deduplicate_signals (latest Signal_File), repair_missing_close_prices (in-DB daily_close join, NULL+NaN, no ATTACH), build_views (4 aly_v_* views verbatim predicates), run_backtest (15-col aly_signal_performance, stop-wins-tie, Execution_Status 1/2/3 + integrity check, RPT_signal_performance.xlsx, scorecard + edge_validation metrics, unseeded MC), run_phase5 (Phase5MatrixAnalyzer, RPT_phase5_analytics_matrix.xlsx + 3 heatmap PNGs). Per-set schemas signals_<name> (version_p, version_q in config). ingestion.run_signal_analysis loops sets under _write_lock per step, returns per-set/per-step JSON. flight_server signal_analysis action: set-name + finite positive-int validation -> FlightServerError; failures -> FAILED JSON. config.py SignalAnalysisSetConfig ([a-z0-9_]+ name slug, non-empty folder, unique names) + SignalAnalysisConfig. scripts/run_signal_analysis.py thin client (empty payload, per-set print, exit nonzero on non-SUCCESS). Tests: test_signal_analysis.py 59 tests (aly_ prefix, schema isolation, DST/holiday, all-sheets, cutoff, dedupe, NULL+NaN repair, 4 view predicates, tie-break, ExecStatus 1/2/3, scorecard+edge keys, report paths, unknown-set, empty-folder); test_flight_server.py +13 (routing, forwarding, validation, wire). Gates: pytest 1245/1245, check_loops --src-dir src exit 0 (16 files, normal+strict), README.md==docs/README.md byte-identical, git status clean. --verify F25-T1 ALL PASS (6/6 ACs).
+Evidence map:
+[
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]
