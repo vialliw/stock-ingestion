@@ -1,0 +1,7 @@
+Design Notes / Interpretation Tips
+
+Levels correlations are high for equities/yields because both rose together from the 2020 lows through the post-COVID recovery and 2022–2023 rate-hike cycle.
+Returns correlations are much lower — daily moves are noisy.
+Recent (2026) commentary has noted unusually high short-term oil–10Y yield correlation (sometimes >0.9 on 1-month windows) during geopolitical spikes; the 60-day rolling chart captures those episodes.
+Semiconductors (SMH) are more sensitive to rates/discounting than the broad market because of long-duration growth characteristics, yet still move very closely with SPY.
+For a pure “discount rate” series you would normally pull the Fed Discount Rate or Effective Fed Funds from FRED (DISCOUNT or FEDFUNDS); Yahoo does not carry a clean equivalent.
