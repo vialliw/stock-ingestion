@@ -219,6 +219,13 @@ see nothing of your session):
   a residual correctness bug post-approval; the fix pattern is a narrow
   follow-up task through the same B→C→D cycle (here: F23-T2), not an
   out-of-band patch.
+- **Windows toasts need a registered AUMID** — `CreateToastNotifier(
+  "PowerShell")` returns a notifier and `Show()` succeeds, but Windows 11
+  silently drops the toast because the app ID is unregistered. Use the
+  registered PowerShell AUMID
+  `{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe`
+  — wrapped in `scripts/notify_done.ps1`, which the orchestrator calls at
+  cycle close (rule in `AGENTS.md`).
 
 ## 8. Optional quality gate — loop checker
 

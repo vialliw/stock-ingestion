@@ -64,6 +64,14 @@ Never consider a feature complete merely because:
 
 Completion requires evidence against the explicit acceptance_criteria defined in TASKS.json. The Critic (Agent D) must verify each criterion with concrete evidence (test output, query results, diffs) before a task may move to status=done.
 
+## Completion notification (MANDATORY for Orchestrator)
+
+When all tasks in a request/cycle are `done` (or a plan is ready for user review), the Orchestrator MUST notify the user via Windows toast:
+
+    powershell -NoProfile -File scripts/notify_done.ps1 -Message "<what finished>"
+
+`scripts/notify_done.ps1` uses the registered Windows PowerShell AUMID — a plain `"PowerShell"` AppID is silently dropped on Windows 11 (no error, no popup). Do not hand-roll the toast inline; use the script.
+
 ## Project context
 
 - Goal: Centralize stock-data ingestion and provide program interfaces.

@@ -449,3 +449,10 @@ efresh_fear_greed.py %*`). `requirements.txt` + `requests>=2.31`.
 - README.md + docs/README.md (twins, byte-identical): `daily_close` now documents non-equity macro series (^TNX/CL=F/^IRX — yield%/USD-bbl `Close`, ragged calendars, non-positive closes exist); `weekly_indicators` documents NULL `Log_Close_EMA18/40` on non-positive ratios (F22-T2); Known Non-Blocking Concerns +8 items (14-21): do_get WITH-INSERT gap, do_put ignores descriptor, macro tickers in breadth/dollar-volume, correlation residuals (full-history coverage warning, degenerate-Y trendline, window=1 NaN), F&G guide red/orange wording, expected pending_session WARN, INDICATORS label drift risk, RRG Custom benchmark not uppercased.
 - docs/DATA_SERVICE_API.md: §3.1 non-equity-series consumer caveat (inner-align on Date; do not assume Close>0); §3.3 NULL log-EMA caveat.
 - docs/MULTI_AGENT_WORKFLOW_PLAYBOOK.md §7: +5 lessons (shell hygiene -> stray `=`/`nul` files; worktree sweeps via `git add -A`; TASKS.json schema drift; reviewer-profile capability matching; moderate-findings loop-back) + live-smoke lesson extended with the LN / stale-server / CNN-retention examples.
+
+
+## Notify setup — Windows toast on cycle completion (2026-09-22, orchestrator)
+- scripts/notify_done.ps1: `powershell -NoProfile -File scripts/notify_done.ps1 -Message "<what finished>"` — registered PowerShell AUMID (plain 'PowerShell' AppID is silently dropped on Win11); XML-escaped Title/Message params.
+- AGENTS.md: 'Completion notification' section — orchestrator MUST fire the toast when all tasks in a request/cycle are done or a plan is ready for review.
+- Playbook §7: AUMID lesson recorded for reuse in other repos.
+- Delivery verified live by user (toast + NotifyIcon balloon both popped).
