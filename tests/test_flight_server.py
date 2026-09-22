@@ -1251,6 +1251,68 @@ class TestSignalPipelineAction:
         ingest_engine.run_signal_pipeline.assert_not_called()
 
     @pytest.mark.parametrize(
+        "key", ["min_reward_risk", "min_target_pct"]
+    )
+    @pytest.mark.parametrize(
+        "bad", [float("nan"), float("inf"), float("-inf")]
+    )
+    def test_non_finite_thresholds_raise(self, key, bad):
+        """F24-T2: NaN/Infinity/-Infinity pass ``isinstance(x, float)``
+        and survive the json.dumps/json.loads round-trip as bare
+        literals — but DuckDB ``x < NaN``/``x < +Inf`` is TRUE for
+        every row, which would prune ALL of signal_records."""
+        server, db_mgr, ingest_engine, cfg = self._server()
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(), make_action("signal_pipeline", {key: bad})
+            )
+        ingest_engine.run_signal_pipeline.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "key", ["min_reward_risk", "min_target_pct"]
+    )
+    @pytest.mark.parametrize("good", [0.0, 1.39, 5])
+    def test_finite_thresholds_accepted(self, key, good):
+        """Finite floats (incl. 0.0) and ints still pass validation."""
+        server, db_mgr, ingest_engine, cfg = self._server()
+        ingest_engine.run_signal_pipeline.return_value = (
+            _signal_pipeline_result()
+        )
+        data = parse_result(
+            server.do_action(
+                MagicMock(), make_action("signal_pipeline", {key: good})
+            )
+        )
+        assert data["status"] == "SUCCESS"
+        ingest_engine.run_signal_pipeline.assert_called_once_with(
+            **{key: good}
+        )
+
+    def test_non_finite_threshold_over_wire(self):
+        """A literal ``NaN`` token in the JSON body reaches the client
+        as a FlightError over real gRPC."""
+        server, client, db_mgr, ingest_engine, cfg, thread = (
+            self._wire_server()
+        )
+        try:
+            action = flight.Action(
+                "signal_pipeline",
+                b'{"min_reward_risk": NaN}',
+            )
+            with pytest.raises(flight.FlightError):
+                list(client.do_action(action))
+            ingest_engine.run_signal_pipeline.assert_not_called()
+        finally:
+            try:
+                server.shutdown()
+            except Exception:
+                pass
+            try:
+                thread.join(timeout=2)
+            except Exception:
+                pass
+
+    @pytest.mark.parametrize(
         "bad", [0, "4", [True], ["a"], {"c": 4}]
     )
     def test_invalid_exclude_clusters_raises(self, bad):

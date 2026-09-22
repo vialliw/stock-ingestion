@@ -2707,3 +2707,34 @@ Evidence map:
 [2026-09-22T15:09:33.525500+00:00] [CHALLENGER] F24-T1 adversarial review commit 8ec35f3 -> APPROVED. Independently re-verified all 6 ACs with own probes (%TEMP%\f24_probes): ran REAL legacy modules end-to-end on fabricated xlsx+price fixture vs new pipeline -> signal_records 12=12 (one expected drift-strip diff), signal_performance 8=8 identical across all CTE branches (first-hit/LEAST/time-exit/insufficient-days/signal-day exclusion/missing ticker), cluster_metadata 6=6. Schema v7 byte-for-byte vs legacy DDL (cols+NUMERIC+PKs); v6->v7 idempotent, data preserved. Ingest filter/header/dedup-counts match legacy; intra-file dup 2ins+1skip; dedupe keeps latest Signal_File out-of-order (mutation-sensitive). Repair TRIM+CAST fills NULL Close, unmatched listed, silent OK. Prune ANY([]) excludes nothing (live-verified), thresholds active, below-open works, rows returned. Engine order == legacy __main__; no _write_lock deadlock (fns use raw con, never re-acquire; live thread run). Action: 9 overrides validated -> FlightServerError each; engine fail -> FAILED. Gates: pytest 1128/1128, check_loops+strict clean, README filecmp True, git clean, scope = output_files only. NON-BLOCKING: (F1 MODERATE) NaN/Infinity threshold payloads pass isinstance validation -> DuckDB x<NaN is TRUE -> prunes ALL signal_records; recommend math.isfinite() check. (F2 LOW) Drift_Warning .strip() flips padded truthy strings vs legacy. (F3 LOW) coerce-to-NULL vs legacy raise; PK-col bad date aborts file atomically vs partial commit. (F4 LOW) missing_tickers untrimmed ticker (verbatim).
 
 [2026-09-22T15:11:43.400986+00:00] [executor] claimed F24-T2
+[2026-09-22T15:16:47.535364+00:00] [executor] completed F24-T2 -> math.isfinite() guards added to min_reward_risk + min_target_pct validators in src/flight_server.py signal_pipeline action (bool/type checks preserved; non-finite -> FlightServerError 'must be a finite number'). delay_s untouched (out of scope). tests/test_flight_server.py TestSignalPipelineAction +13 tests: 6 non-finite rejections (2 params x NaN/Inf/-Inf via json round-trip), 6 finite acceptances (0.0/1.39/int 5 forwarded to engine), 1 wire test (literal NaN token over real gRPC -> FlightError). Gates: pytest 1141/1141 (1128 baseline +13), check_loops exit 0, git clean (only output_files modified).
+Evidence map:
+[
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

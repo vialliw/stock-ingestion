@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import queue
 import re
@@ -510,21 +511,27 @@ class MarketDataFlightServer(flight.FlightServerBase):
                     f"got {overwrite_existing!r}"
                 )
             min_reward_risk = payload.get("min_reward_risk")
+            # F24-T2: math.isfinite rejects NaN/Infinity/-Infinity —
+            # json.loads accepts those literals and DuckDB
+            # ``x < NaN``/``x < +Inf`` is TRUE for every row, which
+            # would prune the entire signal_records table.
             if min_reward_risk is not None and (
                 isinstance(min_reward_risk, bool)
                 or not isinstance(min_reward_risk, (int, float))
+                or not math.isfinite(min_reward_risk)
             ):
                 raise flight.FlightServerError(
-                    f"min_reward_risk must be a number, "
+                    f"min_reward_risk must be a finite number, "
                     f"got {min_reward_risk!r}"
                 )
             min_target_pct = payload.get("min_target_pct")
             if min_target_pct is not None and (
                 isinstance(min_target_pct, bool)
                 or not isinstance(min_target_pct, (int, float))
+                or not math.isfinite(min_target_pct)
             ):
                 raise flight.FlightServerError(
-                    f"min_target_pct must be a number, "
+                    f"min_target_pct must be a finite number, "
                     f"got {min_target_pct!r}"
                 )
             exclude_clusters = payload.get("exclude_clusters")
