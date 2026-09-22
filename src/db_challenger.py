@@ -438,7 +438,15 @@ final_calculations AS (
         bb_mid + (2 * bb_std) as bb_up, bb_mid as bb_central, bb_mid - (2 * bb_std) as bb_low,
         ppo, ppo_signal, LAG(ppo_signal) OVER (PARTITION BY Ticker ORDER BY Date) as prev_ppo_signal,
         force_idx, prev_force, prev_ppo, Close, prev_close,
-        LN(Close / NULLIF(ema18, 0)) as log_ema18, LN(Close / NULLIF(ema40, 0)) as log_ema40
+        -- Guard the RATIO, not just Close: ema18/ema40 are SMA
+        -- windows that can themselves go <= 0 around
+        -- non-positive prints (CL=F Apr-2020), so
+        -- Close/ema <= 0 even when Close > 0.  NULL is the
+        -- honest value for a non-positive log-ratio.
+        CASE WHEN Close / NULLIF(ema18, 0) > 0
+             THEN LN(Close / NULLIF(ema18, 0)) END as log_ema18,
+        CASE WHEN Close / NULLIF(ema40, 0) > 0
+             THEN LN(Close / NULLIF(ema40, 0)) END as log_ema40
     FROM signal_line_base
 )
 SELECT Date, Ticker, slow_k, slow_d, stoch_x, stoch_80_20_x,

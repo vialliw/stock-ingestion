@@ -438,6 +438,84 @@ def test_indicators_idempotent(db):
     assert len(rows["Date"]) == 3
 
 
+@pytest.mark.parametrize("impl", IMPLEMENTATIONS)
+def test_indicators_nonpositive_close_log_ema_null(db):
+    """F22-T2 regression — non-positive weekly closes must not crash
+    ``rebuild_weekly_indicators`` with ``Out of Range Error: cannot take
+    logarithm of a negative number`` (found by F22-T1 live smoke on the
+    CL=F 2020-04-20 negative WTI print and the ^IRX ~0% rows).
+
+    ``Log_Close_EMA18/40`` = LN(Close / ema): the guard is on the RATIO,
+    so it yields NULL when Close/ema <= 0 or NULL — including weeks
+    where Close > 0 but the SMA window itself is negative.  Weeks with
+    a positive ratio still get real values.
+    """
+    first = _dt.date(2024, 1, 3)  # a Wednesday
+
+    def _bar(i: int, close: float):
+        d = (first + _dt.timedelta(days=7 * i)).strftime("%Y-%m-%d")
+        if close <= 0:
+            # Internally consistent negative OHLC bar (CL=F-style).
+            return (d, close + 10, close + 20, close - 10, close, 1000.0)
+        return (d, close, close + 10, close - 10, close, 1000.0)
+
+    # Ticker 1: a single negative week — only that week's ratio <= 0.
+    neg_closes = [100.0] * 8 + [-37.63] + [20.0, 30.0, 40.0] + [100.0] * 3
+    db.upsert_dataframe(
+        make_daily_df(
+            "NEG", [_bar(i, c) for i, c in enumerate(neg_closes)]
+        )
+    )
+    # Ticker 2: a deep negative run pushes the SMA window itself
+    # negative, so weeks 11-12 have Close > 0 but Close/ema <= 0.
+    # Window sums (18-row ema18 / full-prefix ema40):
+    #   wk 5  -> (300-300)/6   = 0    -> NULLIF -> NULL ratio
+    #   wk 11 -> (300-800+200)/12 < 0 -> Close 200 / neg < 0
+    #   wk 12 -> (300-800+400)/13 < 0 -> Close 200 / neg < 0
+    #   wk 13 -> (300-800+600)/14 > 0 -> real value again
+    sma_closes = [100.0] * 3 + [-100.0] * 8 + [200.0] * 10
+    db.upsert_dataframe(
+        make_daily_df(
+            "NEGSMA", [_bar(i, c) for i, c in enumerate(sma_closes)]
+        )
+    )
+
+    db.rebuild_weekly_close()
+    # Must complete without raising Out-of-Range on LN.
+    n = db.rebuild_weekly_indicators()
+    assert n == len(neg_closes) + len(sma_closes)
+
+    neg = db.execute_query(
+        "SELECT Log_Close_EMA18, Log_Close_EMA40 "
+        "FROM weekly_indicators WHERE Ticker = 'NEG' ORDER BY Date"
+    ).to_pydict()
+    for i in range(len(neg_closes)):
+        if i == 8:  # negative-close week: ratio <= 0 -> NULL
+            assert neg["Log_Close_EMA18"][i] is None
+            assert neg["Log_Close_EMA40"][i] is None
+        else:
+            assert neg["Log_Close_EMA18"][i] is not None
+            assert neg["Log_Close_EMA40"][i] is not None
+    # Positive-ratio week keeps a real value: LN(100/100) = 0.
+    assert neg["Log_Close_EMA18"][0] == pytest.approx(0.0)
+
+    sma = db.execute_query(
+        "SELECT Log_Close_EMA18, Log_Close_EMA40 "
+        "FROM weekly_indicators WHERE Ticker = 'NEGSMA' ORDER BY Date"
+    ).to_pydict()
+    # Weeks 3-5: negative Close vs non-negative SMA; week 5 also covers
+    # the NULLIF(ema, 0) -> NULL-ratio path.  Weeks 11-12: positive
+    # Close vs still-negative SMA window.  All other weeks are real.
+    null_weeks = {3, 4, 5, 11, 12}
+    for i in range(len(sma_closes)):
+        if i in null_weeks:
+            assert sma["Log_Close_EMA18"][i] is None
+            assert sma["Log_Close_EMA40"][i] is None
+        else:
+            assert sma["Log_Close_EMA18"][i] is not None
+            assert sma["Log_Close_EMA40"][i] is not None
+
+
 # ---------------------------------------------------------------------------
 # Engine: run_weekly_refresh + _weekly_bridge
 # ---------------------------------------------------------------------------
