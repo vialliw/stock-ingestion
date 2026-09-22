@@ -2837,3 +2837,4 @@ Evidence map:
     "output": ""
   }
 ]
+[2026-09-22T17:45:02+00:00] [executor] F25-T2 done (commit 9d384da) -> challenger C1 closed: deduplicate_signals temp table renamed to aly_temp_dedup_keys (CREATE + DELETE USING) and dropped via try/finally DROP TABLE IF EXISTS — live duckdb 1.5.5 probe confirms zero LOCAL TEMPORARY left on conn (information_schema clean after dedupe; finally-drop verified incl. shadowed-name case). test_aly_prefix_on_every_created_object now diffs information_schema.tables across ALL schemas before/after the engine run: asserts zero objects outside signals_eng + zero unprefixed names — mutation check on pre-fix HEAD -> FAILS catching (main, temp_dedup_keys, LOCAL TEMPORARY). Gates: pytest 1245/1245, check_loops + --strict clean (16), --verify 3/3 PASS, git clean.
