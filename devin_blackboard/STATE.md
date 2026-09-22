@@ -513,3 +513,12 @@ efresh_fear_greed.py %*`). `requirements.txt` + `requests>=2.31`.
 - T2-AC2 PASS: OWN revert-restore mutation — 9d384da~1 file makes test_aly_prefix_on_every_created_object FAIL with [('main','temp_dedup_keys','LOCAL TEMPORARY')]; restored file passes; git clean after.
 - PARITY beyond AC: 60 real signal rows from reference process_mutli_sets_signals_o.duckdb + real prices from pipe01.get.data.via.duckdb.duckdb -> new phase-4 CTE output == reference signal_performance on ALL 15 columns, 0/60 mismatches.
 - Residual (non-blocking, confirmed verbatim-legacy): C2 Cluster NUMERIC(1,0) rejects Cluster>=10 (latent legacy limit); C3 _positive_int unbounded (1e18 -> graceful FAILED); C4 benchmark interpolated raw into alpha SQL (config-only). DEPLOYMENT: restart StockIngestion-FlightServer task for the new signal_analysis action.
+
+## F25 deployment + live smoke (2026-09-22T19:08:57)
+
+- Flight Server task restarted; `signal_analysis` action live (schema v7 unchanged).
+- Live all-sets run SUCCESS: version_p 80 files -> 10,359 perf rows; version_q 15 files -> 709 perf rows.
+- version_q still_null=1 is GIS 2026-09-10 (absent from daily_close; same as F24 live — reported, not fatal).
+- 5/5 report artifacts per set under `C:\Intel\parquet\signal_analysis\<set>\`, distinct hashes.
+- `signal_analysis.sets` config (version_p, version_q) intentionally left intact post-development per user.
+- Carried-forward verbatim-legacy minors: Cluster NUMERIC(1,0) overflow at Cluster>=10; unbounded backdate_days (graceful); benchmark name interpolated raw into alpha SQL (config-only).
