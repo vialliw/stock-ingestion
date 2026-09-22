@@ -2802,4 +2802,4 @@ Evidence map:
     "passed": true,
     "output": ""
   }
-]
+][2026-09-22T17:18:49.290034+00:00] [executor] F25-T1 done (commit 8830e36) -> signal_input2 5-phase pipeline migrated server-side as signal_analysis action. NEW src/signal_analysis.py (aly_-prefixed objects in per-set signals_<name> schemas: raw 24-col table, 4 views, 15-col perf w/ stop-wins-tie + Execution_Status 1/2/3, scorecard+edge_validation, phase5 matrix+heatmaps). ingestion.run_signal_analysis loops sets under _write_lock; flight_server validates set+finite-int overrides; config signal_analysis block (version_p, version_q); scripts/run_signal_analysis.py thin client. Tests +59 +13. Gates: pytest 1245/1245, check_loops clean (16), README twins identical, git clean, --verify 6/6 PASS.
