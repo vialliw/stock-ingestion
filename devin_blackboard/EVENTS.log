@@ -3221,3 +3221,5 @@ COMPOSITE: no SUCCESS audit row for any rejected-only target; no client objects 
 RESIDUALS (documented/accepted): built-in file readers on do_get (read_text/glob/sniff_csv verified reachable — disclosed in sec.2); quoted-call slip 'host(...)' passes validation but dies at bind while the extension is unloaded (verified: it executed ONLY after a bare execute_query('LOAD inet') — a statement no client path can issue); test-only challenger parity items unchanged (flight_server_challenger.py prefix-only hole; db_challenger.py:90 no kill-switch); dml_client.put_frame bug D-F26-1 above is the sole blocker.
 
 RECOMMENDED: F26-T6 fix task for scripts/dml_client.py put_frame (re-raise writer.close() errors) — small, single-file, plus a propagation test. Deployment reminder stands: restart StockIngestion-FlightServer.
+
+[2026-09-23T13:25:43.679001+00:00] [executor] claimed F26-T6
