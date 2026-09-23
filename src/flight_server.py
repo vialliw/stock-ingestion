@@ -6,7 +6,10 @@ read-only ``do_get`` endpoint (SELECT-only SQL validated before reaching
 DuckDB) and a ``do_action`` endpoint routing the administrative actions
 (initial_load, daily_load, on_request_load, metadata_load,
 weekly_refresh, fear_greed_refresh, signal_pipeline, signal_analysis,
-daily_report, health_check, data_health, get_run_history, sync_to_r2).
+dml_admin, daily_report, health_check, data_health, get_run_history,
+sync_to_r2).  ``do_put`` accepts either the legacy ``daily_close``
+upsert or a JSON command descriptor for allowlisted-namespace writes
+(F26-T1).
 
 Spec reference: docs/tech_spec/gemini_tech_spec.1.0.2.md §5, §10.
 """
@@ -102,6 +105,38 @@ def _validate_daily_close_schema(schema: pa.Schema) -> None:
                 f"Schema mismatch for {field.name}: expected {expected.type}, "
                 f"got {field.type}"
             )
+
+
+def _parse_dml_descriptor(descriptor):
+    """Interpret a ``do_put`` descriptor as a generalized-DML request.
+
+    F26-T1 wire contract: a **command** descriptor
+    (``flight.FlightDescriptor.for_command``) whose body is a JSON
+    object carrying a ``"table"`` key selects the generalized path —
+    ``{"table": "pivot.t", "mode": "create_or_replace|append|replace",
+    "namespace"?: ..., "pinned"?: ..., "client_tag"?: ...}``.
+
+    Returns the parsed dict, or ``None`` for every other descriptor
+    shape (UNKNOWN/PATH/empty/unparseable/missing ``table``) — those
+    keep the legacy ``daily_close`` upsert path untouched, so existing
+    callers that ignore the descriptor are unaffected.
+    """
+    if descriptor is None:
+        return None
+    if getattr(descriptor, "descriptor_type", None) != (
+        flight.DescriptorType.CMD
+    ):
+        return None
+    command = getattr(descriptor, "command", None)
+    if command is None:
+        return None
+    try:
+        obj = json.loads(bytes(command).decode("utf-8"))
+    except Exception:
+        return None
+    if isinstance(obj, dict) and "table" in obj:
+        return obj
+    return None
 
 
 # =====================================================================
@@ -674,6 +709,27 @@ class MarketDataFlightServer(flight.FlightServerBase):
                 result = {"status": "FAILED", "error": str(e)}
             return _ActionResult(json.dumps(result).encode("utf-8"))
 
+        elif action_type == "dml_admin":
+            # F26-T1: client-issued DML confined to
+            # ``client_dml.allowed_namespaces`` (the ``pivot`` contract).
+            # The engine validates + audits EVERY op — a REJECTED op
+            # comes back in the JSON body with an audit row, not as a
+            # transport error; only a non-object payload (which cannot
+            # be audited meaningfully) is a FlightServerError.
+            if not isinstance(payload, dict):
+                raise flight.FlightServerError(
+                    f"dml_admin payload must be a JSON object, "
+                    f"got {type(payload).__name__}"
+                )
+            try:
+                result = self.engine.run_dml_admin(payload)
+            except ValueError as e:
+                raise flight.FlightServerError(str(e)) from e
+            except Exception as e:
+                logger.error("dml_admin failed: %s", e)
+                result = {"status": "FAILED", "error": str(e)}
+            return _ActionResult(json.dumps(result).encode("utf-8"))
+
         elif action_type == "daily_report":
             start_time = datetime.now()
             target_date = payload.get("date")
@@ -779,12 +835,15 @@ class MarketDataFlightServer(flight.FlightServerBase):
     # ------------------------------------------------------------------
 
     def do_put(self, context, descriptor, reader, writer):
-        """Receive an Arrow stream and upsert it into ``daily_close``.
+        """Receive an Arrow stream and write it per the descriptor.
 
-        The stream is read in full, validated against the ``daily_close``
-        schema, filtered for any tickers in ``cfg.ingestion.exclude_tickers``,
-        and then upserted in a single vectorized operation via
-        ``DatabaseManager.upsert_dataframe``.
+        F26-T1: a JSON command descriptor ``{"table": ..., "mode": ...}``
+        selects the generalized client-DML path — the engine validates,
+        audits and executes it (confinement to
+        ``client_dml.allowed_namespaces`` enforced there).  Every other
+        descriptor shape keeps the legacy behaviour: validate against
+        the ``daily_close`` schema, filter ``exclude_tickers`` and
+        upsert via ``DatabaseManager.upsert_dataframe``.
         """
         try:
             table = reader.read_all()
@@ -793,6 +852,23 @@ class MarketDataFlightServer(flight.FlightServerBase):
             raise flight.FlightServerError(
                 f"Failed to read do_put stream: {e}"
             ) from e
+
+        dml_descriptor = _parse_dml_descriptor(descriptor)
+        if dml_descriptor is not None:
+            try:
+                result = self.engine.run_dml_put(dml_descriptor, table)
+            except ValueError as e:
+                # Includes DmlRejected — the audit row is already
+                # written by the engine; surface as a transport error.
+                raise flight.FlightServerError(str(e)) from e
+            except Exception as e:
+                raise flight.FlightServerError(
+                    f"do_put write failed: {e}"
+                ) from e
+            logger.info(
+                "do_put generalized write: %s", json.dumps(result)
+            )
+            return
 
         try:
             _validate_daily_close_schema(table.schema)

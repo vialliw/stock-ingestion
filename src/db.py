@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import duckdb
@@ -23,7 +23,7 @@ import pyarrow as pa
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 # F16-T1: CNN Fear & Greed sub-indicator payload keys — each becomes a
 # ``<key> DOUBLE`` + ``<key>_rating VARCHAR`` column pair on
@@ -240,6 +240,43 @@ class DatabaseManager:
                     Description VARCHAR
                 );
             """)
+            # F26-T1: server-owned client-DML bookkeeping.  The registry
+            # is the source of truth for which client-created objects
+            # (allowlisted namespaces such as ``pivot``) exist — DROP
+            # guards, pin/TTL and ``list_tables`` all read it; clients
+            # can never write it (it lives in ``main`` outside every
+            # allowed namespace).  The audit table logs EVERY dml op —
+            # including REJECTED ones — exactly like ``ingestion_runs``
+            # does for loads.
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS table_registry (
+                    namespace VARCHAR NOT NULL,
+                    table_name VARCHAR NOT NULL,
+                    full_name VARCHAR NOT NULL,
+                    owner VARCHAR,
+                    has_pk BOOLEAN NOT NULL DEFAULT FALSE,
+                    pinned BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_write TIMESTAMP,
+                    rows_est BIGINT,
+                    PRIMARY KEY (namespace, table_name)
+                );
+            """)
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS client_dml_audit (
+                    audit_id BIGINT PRIMARY KEY,
+                    client_tag VARCHAR,
+                    op VARCHAR NOT NULL,
+                    target VARCHAR NOT NULL,
+                    source_sql_sha256 VARCHAR,
+                    bytes_in BIGINT,
+                    rows_written BIGINT,
+                    status VARCHAR NOT NULL,
+                    error VARCHAR,
+                    duration_ms INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
 
             # Determine current schema version (0 = fresh database).
             try:
@@ -297,6 +334,13 @@ class DatabaseManager:
             if current_version < 7:
                 self.conn.execute(
                     "INSERT INTO schema_version (version) VALUES (?)", [7]
+                )
+
+            # --- v7 -> v8: table_registry + client_dml_audit
+            # (created above; F26-T1) ---
+            if current_version < 8:
+                self.conn.execute(
+                    "INSERT INTO schema_version (version) VALUES (?)", [8]
                 )
 
     # ------------------------------------------------------------------
@@ -884,6 +928,277 @@ class DatabaseManager:
         return self.execute_query(
             "SELECT * FROM ingestion_runs ORDER BY completed_at DESC"
         )
+
+    # ------------------------------------------------------------------
+    # Client-DML registry + audit (F26-T1)
+    #
+    # ``table_registry`` is the source of truth for which client-created
+    # objects exist in allowlisted namespaces (``pivot``); drop/pin/TTL
+    # decisions consult it, never the catalog alone.
+    # ``client_dml_audit`` logs EVERY op — SUCCESS, FAILED and REJECTED —
+    # under ``_write_lock`` with the same ``MAX+1`` id idiom as
+    # ``ingestion_runs``.
+    #
+    # The mutating helpers accept an optional ``con``: when the caller
+    # already holds ``_write_lock`` inside a multi-statement unit it
+    # passes its own cursor so the registry write joins the same
+    # transaction; with ``con=None`` the helper acquires the lock on
+    # ``self.conn`` itself (never call the locking form while holding
+    # the lock — ``threading.Lock`` is not re-entrant).
+    # ------------------------------------------------------------------
+
+    _REGISTRY_COLUMNS = (
+        "namespace", "table_name", "full_name", "owner", "has_pk",
+        "pinned", "created_at", "last_write", "rows_est",
+    )
+
+    def record_dml_audit(
+        self,
+        *,
+        client_tag: Optional[str] = None,
+        op: str,
+        target: str,
+        source_sql_sha256: Optional[str] = None,
+        bytes_in: Optional[int] = None,
+        rows_written: Optional[int] = None,
+        status: str,
+        error: Optional[str] = None,
+        duration_ms: Optional[int] = None,
+    ) -> int:
+        """Persist one ``client_dml_audit`` row; returns ``audit_id``.
+
+        Mirrors :meth:`record_ingestion_run`: a single parameterized
+        INSERT under ``_write_lock`` with the ``MAX+1`` id idiom.
+        ``status`` is ``SUCCESS`` | ``FAILED`` | ``REJECTED``.
+        """
+        with self._write_lock:
+            max_id_row = self.conn.execute(
+                "SELECT COALESCE(MAX(audit_id), 0) FROM client_dml_audit"
+            ).fetchone()
+            audit_id = int(max_id_row[0]) + 1
+            self.conn.execute(
+                """
+                INSERT INTO client_dml_audit
+                (audit_id, client_tag, op, target, source_sql_sha256,
+                 bytes_in, rows_written, status, error, duration_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    audit_id,
+                    client_tag,
+                    op,
+                    target,
+                    source_sql_sha256,
+                    bytes_in,
+                    rows_written,
+                    status,
+                    error,
+                    duration_ms,
+                ],
+            )
+        return audit_id
+
+    def register_table(
+        self,
+        namespace: str,
+        table_name: str,
+        owner: Optional[str] = None,
+        has_pk: bool = False,
+        pinned: bool = True,
+        con=None,
+    ) -> None:
+        """Insert-or-refresh a ``table_registry`` row.
+
+        On conflict the row keeps its original ``created_at`` and its
+        ``pinned`` flag (a re-created object must not silently regain a
+        pin the owner removed); ``has_pk``/``owner``/``last_write``
+        refresh from the new registration.
+        """
+        params = [
+            namespace,
+            table_name,
+            f"{namespace}.{table_name}",
+            owner,
+            bool(has_pk),
+            bool(pinned),
+        ]
+        sql = """
+            INSERT INTO table_registry
+            (namespace, table_name, full_name, owner, has_pk, pinned,
+             last_write)
+            VALUES (?, ?, ?, ?, ?, ?, now())
+            ON CONFLICT (namespace, table_name) DO UPDATE SET
+                full_name = excluded.full_name,
+                owner = excluded.owner,
+                has_pk = excluded.has_pk,
+                last_write = now()
+        """
+        if con is not None:
+            con.execute(sql, params)
+        else:
+            with self._write_lock:
+                self.conn.execute(sql, params)
+
+    def unregister_table(self, namespace: str, table_name: str, con=None) -> None:
+        """Remove a ``table_registry`` row (no-op when absent)."""
+        sql = (
+            "DELETE FROM table_registry "
+            "WHERE namespace = ? AND table_name = ?"
+        )
+        if con is not None:
+            con.execute(sql, [namespace, table_name])
+        else:
+            with self._write_lock:
+                self.conn.execute(sql, [namespace, table_name])
+
+    def touch_table(
+        self,
+        namespace: str,
+        table_name: str,
+        rows_est: Optional[int] = None,
+        con=None,
+    ) -> None:
+        """Stamp ``last_write`` (and optionally ``rows_est``) on a row."""
+        sql = """
+            UPDATE table_registry
+            SET last_write = now(),
+                rows_est = COALESCE(?, rows_est)
+            WHERE namespace = ? AND table_name = ?
+        """
+        if con is not None:
+            con.execute(sql, [rows_est, namespace, table_name])
+        else:
+            with self._write_lock:
+                self.conn.execute(sql, [rows_est, namespace, table_name])
+
+    def set_table_pinned(
+        self, namespace: str, table_name: str, pinned: bool, con=None
+    ) -> bool:
+        """Flip the registry pin; returns True when a row was updated."""
+        sql = (
+            "UPDATE table_registry SET pinned = ? "
+            "WHERE namespace = ? AND table_name = ?"
+        )
+        params = [bool(pinned), namespace, table_name]
+        if con is not None:
+            result = con.execute(sql, params)
+        else:
+            with self._write_lock:
+                result = self.conn.execute(sql, params)
+        row = result.fetchone()
+        return bool(row and row[0])
+
+    @staticmethod
+    def _registry_rows_to_dicts(rows) -> List[Dict[str, Any]]:
+        cols = DatabaseManager._REGISTRY_COLUMNS
+        return [
+            {
+                **dict(zip(cols, row)),
+                "created_at": str(row[6]) if row[6] is not None else None,
+                "last_write": str(row[7]) if row[7] is not None else None,
+            }
+            for row in rows
+        ]
+
+    def get_registered_table(
+        self, namespace: str, table_name: str
+    ) -> Optional[Dict[str, Any]]:
+        """Return the registry row for one object, or ``None``."""
+        conn = self._read_only_conn()
+        try:
+            row = conn.execute(
+                """
+                SELECT namespace, table_name, full_name, owner, has_pk,
+                       pinned, created_at, last_write, rows_est
+                FROM table_registry
+                WHERE namespace = ? AND table_name = ?
+                """,
+                [namespace, table_name],
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        return self._registry_rows_to_dicts([row])[0]
+
+    def list_registered_tables(
+        self, namespace: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Registry dump — every registered object, or one namespace."""
+        conn = self._read_only_conn()
+        try:
+            if namespace is None:
+                rows = conn.execute(
+                    """
+                    SELECT namespace, table_name, full_name, owner,
+                           has_pk, pinned, created_at, last_write,
+                           rows_est
+                    FROM table_registry
+                    ORDER BY namespace, table_name
+                    """
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT namespace, table_name, full_name, owner,
+                           has_pk, pinned, created_at, last_write,
+                           rows_est
+                    FROM table_registry
+                    WHERE namespace = ?
+                    ORDER BY table_name
+                    """,
+                    [namespace],
+                ).fetchall()
+        finally:
+            conn.close()
+        return self._registry_rows_to_dicts(rows)
+
+    def expired_registrations(
+        self, ttl_days: int, now: Optional[datetime] = None
+    ) -> List[Dict[str, Any]]:
+        """Registered objects eligible for TTL sweep.
+
+        Only ``pinned = FALSE`` objects whose last activity
+        (``COALESCE(last_write, created_at)``) is older than
+        ``ttl_days`` are returned — pinned objects (the ``pivot``
+        default) are never swept.
+        """
+        reference = now if now is not None else datetime.now()
+        cutoff = reference - timedelta(days=int(ttl_days))
+        conn = self._read_only_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT namespace, table_name, full_name, owner, has_pk,
+                       pinned, created_at, last_write, rows_est
+                FROM table_registry
+                WHERE pinned = FALSE
+                  AND COALESCE(last_write, created_at) < ?
+                ORDER BY namespace, table_name
+                """,
+                [cutoff],
+            ).fetchall()
+        finally:
+            conn.close()
+        return self._registry_rows_to_dicts(rows)
+
+    def namespace_size_estimate_mb(self, namespace: str) -> float:
+        """Estimated MB footprint of a namespace (``duckdb_tables``).
+
+        Advisory figure for the optional ``client_dml.max_namespace_mb``
+        quota — ``estimated_size`` is DuckDB's own per-table estimate,
+        not byte-exact.
+        """
+        conn = self._read_only_conn()
+        try:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(estimated_size), 0) "
+                "FROM duckdb_tables() WHERE schema_name = ?",
+                [namespace],
+            ).fetchone()
+        finally:
+            conn.close()
+        return float(row[0]) / (1024.0 * 1024.0) if row else 0.0
 
     def get_health_info(self) -> Dict[str, Any]:
         """Return a snapshot of database health and row counts.

@@ -18,6 +18,7 @@ A quantitative stock-data ingestion service that centralizes daily equity data f
   - [Querying via Arrow Flight (do_get)](#querying-via-arrow-flight-do_get)
   - [Triggering Ingestion Actions (do_action)](#triggering-ingestion-actions-do_action)
   - [Uploading Data via Arrow Flight (do_put)](#uploading-data-via-arrow-flight-do_put)
+  - [Client-Issued DML (pivot namespace)](#client-issued-dml-pivot-namespace)
   - [R2 Synchronization](#r2-synchronization)
   - [Interactive Report App (Streamlit)](#interactive-report-app-streamlit)
   - [Market Breadth Dashboard](#market-breadth-dashboard)
@@ -97,8 +98,8 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 ### Arrow Flight Server
 
 - **`do_get`** — read-only SQL queries returning Arrow record batches. SELECT/WITH statements only. Configurable query timeout (default 120s, no row limit).
-- **`do_put`** — accepts external Arrow record batches matching the `daily_close` schema (7 columns), validates schema, filters excluded tickers, and upserts in a single vectorized operation.
-- **`do_action`** — thirteen administrative actions:
+- **`do_put`** — two paths selected by the descriptor: (a) **legacy** — no/path descriptor, external Arrow batches matching the `daily_close` schema (7 columns), validates schema, filters excluded tickers, upserts in a single vectorized operation; (b) **generalized** — a JSON command descriptor `{"table": "pivot.<name>", "mode": "create_or_replace|append|replace"}` writes the stream into an allowlisted client namespace with PK enforcement (see [Client-Issued DML](#client-issued-dml-pivot-namespace)).
+- **`do_action`** — fourteen administrative actions:
   - `initial_load` — run the initial historical load. Depth = `ingestion.initial_load_years` (default 6); an explicit `years` key in the action payload overrides it. `years` must be an integer in `[1, 30]` (bool/non-int rejected); invalid values raise `ValueError` in the engine and surface as a `FlightServerError` — never a silent empty download.
   - `daily_load` — run today's incremental load.
   - `on_request_load` — load a custom date range for specified tickers.
@@ -108,10 +109,24 @@ The project was built using a coordinated multi-agent workflow (executor → cha
   - `signal_pipeline` — run the six-step signal pipeline server-side (see [Signal Pipeline](#signal-pipeline)). Payload is optional; every key overrides the `signals:` config block and is validated (`backdate_days`/`max_holding_days` int ≥ 1, `overwrite_existing`/`filter_below_open` bool, `min_reward_risk`/`min_target_pct` number, `exclude_clusters` list of ints, `exclude_models` list of strings, `folder_path` non-empty string — invalid values raise `FlightServerError`). Returns `{status, steps: {ingest, dedupe, repair, prune, performance, repair_sweep, null_verification, cluster_metadata}, duration_ms}`.
   - `signal_analysis` — run the five-phase `signal_input2` signal-analysis pipeline server-side (see [Signal Analysis Pipeline](#signal-analysis-pipeline)). Payload is optional; `set` selects one configured `signal_analysis.sets` entry (omit/`null` = all sets) and `backdate_days` (int ≥ 1), `max_holding_days` (int ≥ 1), `mc_iterations` (int ≥ 1) override the config block — invalid values or an unknown `set` raise `FlightServerError`. Returns `{status, sets: {<name>: {status, schema, report_dir, steps: {ingest, dedupe, repair, views, performance, phase5}}}, duration_ms}` — including the per-view scorecard and `edge_validation` metrics under `steps.performance`.
   - `daily_report` — generate a top-20 dollar-volume report as JSON.
+  - `dml_admin` — client-issued DML confined to `client_dml.allowed_namespaces` (the `pivot` contract). Payload `{op: <enum>, ...}` selects one of `register_namespace`, `create_table` (structured spec → real PK), `create_as`/`create_view`/`insert_select` (SELECT-only source SQL), `drop_table` (registered objects only), `list_tables`, `pin`/`unpin`, `dml_sweep` (TTL cleanup). Every op — including REJECTED ones — is audited in `client_dml_audit`; a REJECTED result travels in the JSON body, not as a transport error. See [Client-Issued DML](#client-issued-dml-pivot-namespace).
   - `health_check` — return server uptime, DB status, ticker count, row count, schema version.
   - `data_health` — run the full `daily_close` data-health report (see [Data Health Checks](#data-health-checks)).
   - `get_run_history` — return the ingestion audit log as JSON.
   - `sync_to_r2` — manually trigger an R2 sync of the DuckDB file.
+
+### Client-Issued DML (pivot namespace)
+
+Trusted downstream consumers (e.g. the Bollinger pivot analysis project) can create and rebuild their own derived tables **inside the canonical DuckDB file** — under a server-owned `pivot` schema — via Flight only, so the service stays the single DuckDB writer. No arbitrary DDL/DML crosses the wire:
+
+- **Confinement** — every name is validated against `^[a-z][a-z0-9_]*$` and qualified server-side as `<namespace>.<table>`; only `client_dml.allowed_namespaces` (`pivot` by default) are writable. `main.*` (the core tables) stays server-owned and read-only; writes to unregistered namespaces/tables are rejected and audited. After each write the server asserts the object's catalog location via `duckdb_tables()`.
+- **`dml_admin` action** — closed enum: `register_namespace`, `create_table` (structured column spec with a type whitelist → real `PRIMARY KEY` constraints, never arbitrary DDL), `create_as`, `create_view`, `insert_select` (`append`/`replace`), `drop_table` (registered objects only), `list_tables`, `pin`, `unpin`, `dml_sweep` (TTL cleanup).
+- **SELECT-only source SQL** — `create_as`/`create_view`/`insert_select` sources must start with `SELECT`/`WITH`, pass a keyword denylist (file readers, `COPY`, `ATTACH`, `PRAGMA`, `SET`, mutation verbs, …) and parse via `duckdb.extract_statements` as exactly one SELECT statement.
+- **Atomic rebuilds** — `insert_select` `mode=replace` and `do_put` `replace` run `DELETE` + `INSERT` in one server-side transaction; a failed source leaves the old rows, not an empty table. PK violations fail loudly.
+- **Generalized `do_put`** — a JSON command descriptor `{"table": "pivot.<name>", "mode": "create_or_replace|append|replace"}` routes the Arrow stream into the namespace; schema mismatches and unregistered targets are rejected. Descriptor-less/path-descriptor batches keep the legacy `daily_close` path untouched.
+- **Registry + audit** — `main.table_registry` tracks every client object (namespace, name, owner, `has_pk`, `pinned`, `created_at`, `last_write`, `rows_est`); `main.client_dml_audit` records every operation — SUCCESS, FAILED, and REJECTED — with source-SQL SHA-256 and row counts.
+- **TTL lifecycle** — `dml_sweep` drops only registered, unpinned objects whose `last_write` is older than `client_dml.ttl_days` (default 90). `pin`/`unpin` marks objects exempt; `pivot`-namespace tables are created pinned by default.
+- **`scripts/dml_client.py`** — a thin, vendorable client helper wrapping the `dml_admin` action and `do_put` descriptor contract.
 
 ### R2 Synchronization
 
@@ -149,6 +164,7 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 - `ingestion_runs` table records every ingestion run with:
   - run type, start/completion timestamps, status, rows upserted, tickers succeeded/failed, errors, duration.
 - Queryable via the `get_run_history` Flight action.
+- `client_dml_audit` (schema v8) records every client-DML operation — SUCCESS, FAILED and REJECTED alike — with `client_tag`, op, target, source-SQL SHA-256, input bytes, rows written, error and duration (see [Client-Issued DML](#client-issued-dml-pivot-namespace)).
 
 ### Data Health Checks
 
@@ -481,6 +497,13 @@ signal_analysis:
   max_holding_days: 8          # forward window cap for phase-4 backtest
   mc_iterations: 50            # edge-validator Monte Carlo iteration count
   benchmark: "SPY"             # benchmark ticker for SPY-alpha metric
+
+client_dml:
+  allowed_namespaces:          # schemas clients may write via dml_admin/do_put ([a-z][a-z0-9_]* only)
+    - pivot                    # the Bollinger-PM namespace
+  dml_timeout_seconds: null    # null -> inherits server.query_timeout_seconds
+  max_namespace_mb: null       # null -> advisory per-namespace size quota off
+  ttl_days: 90                 # dml_sweep drops only unpinned objects idle longer than this
 ```
 
 ### Environment Variables (R2)
@@ -696,6 +719,73 @@ writer.close()
 - Data is upserted in a single vectorized operation via `DatabaseManager.upsert_dataframe`.
 - No per-row loops — uses `reader.read_all()` + `to_pandas()` + `upsert_dataframe()`.
 
+**Generalized mode:** a **command** descriptor carrying
+`{"table": "pivot.<name>", "mode": "create_or_replace|append|replace"}`
+writes the stream into an allowlisted client namespace instead of
+`daily_close` — PK enforcement, atomic replace and auditing apply (see
+[Client-Issued DML](#client-issued-dml-pivot-namespace)):
+
+```python
+descriptor = flight.FlightDescriptor.for_command(
+    b'{"table": "pivot.weekly_bars", "mode": "create_or_replace"}'
+)
+writer, _ = client.do_put(descriptor, my_table.schema)
+writer.write_table(my_table)
+writer.close()
+```
+
+### Client-Issued DML (dml_admin)
+
+The `dml_admin` action lets a trusted client manage derived tables under
+the `pivot` schema — Flight-only, no local `pivot.duckdb` needed:
+
+```python
+import json, pyarrow.flight as flight
+
+client = flight.FlightClient("grpc://127.0.0.1:8815")
+
+def dml(payload):
+    action = flight.Action("dml_admin", json.dumps(payload).encode("utf-8"))
+    body = next(iter(client.do_action(action))).body.to_pybytes()
+    return json.loads(body.decode("utf-8"))
+
+dml({"op": "register_namespace", "namespace": "pivot"})
+dml({"op": "create_table", "table": "pivot.week_calendar", "columns": [
+    {"name": "week_id",   "type": "INTEGER", "pk": True},
+    {"name": "week_date", "type": "DATE",    "not_null": True},
+]})
+dml({"op": "insert_select", "table": "pivot.week_calendar",
+     "mode": "replace",                      # atomic DELETE+INSERT, one txn
+     "sql": "SELECT 1 AS week_id, DATE '2026-01-02' AS week_date"})
+dml({"op": "list_tables", "namespace": "pivot"})
+```
+
+`scripts/dml_client.py` vendors a ready-made `DmlClient` wrapper
+(`register_namespace`, `create_table`, `create_as`, `create_view`,
+`insert_select`, `drop_table`, `pin`/`unpin`, `dml_sweep`, `list_tables`,
+`put_frame`) — copy it into a downstream project and point it at the
+Flight endpoint.
+
+**Contract highlights** (full detail in `docs/DATA_SERVICE_API.md`):
+- Ops return `{status: SUCCESS|FAILED|REJECTED, ...}` — REJECTED means
+  validation refused the op (bad name, non-allowlisted namespace,
+  non-SELECT source); it is a normal result, not a transport error.
+- `create_table` takes a **structured column spec** (type whitelist:
+  `DATE`, `INTEGER`, `BIGINT`, `DOUBLE`, `VARCHAR`, `BOOLEAN`,
+  `TIMESTAMP`, `UTINYINT`, `SMALLINT`) — arbitrary DDL is never executed;
+  `pk: true` columns compose a real `PRIMARY KEY`.
+- `create_as`/`create_view`/`insert_select` source SQL must be a single
+  `SELECT`/`WITH` statement — file readers (`read_parquet`, `read_csv`,
+  `parquet_scan`, `sqlite_scan`), `COPY`, `ATTACH`, `PRAGMA`, `SET`,
+  `CALL`, `PREPARE`/`EXECUTE`, `SECRET` and all mutation/catalog verbs
+  are denied.
+- `create_as` is refused on PK-bearing tables (CTAS can't keep the
+  constraint) — use `insert_select` instead.
+- `pin`/`unpin` controls TTL eligibility; `dml_sweep` drops only
+  unpinned objects idle longer than `client_dml.ttl_days` (default 90).
+- Every operation is written to `client_dml_audit` — including
+  rejections — so a denied attempt is always visible server-side.
+
 ### R2 Synchronization
 
 R2 sync uploads the DuckDB file directly to Cloudflare R2:
@@ -899,6 +989,43 @@ Rebuilt from `weekly_close` by `rebuild_weekly_indicators()` (`INSERT OR REPLACE
 
 Upserted by `run_fear_greed_load` (via the `fear_greed_refresh` action) with `INSERT ... ON CONFLICT (date) DO UPDATE` — re-runs update changed values in place. See [CNN Fear & Greed Index](#cnn-fear--greed-index).
 
+### `table_registry` (client-DML object registry, schema v8)
+
+Server-owned registry of every client-created object under an
+allowlisted namespace — the source of truth for what a client may
+insert/replace/drop.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `namespace` | VARCHAR | Client schema (e.g. `pivot`) — part of PK `(namespace, table_name)` |
+| `table_name` | VARCHAR | Object name — part of PK `(namespace, table_name)` |
+| `full_name` | VARCHAR | Server-composed `namespace.table_name` |
+| `owner` | VARCHAR | `client_tag` of the creator |
+| `has_pk` | BOOLEAN | True when the table carries a real `PRIMARY KEY` |
+| `pinned` | BOOLEAN | True = exempt from `dml_sweep` TTL drops |
+| `created_at` | TIMESTAMP | First registration time |
+| `last_write` | TIMESTAMP | Last successful write op on the object |
+| `rows_est` | BIGINT | Row-count estimate refreshed after each write |
+
+### `client_dml_audit` (client-DML audit trail, schema v8)
+
+One row per `dml_admin`/`do_put` operation — SUCCESS, FAILED and
+REJECTED alike (a denied attempt is always visible server-side).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `audit_id` | BIGINT | Sequential id (`MAX+1` idiom) |
+| `client_tag` | VARCHAR | Client-supplied tag (optional) |
+| `op` | VARCHAR | Operation name (`dml_admin` enum or `do_put:<mode>`) |
+| `target` | VARCHAR | Qualified target (`pivot.t`) or namespace |
+| `source_sql_sha256` | VARCHAR | SHA-256 of the source SQL when applicable |
+| `bytes_in` | BIGINT | Streamed input bytes for `do_put` |
+| `rows_written` | BIGINT | Rows written/affected |
+| `status` | VARCHAR | `SUCCESS` \| `FAILED` \| `REJECTED` |
+| `error` | VARCHAR | Failure/rejection detail |
+| `duration_ms` | INTEGER | Wall-clock op duration |
+| `created_at` | TIMESTAMP | Audit timestamp |
+
 ### `schema_version` (migration tracking)
 
 | Column | Type | Description |
@@ -906,7 +1033,7 @@ Upserted by `run_fear_greed_load` (via the `fear_greed_refresh` action) with `IN
 | `version` | INTEGER | Schema version number |
 | `applied_at` | TIMESTAMP | When the migration was applied |
 
-Current schema version: 6. The database auto-migrates from v1 (legacy `daily_quotes` table) to v2 (rename to `daily_close`) to v3 (add `ingestion_runs` table) to v4 (add `company_metadata` table) to v5 (add `weekly_close` and `weekly_indicators` tables) to v6 (add `fear_greed_history` table).
+Current schema version: 8. The database auto-migrates from v1 (legacy `daily_quotes` table) to v2 (rename to `daily_close`) to v3 (add `ingestion_runs` table) to v4 (add `company_metadata` table) to v5 (add `weekly_close` and `weekly_indicators` tables) to v6 (add `fear_greed_history` table) to v7 (add `signal_records`, `signal_performance` and `cluster_metadata` tables) to v8 (add `table_registry` and `client_dml_audit` tables).
 
 ---
 

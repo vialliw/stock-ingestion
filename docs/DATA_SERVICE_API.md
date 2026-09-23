@@ -270,8 +270,74 @@ result rows. Payloads are optional JSON objects unless noted.
 | `signal_pipeline` | `{folder_path?: str, backdate_days?: int≥1, max_holding_days?: int≥1, overwrite_existing?: bool, min_reward_risk?: num, min_target_pct?: num, exclude_clusters?: [int], exclude_models?: [str], filter_below_open?: bool}` — all optional, each overrides the `signals:` config | `{status: SUCCESS\|FAILED, steps: {ingest, dedupe, repair, prune, performance, repair_sweep, null_verification, cluster_metadata}, duration_ms}` | Six-step signal pipeline server-side (write): ingest xlsx signals → dedupe → repair NULL closes from `daily_close` → prune (thresholds active; pruned rows returned in `steps.prune.pruned_records`, no log file) → `signal_performance` compute → silent repair sweep + NULL verification → `cluster_metadata` refresh |
 | `signal_analysis` | `{set?: str, backdate_days?: int≥1, max_holding_days?: int≥1, mc_iterations?: int≥1}` — all optional; `set` must match a configured `signal_analysis.sets` name (omit = all sets), numbers override the `signal_analysis:` config | `{status: SUCCESS\|PARTIAL\|FAILED, sets: {<name>: {status, schema: signals_<name>, report_dir, steps: {ingest, dedupe, repair, views, performance, phase5}}}, duration_ms}` | Five-phase `signal_input2` analyzer server-side (write): ingest all sheets of `*_active_signal_combined.xlsx` into `signals_<name>.aly_signal_records_raw` → dedupe + NULL/NaN `Close` repair from `daily_close` → four `aly_v_*` views → 15-col `aly_signal_performance` + per-view `scorecard` + `edge_validation` metrics (expectancy, profit factor, fill rate, SPY alpha, MC) under `steps.performance` → phase-5 analytics matrix + xlsx/heatmap reports |
 | `daily_report` | `{date?: "YYYY-MM-DD"}` | `{status, report}` | Top-20 dollar-volume report (also writes a file server-side) |
+| `dml_admin` | `{op: <enum>, ...}` — see §4.1 | `{status: SUCCESS\|FAILED\|REJECTED, op, target, rows_written?, error?, ...}` | Client-issued DML confined to `client_dml.allowed_namespaces` (the `pivot` contract): create/replace/append/drop registered tables and views, pin/unpin, TTL sweep. Every op is audited in `client_dml_audit` — including REJECTED ones. |
 | `get_run_history` | — | `{status, run_history: [...]}` | `ingestion_runs` audit log |
 | `sync_to_r2` | — | R2 sync result | Push DB artifact to Cloudflare R2 |
+
+### 4.1 Client-issued DML — the `pivot` namespace (`dml_admin`)
+
+Trusted consumers can store derived tables **in the same DuckDB
+catalog** under a server-owned schema (`pivot` for the Bollinger pivot
+project) instead of maintaining a separate local database. Everything
+is validated, confined and audited server-side — no arbitrary DDL or
+mutation SQL ever reaches the engine.
+
+**Naming.** Every object is addressed as `{"table": "pivot.<name>"}`
+or `{"table": "<name>", "namespace": "pivot"}` (both given ⇒ they must
+agree). `namespace` and `<name>` must match `^[a-z][a-z0-9_]*$`. The
+server composes the qualified name itself — clients can never spell
+`main.daily_close` or any other core object. Only namespaces listed in
+`client_dml.allowed_namespaces` (default: `pivot`) are writable, and
+they must first be `register_namespace`d.
+
+**Result envelope.** Every op returns
+`{status: SUCCESS|FAILED|REJECTED, op, target, ...}`.
+`REJECTED` means validation refused the operation before touching the
+catalog (bad name, non-allowlisted namespace, unregistered table,
+non-SELECT source SQL, unknown op); `FAILED` means a validated op hit a
+DuckDB error at execution (e.g. a PK violation). Both are normal JSON
+results — and both are written to `client_dml_audit`.
+
+**Operations** (`payload.op`, closed enum):
+
+| op | Extra payload keys | Behaviour |
+|---|---|---|
+| `register_namespace` | `namespace` | Create/confirm the schema; REJECTED unless allowlisted. |
+| `create_table` | `table`, `columns` | Structured spec → `CREATE TABLE` with a real `PRIMARY KEY`. `columns` is a list of `{name, type, not_null?, pk?}`; `type` must be one of `DATE`, `INTEGER`, `BIGINT`, `DOUBLE`, `VARCHAR`, `BOOLEAN`, `TIMESTAMP`, `UTINYINT`, `SMALLINT`. Duplicate-key inserts fail loudly. REJECTED if the object already exists. |
+| `create_as` | `table`, `sql` | `SELECT`-only source → snapshot to Arrow → `CREATE OR REPLACE TABLE` under the write lock (the source read runs *outside* the lock). REJECTED on PK-bearing targets (CTAS cannot preserve constraints — use `insert_select`). |
+| `create_view` | `table`, `sql` | `SELECT`-only source → `CREATE OR REPLACE VIEW`. |
+| `insert_select` | `table`, `mode`, `sql` | `mode: append` inserts; `mode: replace` runs `DELETE FROM` + `INSERT INTO ... SELECT` in **one transaction** — a failed source leaves the old rows intact. PK constraints stay active. |
+| `drop_table` | `table` | Drops a registered table or view (`DROP TABLE`/`DROP VIEW` chosen by catalog kind). REJECTED for unregistered objects. |
+| `list_tables` | `namespace?` | Returns the registry entries (optionally filtered to one allowlisted namespace). |
+| `pin` / `unpin` | `table` | Set/clear `pinned` on a registered object — TTL sweep eligibility. |
+| `dml_sweep` | `ttl_days?` | Drops registered objects with `pinned=false` whose `last_write` is older than the TTL (default `client_dml.ttl_days`, 90 days). Pinned and fresh objects are never touched. |
+
+Optional `client_tag` on any op is recorded in the audit row.
+
+**Source-SQL rules** (`create_as`, `create_view`, `insert_select`):
+must begin with `SELECT` or `WITH`; must survive a keyword denylist —
+`read_parquet`, `read_csv`, `parquet_scan`, `sqlite_scan`, `COPY`,
+`ATTACH`, `DETACH`, `LOAD`, `INSTALL`, `PRAGMA`, `SET`, `CALL`,
+`PREPARE`, `EXECUTE`, `SECRET`, `CREATE`, `INSERT`, `UPDATE`, `DELETE`,
+`DROP`, `ALTER`, `MERGE`; and must classify via
+`duckdb.extract_statements` as exactly one SELECT-type statement
+(so `WITH x AS (DELETE ...) SELECT` and multi-statement payloads are
+rejected too). A client transaction verb can never cross the wire —
+`replace` is the atomic-rebuild primitive.
+
+**Lifecycle & housekeeping.** `main.table_registry` records every
+client object (`full_name`, `owner`, `has_pk`, `pinned`, `created_at`,
+`last_write`, `rows_est`) and is the source of truth for
+insert/replace/drop eligibility; `main.client_dml_audit` logs every op
+with `client_tag`, source-SQL SHA-256, input bytes, rows written,
+status, error and duration. `dml_timeout_seconds` bounds each op
+(default: the shared `query_timeout_seconds`); `max_namespace_mb` is an
+optional advisory per-namespace size cap (off by default). After each
+write the server asserts the object's catalog location via
+`duckdb_tables()`.
+
+`scripts/dml_client.py` vendors a thin `DmlClient` wrapper for all of
+the above — copy it into a downstream project.
 
 Notes:
 
@@ -311,10 +377,32 @@ Notes:
 
 ## 5. Uploads — `do_put`
 
-Accepts an Arrow stream matching the `daily_close` schema exactly
-(7 columns, PK `(Date,Ticker)` semantics); upserts in one vectorized
-operation; `exclude_tickers` are filtered out. Use only if you are a
-trusted producer — ordinary consumers should not write.
+`do_put` has **two paths**, selected by the Flight descriptor:
+
+1. **Legacy `daily_close` upsert** — no descriptor, a PATH descriptor,
+   or any CMD descriptor that is not a JSON object carrying `"table"`.
+   The Arrow stream must match the `daily_close` schema exactly
+   (7 columns, PK `(Date,Ticker)` semantics); rows are upserted in one
+   vectorized operation and `exclude_tickers` are filtered out. This is
+   the historical contract and is unchanged.
+2. **Generalized client-DML write** — a CMD descriptor whose body is a
+   JSON object `{"table": "pivot.<name>", "mode":
+   "create_or_replace|append|replace"}` (optional `namespace`,
+   `client_tag`). The stream is written into an allowlisted namespace
+   with the same confinement, validation and auditing as `dml_admin`
+   (§4.1):
+   - `create_or_replace` — materializes the stream into a fresh table
+     (refused on PK-bearing targets — constraints would be lost);
+   - `append` — inserts into a registered table; PK violations and
+     schema mismatches are rejected;
+   - `replace` — atomic `DELETE` + `INSERT` in one transaction on a
+     registered table.
+
+   A rejected/failed write raises `FlightServerError` on the client;
+   the `do_put:<mode>` audit row is still recorded server-side.
+
+Use only if you are a trusted producer — ordinary consumers should not
+write.
 
 ## 6. Rules for consumers
 

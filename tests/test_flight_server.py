@@ -27,6 +27,7 @@ import threading
 import time
 from unittest.mock import MagicMock, patch
 
+import pyarrow as pa
 import pyarrow.flight as flight
 import pytest
 
@@ -1641,4 +1642,289 @@ class TestSignalAnalysisAction:
         thread.start()
         client = flight.FlightClient(location)
         client.wait_for_available(timeout=10)
-        return server, client, db_mgr, ingest_engine, cfg, 
+        return server, client, db_mgr, ingest_engine, cfg,
+
+
+# =====================================================================
+# dml_admin action — Flight surface over IngestionEngine.run_dml_admin
+# (executor-module only — mirrors the F24/F25 signal-pipeline precedent)
+# =====================================================================
+
+@pytest.mark.skipif(
+    _executor_module is None, reason="executor module not importable"
+)
+class TestDmlAdminAction:
+    """``dml_admin`` dispatches a JSON payload to
+    ``IngestionEngine.run_dml_admin`` and returns its structured result
+    verbatim — REJECTED/FAILED travel in the body, not as transport
+    errors (the whole file's convention)."""
+
+    def _server(self):
+        return make_server(_executor_module)
+
+    def _dml_result(self, status="SUCCESS", **extra):
+        result = {
+            "status": status,
+            "op": "register_namespace",
+            "target": "pivot",
+        }
+        result.update(extra)
+        return result
+
+    def test_dml_admin_success_passthrough(self):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        ingest_engine.run_dml_admin.return_value = self._dml_result()
+        payload = {
+            "op": "register_namespace",
+            "namespace": "pivot",
+            "client_tag": "test",
+        }
+        data = parse_result(
+            server.do_action(
+                MagicMock(), make_action("dml_admin", payload)
+            )
+        )
+        assert data["status"] == "SUCCESS"
+        ingest_engine.run_dml_admin.assert_called_once_with(payload)
+
+    def test_dml_admin_rejected_passthrough(self):
+        """A REJECTED result is a normal response body, not a
+        FlightServerError."""
+        server, db_mgr, ingest_engine, cfg = self._server()
+        ingest_engine.run_dml_admin.return_value = self._dml_result(
+            status="REJECTED", error="not allowlisted"
+        )
+        data = parse_result(
+            server.do_action(
+                MagicMock(),
+                make_action(
+                    "dml_admin",
+                    {"op": "register_namespace", "namespace": "other"},
+                ),
+            )
+        )
+        assert data["status"] == "REJECTED"
+        assert data["error"] == "not allowlisted"
+
+    def test_dml_admin_engine_failure_passthrough(self):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        ingest_engine.run_dml_admin.return_value = self._dml_result(
+            status="FAILED", error="constraint violation"
+        )
+        data = parse_result(
+            server.do_action(
+                MagicMock(),
+                make_action(
+                    "dml_admin",
+                    {"op": "insert_select", "table": "pivot.t",
+                     "mode": "append", "sql": "SELECT 1"},
+                ),
+            )
+        )
+        assert data["status"] == "FAILED"
+
+    def test_dml_admin_engine_exception_returns_failed(self):
+        """An engine raise (not a result dict) becomes a FAILED body —
+        DmlRejected/ValueError are caught inside run_dml_admin, so an
+        escape here means an infrastructure bug."""
+        server, db_mgr, ingest_engine, cfg = self._server()
+        ingest_engine.run_dml_admin.side_effect = RuntimeError("boom")
+        data = parse_result(
+            server.do_action(
+                MagicMock(),
+                make_action("dml_admin", {"op": "list_tables"}),
+            )
+        )
+        assert data["status"] == "FAILED"
+        assert "boom" in data["error"]
+
+    def test_dml_admin_non_dict_payload_raises(self):
+        server, db_mgr, ingest_engine, cfg = self._server()
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(),
+                make_action("dml_admin", [1, 2, 3]),
+            )
+        ingest_engine.run_dml_admin.assert_not_called()
+
+    def test_dml_admin_over_wire(self):
+        """End-to-end: real FlightClient -> do_action -> JSON result."""
+        db_mgr = MagicMock()
+        ingest_engine = MagicMock()
+        cfg = MagicMock()
+        ingest_engine.run_dml_admin.return_value = self._dml_result()
+        location = _ephemeral_location()
+        srv = _executor_module.MarketDataFlightServer(
+            location, db_mgr, ingest_engine, cfg
+        )
+        thread = threading.Thread(target=srv.serve, daemon=True)
+        thread.start()
+        try:
+            client = flight.FlightClient(location)
+            client.wait_for_available(timeout=10)
+            action = flight.Action(
+                "dml_admin",
+                json.dumps(
+                    {"op": "register_namespace", "namespace": "pivot"}
+                ).encode("utf-8"),
+            )
+            result = client.do_action(action)
+            buf = next(iter(result)).body.to_pybytes()
+            data = json.loads(buf.decode("utf-8"))
+            assert data["status"] == "SUCCESS"
+        finally:
+            srv.shutdown()
+
+
+# =====================================================================
+# Generalized do_put — descriptor-driven DML vs legacy daily_close
+# =====================================================================
+
+@pytest.mark.skipif(
+    _executor_module is None, reason="executor module not importable"
+)
+class TestDoPutDescriptor:
+    """The ``do_put`` descriptor contract: a CMD descriptor carrying
+    ``{"table": ..., "mode": ...}`` routes to ``run_dml_put``; anything
+    else (PATH descriptor, unknown type, non-JSON, missing 'table')
+    falls through to the legacy daily_close upsert path."""
+
+    def _cmd_descriptor(self, body):
+        d = MagicMock()
+        d.descriptor_type = flight.DescriptorType.CMD
+        d.command = json.dumps(body).encode("utf-8")
+        return d
+
+    def _path_descriptor(self):
+        d = MagicMock()
+        d.descriptor_type = flight.DescriptorType.PATH
+        d.path = [b"pivot.t"]
+        return d
+
+    def _reader(self, table):
+        r = MagicMock()
+        r.read_all.return_value = table
+        return r
+
+    def test_parse_descriptor_happy(self):
+        parsed = _executor_module._parse_dml_descriptor(
+            self._cmd_descriptor({"table": "pivot.t", "mode": "append"})
+        )
+        assert parsed == {"table": "pivot.t", "mode": "append"}
+        # A non-str 'table' still routes to the DML path — the engine
+        # validates the value and rejects+audits it there.
+        routed = _executor_module._parse_dml_descriptor(
+            self._cmd_descriptor({"table": 5})
+        )
+        assert routed == {"table": 5}
+
+    @pytest.mark.parametrize(
+        "descriptor",
+        [
+            # PATH descriptor -> legacy
+            flight.FlightDescriptor.for_path(b"pivot.t"),
+            # CMD with non-JSON command -> legacy
+            flight.FlightDescriptor.for_command(b"not json"),
+            # CMD with JSON but no 'table' -> legacy
+            flight.FlightDescriptor.for_command(b'{"mode": "append"}'),
+        ],
+    )
+    def test_parse_descriptor_falls_through(self, descriptor):
+        parsed = _executor_module._parse_dml_descriptor(descriptor)
+        assert parsed is None
+
+    def test_parse_descriptor_none_and_unknown(self):
+        parse = _executor_module._parse_dml_descriptor
+        assert parse(None) is None
+        d = MagicMock()
+        d.descriptor_type = flight.DescriptorType.UNKNOWN
+        d.command = b'{"table": "pivot.t"}'
+        assert parse(d) is None
+
+    def test_do_put_descriptor_routes_to_run_dml_put(self):
+        server, db_mgr, ingest_engine, cfg = make_server(
+            _executor_module
+        )
+        ingest_engine.run_dml_put.return_value = {
+            "status": "SUCCESS", "rows_written": 1,
+        }
+        table = pa.table({"a": [1]})
+        descriptor = self._cmd_descriptor(
+            {"table": "pivot.t", "mode": "create_or_replace"}
+        )
+        server.do_put(
+            MagicMock(), descriptor, self._reader(table), MagicMock()
+        )
+        ingest_engine.run_dml_put.assert_called_once_with(
+            {"table": "pivot.t", "mode": "create_or_replace"}, table
+        )
+        db_mgr.upsert_dataframe.assert_not_called()
+
+    def test_do_put_descriptor_rejection_raises(self):
+        from src.client_dml import DmlRejected
+
+        server, db_mgr, ingest_engine, cfg = make_server(
+            _executor_module
+        )
+        ingest_engine.run_dml_put.side_effect = DmlRejected(
+            "not allowlisted"
+        )
+        table = pa.table({"a": [1]})
+        with pytest.raises(flight.FlightServerError):
+            server.do_put(
+                MagicMock(),
+                self._cmd_descriptor(
+                    {"table": "main.x", "mode": "append"}
+                ),
+                self._reader(table),
+                MagicMock(),
+            )
+        db_mgr.upsert_dataframe.assert_not_called()
+
+    def _daily_close_table(self):
+        import datetime as _dt
+
+        return pa.table(
+            {
+                "Date": pa.array([_dt.date(2026, 1, 2)],
+                                 type=pa.date32()),
+                "Ticker": ["AAPL"],
+                "Open": [1.0],
+                "High": [2.0],
+                "Low": [0.5],
+                "Close": [1.5],
+                "Volume": [100.0],
+            },
+            schema=_executor_module._DAILY_CLOSE_SCHEMA,
+        )
+
+    def test_do_put_no_descriptor_stays_legacy(self):
+        """Backward compat: batches with no/unknown descriptor still
+        use the daily_close upsert path (the historical contract)."""
+        server, db_mgr, ingest_engine, cfg = make_server(
+            _executor_module
+        )
+        db_mgr.upsert_dataframe.return_value = {
+            "total_rows": 1, "rows_inserted": 1, "rows_updated": 0,
+        }
+        table = self._daily_close_table()
+        server.do_put(
+            MagicMock(), MagicMock(), self._reader(table), MagicMock()
+        )
+        ingest_engine.run_dml_put.assert_not_called()
+        db_mgr.upsert_dataframe.assert_called_once()
+
+    def test_do_put_path_descriptor_stays_legacy(self):
+        server, db_mgr, ingest_engine, cfg = make_server(
+            _executor_module
+        )
+        db_mgr.upsert_dataframe.return_value = {
+            "total_rows": 1, "rows_inserted": 1, "rows_updated": 0,
+        }
+        table = self._daily_close_table()
+        server.do_put(
+            MagicMock(), self._path_descriptor(),
+            self._reader(table), MagicMock(),
+        )
+        ingest_engine.run_dml_put.assert_not_called()
+        db_mgr.upsert_dataframe.assert_called_once()

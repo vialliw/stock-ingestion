@@ -568,3 +568,74 @@ concurrent requests" note, `docs/tech_spec/gemini_tech_spec.1.0.2.md:36`).
 *Prepared by executor agent B under task F21-T1. Source citations are
 against the working tree at claim time (commit of `devin_blackboard`
 claim 6b426cf era); line numbers may drift with later commits.*
+
+---
+
+## Addendum — shipped contract (F26-T1)
+
+The study recommended the **(b)+(c) hybrid**: a generalized `do_put`
+descriptor plus a closed-enum admin action — no arbitrary-SQL endpoint.
+That is what shipped. Where the shipped contract differs from the
+study's sketch:
+
+- **Same catalog, schema-scoped** — client objects live in the
+  canonical `stock_ingestion.duckdb` under the `pivot` schema (DuckDB
+  "schema" = catalog namespace), not in a second attached file.
+  Confinement is pure application-layer: names must match
+  `^[a-z][a-z0-9_]*$`, are qualified server-side as
+  `<namespace>.<table>`, and only `client_dml.allowed_namespaces`
+  (default `pivot`) are writable. `main.*` stays server-owned; a
+  post-write `duckdb_tables()` assertion confirms the catalog location.
+- **`dml_admin` action (closed enum)** — `register_namespace`,
+  `create_table`, `create_as`, `create_view`, `insert_select`,
+  `drop_table`, `list_tables`, `pin`, `unpin`, `dml_sweep`. Unknown ops
+  are REJECTED and audited.
+- **Structured `create_table`** — a `{name, type, not_null, pk}`
+  column spec over a 9-type whitelist (`DATE`, `INTEGER`, `BIGINT`,
+  `DOUBLE`, `VARCHAR`, `BOOLEAN`, `TIMESTAMP`, `UTINYINT`, `SMALLINT`)
+  composes DDL with a real `PRIMARY KEY` — arbitrary DDL is never
+  executed. `create_as` is refused on PK-bearing tables (CTAS would
+  silently drop the constraint) — `insert_select` is the PK-safe write.
+- **SELECT-only source SQL** — `SELECT`/`WITH` prefix + keyword
+  denylist (`read_parquet`, `read_csv`, `parquet_scan`, `sqlite_scan`,
+  `COPY`, `ATTACH`, `DETACH`, `LOAD`, `INSTALL`, `PRAGMA`, `SET`,
+  `CALL`, `PREPARE`, `EXECUTE`, `SECRET`, `CREATE`, `INSERT`, `UPDATE`,
+  `DELETE`, `DROP`, `ALTER`, `MERGE`) + `duckdb.extract_statements`
+  single-SELECT classification — the three-layer check the study
+  proposed. `WITH x AS (DELETE ...) SELECT` and multi-statement
+  payloads are rejected.
+- **Atomic rebuilds without wire transactions** — `insert_select`
+  `mode=replace` and `do_put` `replace` run `DELETE` + `INSERT` in one
+  server-side transaction (§4.1's per-statement auto-commit concern is
+  handled by making "replace" a first-class mode, not a client
+  transaction).
+- **`create_as` materializes via Arrow snapshot** — the SELECT runs on
+  a read cursor outside `_write_lock`; only the destination
+  materialization holds the write lock (§1's lock-hold minimization).
+- **Generalized `do_put`** — CMD descriptor
+  `{"table": "pivot.<name>", "mode": "create_or_replace|append|replace"}`;
+  every other descriptor shape (PATH, UNKNOWN, non-JSON, missing
+  `table`) keeps the legacy `daily_close` upsert untouched — the
+  backward-compat guarantee.
+- **Registry + audit (schema v8)** — `main.table_registry` is the
+  source of truth for insert/replace/drop eligibility (`has_pk`,
+  `pinned`, `last_write`, `rows_est`); `main.client_dml_audit` logs
+  every op — SUCCESS, FAILED and REJECTED — with `client_tag`,
+  source-SQL SHA-256, bytes in, rows written, error, duration.
+- **TTL sweep shipped as `dml_sweep`** — the study left "fold into
+  `data_health` vs explicit op" open; an explicit op was chosen so the
+  sweep is audited like every other mutation and callable on demand.
+  It drops only registered, **unpinned** objects whose `last_write`
+  exceeds `ttl_days` (default 90); `pin`/`unpin` marks keepers;
+  `pivot` objects are created pinned.
+- **Config** — `client_dml:` block (`allowed_namespaces`,
+  `dml_timeout_seconds` [null → `query_timeout_seconds`],
+  `max_namespace_mb` [null → quota off], `ttl_days`).
+- **Client helper** — `scripts/dml_client.py` (`DmlClient`) is the
+  vendorable wrapper: `dml_admin` ops + `put_frame` for the descriptor
+  contract.
+
+Consumer-facing documentation lives in
+`docs/DATA_SERVICE_API.md` §4.1/§5; operational notes in `README.md`.
+
+*Addendum written at F26-T1 implementation time.*

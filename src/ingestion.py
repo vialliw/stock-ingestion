@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import logging
 import os
+import queue
 import re
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -22,7 +24,7 @@ import pandas_market_calendars as mcal
 import requests
 import yfinance as yf
 
-from src import signal_analysis, signal_pipeline
+from src import client_dml, signal_analysis, signal_pipeline
 from src.config import PipelineConfig
 from src.db import DatabaseManager
 from src.r2_sync import R2SyncManager
@@ -1552,6 +1554,806 @@ class IngestionEngine:
             "sets": sets_result,
             "duration_ms": duration_ms,
         }
+
+    # ------------------------------------------------------------------
+    # Client-issued DML (F26-T1) — the ``pivot`` namespace contract.
+    #
+    # Orchestration for the ``dml_admin`` Flight action and the
+    # generalized ``do_put`` descriptor path.  Enforcement boundary:
+    # regexes + closed enums + the server-owned ``table_registry`` —
+    # no SQL parsing of write targets (see src/client_dml.py).
+    #
+    # Lock discipline mirrors every other writer: a dedicated cursor on
+    # ``self.db.conn`` executes the write unit under
+    # ``self.db._write_lock``; the heavy ``create_as`` source scan runs
+    # on a read cursor OUTSIDE the lock (snapshot -> Arrow -> locked
+    # materialization, the PM's accepted lock mitigation).  Timeout is
+    # the worker+Timer+interrupt() pattern from the study (§4.4).
+    # ------------------------------------------------------------------
+
+    def _execute_dml_with_timeout(self, fn, timeout_seconds: float):
+        """Run ``fn(cursor)`` on a worker thread with a hard deadline.
+
+        The cursor is a duplicate of ``self.db.conn`` — its own
+        transaction context and its own ``interrupt()`` target, so the
+        timer can cancel exactly this op's statements without touching
+        the shared connection.  The lock is acquired *inside* ``fn``
+        (timeout wraps the whole unit; ``_write_lock`` wraps only the
+        statements — same structure as ``_execute_query_with_timeout``).
+        """
+        result_queue: "queue.Queue[Any]" = queue.Queue()
+        cur = self.db.conn.cursor()
+        done = threading.Event()
+
+        def _worker():
+            try:
+                result_queue.put(fn(cur))
+            except Exception as exc:
+                result_queue.put(exc)
+            finally:
+                done.set()
+
+        def _timeout():
+            if not done.is_set():
+                try:
+                    cur.interrupt()
+                except Exception:
+                    pass
+            result_queue.put(
+                TimeoutError(
+                    f"DML op exceeded {timeout_seconds} second timeout"
+                )
+            )
+
+        worker = threading.Thread(target=_worker, daemon=True)
+        timer = threading.Timer(timeout_seconds, _timeout)
+        worker.start()
+        timer.start()
+        try:
+            result = result_queue.get()
+        finally:
+            timer.cancel()
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    @staticmethod
+    def _dml_audit_target(payload: Dict[str, Any]) -> str:
+        """Best-effort audit ``target`` when validation hasn't run yet."""
+        table = payload.get("table")
+        namespace = payload.get("namespace")
+        if isinstance(table, str) and table:
+            if isinstance(namespace, str) and namespace and "." not in table:
+                return f"{namespace}.{table}"
+            return table
+        if isinstance(namespace, str) and namespace:
+            return namespace
+        return "-"
+
+    def _check_stream_columns(
+        self, cur, namespace: str, table: str, arrow_table
+    ) -> None:
+        """Reject a streamed frame whose columns don't all exist on the
+        registered target (``schema mismatch`` per the contract).
+
+        Case-insensitive subset check — DuckDB identifiers are
+        case-insensitive and ``BY NAME`` fills absent columns with
+        defaults/NULL (constraints still fail loudly on violations).
+        """
+        target_cols = {
+            c.lower()
+            for c in client_dml.catalog_column_names(cur, namespace, table)
+        }
+        if not target_cols:
+            raise client_dml.DmlRejected(
+                f"{namespace}.{table} has no catalog columns — "
+                f"is it a real table?"
+            )
+        extra = [
+            name
+            for name in arrow_table.schema.names
+            if name.lower() not in target_cols
+        ]
+        if extra:
+            raise client_dml.DmlRejected(
+                f"schema mismatch: streamed columns {extra} not present "
+                f"in {namespace}.{table} {sorted(target_cols)}"
+            )
+        if not arrow_table.schema.names:
+            raise client_dml.DmlRejected(
+                "streamed frame has no columns"
+            )
+
+    # ----- dml_admin op handlers --------------------------------------
+
+    def _dml_op_register_namespace(
+        self, payload: Dict[str, Any], settings: Dict[str, Any], client_tag
+    ) -> Dict[str, Any]:
+        namespace = client_dml.validate_name(
+            payload.get("namespace"), "namespace"
+        )
+        if namespace not in settings["allowed_namespaces"]:
+            raise client_dml.DmlRejected(
+                f"namespace {namespace!r} is not in client_dml."
+                f"allowed_namespaces {settings['allowed_namespaces']}"
+            )
+
+        def unit(cur):
+            with self.db._write_lock:
+                cur.execute(
+                    f"CREATE SCHEMA IF NOT EXISTS "
+                    f"{client_dml.quote_ident(namespace)}"
+                )
+            return {"namespace": namespace}
+
+        return self._execute_dml_with_timeout(
+            unit, settings["dml_timeout_seconds"]
+        )
+
+    def _dml_pinned_flag(self, payload: Dict[str, Any]) -> bool:
+        pinned = payload.get("pinned", True)
+        if not isinstance(pinned, bool):
+            raise client_dml.DmlRejected(
+                f"pinned must be a bool, got {pinned!r}"
+            )
+        return pinned
+
+    def _dml_op_create_table(
+        self, payload: Dict[str, Any], settings: Dict[str, Any], client_tag
+    ) -> Dict[str, Any]:
+        namespace, name = client_dml.parse_table_ref(
+            payload, settings["allowed_namespaces"]
+        )
+        ddl, has_pk = client_dml.compose_create_table_ddl(
+            namespace, name, payload.get("columns")
+        )
+        pinned = self._dml_pinned_flag(payload)
+        client_dml.check_quota(
+            settings, self.db.namespace_size_estimate_mb(namespace)
+        )
+
+        def unit(cur):
+            with self.db._write_lock:
+                cur.execute("BEGIN TRANSACTION")
+                try:
+                    if (
+                        client_dml.catalog_object_kind(cur, namespace, name)
+                        is not None
+                    ):
+                        raise client_dml.DmlRejected(
+                            f"{namespace}.{name} already exists — "
+                            f"drop_table first for a rebuild"
+                        )
+                    cur.execute(ddl)
+                    # Post-write catalog assertion: the object must have
+                    # landed in the claimed namespace.
+                    if (
+                        client_dml.catalog_object_kind(cur, namespace, name)
+                        != "table"
+                    ):
+                        raise RuntimeError(
+                            f"post-write catalog assertion failed: "
+                            f"{namespace}.{name} not found in duckdb_tables()"
+                        )
+                    self.db.register_table(
+                        namespace,
+                        name,
+                        owner=client_tag,
+                        has_pk=has_pk,
+                        pinned=pinned,
+                        con=cur,
+                    )
+                    cur.execute("COMMIT")
+                except Exception:
+                    cur.execute("ROLLBACK")
+                    raise
+            return {"table": f"{namespace}.{name}", "has_pk": has_pk}
+
+        return self._execute_dml_with_timeout(
+            unit, settings["dml_timeout_seconds"]
+        )
+
+    def _dml_op_create_as(
+        self, payload: Dict[str, Any], settings: Dict[str, Any], client_tag
+    ) -> Dict[str, Any]:
+        namespace, name = client_dml.parse_table_ref(
+            payload, settings["allowed_namespaces"]
+        )
+        sql = client_dml.validate_source_sql(payload.get("sql"))
+        existing = self.db.get_registered_table(namespace, name)
+        if existing and existing.get("has_pk"):
+            raise client_dml.DmlRejected(
+                f"{namespace}.{name} is registered as PK-carrying — "
+                f"create_as would drop the constraint; use "
+                f"insert_select mode=replace or drop_table first"
+            )
+        pinned = self._dml_pinned_flag(payload)
+        client_dml.check_quota(
+            settings, self.db.namespace_size_estimate_mb(namespace)
+        )
+        qualified = client_dml.qualified_name(namespace, name)
+
+        # Heavy-mitigation path (accepted in the survey exchange): run
+        # the source SELECT on a snapshot read cursor OUTSIDE
+        # ``_write_lock``, materialize from the in-process Arrow frame
+        # under the lock.  If the snapshot cannot be materialized as
+        # Arrow, degrade to a plain CTAS inside the locked unit.
+        try:
+            arrow = self.db.execute_query(sql)
+        except Exception as exc:
+            logger.warning(
+                "create_as snapshot read failed (%s); degrading to "
+                "inline CTAS under _write_lock",
+                exc,
+            )
+            arrow = None
+
+        def unit(cur):
+            with self.db._write_lock:
+                cur.execute("BEGIN TRANSACTION")
+                try:
+                    if arrow is not None:
+                        cur.register("dml_stage", arrow)
+                        try:
+                            cur.execute(
+                                f"CREATE OR REPLACE TABLE {qualified} "
+                                f"AS SELECT * FROM dml_stage"
+                            )
+                        finally:
+                            cur.unregister("dml_stage")
+                    else:
+                        cur.execute(
+                            f"CREATE OR REPLACE TABLE {qualified} AS {sql}"
+                        )
+                    if (
+                        client_dml.catalog_object_kind(cur, namespace, name)
+                        != "table"
+                    ):
+                        raise RuntimeError(
+                            f"post-write catalog assertion failed: "
+                            f"{namespace}.{name} not found in duckdb_tables()"
+                        )
+                    rows = int(
+                        cur.execute(
+                            f"SELECT COUNT(*) FROM {qualified}"
+                        ).fetchone()[0]
+                    )
+                    self.db.register_table(
+                        namespace,
+                        name,
+                        owner=client_tag,
+                        has_pk=False,
+                        pinned=pinned,
+                        con=cur,
+                    )
+                    self.db.touch_table(
+                        namespace, name, rows_est=rows, con=cur
+                    )
+                    cur.execute("COMMIT")
+                except Exception:
+                    cur.execute("ROLLBACK")
+                    raise
+            return {
+                "table": f"{namespace}.{name}",
+                "rows_written": rows,
+                "materialized_via": (
+                    "arrow_snapshot" if arrow is not None else "inline_ctas"
+                ),
+                "_sql_sha256": client_dml.sql_sha256(sql),
+            }
+
+        return self._execute_dml_with_timeout(
+            unit, settings["dml_timeout_seconds"]
+        )
+
+    def _dml_op_create_view(
+        self, payload: Dict[str, Any], settings: Dict[str, Any], client_tag
+    ) -> Dict[str, Any]:
+        namespace, name = client_dml.parse_table_ref(
+            payload, settings["allowed_namespaces"]
+        )
+        sql = client_dml.validate_source_sql(payload.get("sql"))
+        existing = self.db.get_registered_table(namespace, name)
+        if existing and existing.get("has_pk"):
+            raise client_dml.DmlRejected(
+                f"{namespace}.{name} is registered as PK-carrying — "
+                f"create_view would replace a table; drop_table first"
+            )
+        pinned = self._dml_pinned_flag(payload)
+        qualified = client_dml.qualified_name(namespace, name)
+
+        def unit(cur):
+            with self.db._write_lock:
+                cur.execute("BEGIN TRANSACTION")
+                try:
+                    # Bind-check the source before creating anything —
+                    # a LIMIT 0 probe validates semantics without
+                    # scanning (duckdb binds views lazily otherwise).
+                    cur.execute(
+                        f"SELECT * FROM ({sql}) AS _dml_src LIMIT 0"
+                    )
+                    cur.execute(
+                        f"CREATE OR REPLACE VIEW {qualified} AS {sql}"
+                    )
+                    if (
+                        client_dml.catalog_object_kind(cur, namespace, name)
+                        != "view"
+                    ):
+                        raise RuntimeError(
+                            f"post-write catalog assertion failed: "
+                            f"{namespace}.{name} not found in duckdb_views()"
+                        )
+                    self.db.register_table(
+                        namespace,
+                        name,
+                        owner=client_tag,
+                        has_pk=False,
+                        pinned=pinned,
+                        con=cur,
+                    )
+                    cur.execute("COMMIT")
+                except Exception:
+                    cur.execute("ROLLBACK")
+                    raise
+            return {
+                "table": f"{namespace}.{name}",
+                "kind": "view",
+                "_sql_sha256": client_dml.sql_sha256(sql),
+            }
+
+        return self._execute_dml_with_timeout(
+            unit, settings["dml_timeout_seconds"]
+        )
+
+    def _dml_op_insert_select(
+        self, payload: Dict[str, Any], settings: Dict[str, Any], client_tag
+    ) -> Dict[str, Any]:
+        namespace, name = client_dml.parse_table_ref(
+            payload, settings["allowed_namespaces"]
+        )
+        if self.db.get_registered_table(namespace, name) is None:
+            raise client_dml.DmlRejected(
+                f"{namespace}.{name} is not registered — insert_select "
+                f"requires a registered table (create_table/create_as "
+                f"first)"
+            )
+        mode = payload.get("mode")
+        if mode not in client_dml.INSERT_SELECT_MODES:
+            raise client_dml.DmlRejected(
+                f"mode must be one of "
+                f"{sorted(client_dml.INSERT_SELECT_MODES)}, got {mode!r}"
+            )
+        sql = client_dml.validate_source_sql(payload.get("sql"))
+        client_dml.check_quota(
+            settings, self.db.namespace_size_estimate_mb(namespace)
+        )
+        qualified = client_dml.qualified_name(namespace, name)
+
+        def unit(cur):
+            with self.db._write_lock:
+                # ONE server-side txn — replace is an atomic
+                # DELETE FROM + INSERT INTO (client TRANSACTION verbs
+                # never cross the wire; the server composes the txn).
+                cur.execute("BEGIN TRANSACTION")
+                try:
+                    if mode == "replace":
+                        cur.execute(f"DELETE FROM {qualified}")
+                    count_row = cur.execute(
+                        f"INSERT INTO {qualified} BY NAME {sql}"
+                    ).fetchone()
+                    rows_written = int(count_row[0]) if count_row else 0
+                    rows_est = int(
+                        cur.execute(
+                            f"SELECT COUNT(*) FROM {qualified}"
+                        ).fetchone()[0]
+                    )
+                    self.db.touch_table(
+                        namespace, name, rows_est=rows_est, con=cur
+                    )
+                    cur.execute("COMMIT")
+                except Exception:
+                    cur.execute("ROLLBACK")
+                    raise
+            return {
+                "table": f"{namespace}.{name}",
+                "mode": mode,
+                "rows_written": rows_written,
+                "_sql_sha256": client_dml.sql_sha256(sql),
+            }
+
+        return self._execute_dml_with_timeout(
+            unit, settings["dml_timeout_seconds"]
+        )
+
+    def _dml_op_drop_table(
+        self, payload: Dict[str, Any], settings: Dict[str, Any], client_tag
+    ) -> Dict[str, Any]:
+        namespace, name = client_dml.parse_table_ref(
+            payload, settings["allowed_namespaces"]
+        )
+        if self.db.get_registered_table(namespace, name) is None:
+            raise client_dml.DmlRejected(
+                f"{namespace}.{name} is not registered — drop_table "
+                f"only removes registered objects"
+            )
+        qualified = client_dml.qualified_name(namespace, name)
+
+        def unit(cur):
+            with self.db._write_lock:
+                cur.execute("BEGIN TRANSACTION")
+                try:
+                    kind = client_dml.catalog_object_kind(
+                        cur, namespace, name
+                    )
+                    if kind == "view":
+                        cur.execute(f"DROP VIEW IF EXISTS {qualified}")
+                    elif kind == "table":
+                        cur.execute(f"DROP TABLE IF EXISTS {qualified}")
+                    # kind=None: catalog object already gone — the
+                    # registry row is still cleaned below (idempotent).
+                    self.db.unregister_table(namespace, name, con=cur)
+                    cur.execute("COMMIT")
+                except Exception:
+                    cur.execute("ROLLBACK")
+                    raise
+            return {
+                "table": f"{namespace}.{name}",
+                "dropped": kind,
+            }
+
+        return self._execute_dml_with_timeout(
+            unit, settings["dml_timeout_seconds"]
+        )
+
+    def _dml_op_list_tables(
+        self, payload: Dict[str, Any], settings: Dict[str, Any], client_tag
+    ) -> Dict[str, Any]:
+        namespace = payload.get("namespace")
+        if namespace is not None:
+            namespace = client_dml.validate_name(namespace, "namespace")
+            if namespace not in settings["allowed_namespaces"]:
+                raise client_dml.DmlRejected(
+                    f"namespace {namespace!r} is not in client_dml."
+                    f"allowed_namespaces "
+                    f"{settings['allowed_namespaces']}"
+                )
+        return {"tables": self.db.list_registered_tables(namespace)}
+
+    def _dml_op_set_pin(
+        self, payload: Dict[str, Any], settings: Dict[str, Any],
+        client_tag, pinned: bool,
+    ) -> Dict[str, Any]:
+        namespace, name = client_dml.parse_table_ref(
+            payload, settings["allowed_namespaces"]
+        )
+        if self.db.get_registered_table(namespace, name) is None:
+            raise client_dml.DmlRejected(
+                f"{namespace}.{name} is not registered — pin/unpin "
+                f"only applies to registered objects"
+            )
+
+        def unit(cur):
+            with self.db._write_lock:
+                self.db.set_table_pinned(
+                    namespace, name, pinned, con=cur
+                )
+            return {
+                "table": f"{namespace}.{name}",
+                "pinned": pinned,
+            }
+
+        return self._execute_dml_with_timeout(
+            unit, settings["dml_timeout_seconds"]
+        )
+
+    def _dml_op_pin(self, payload, settings, client_tag):
+        return self._dml_op_set_pin(payload, settings, client_tag, True)
+
+    def _dml_op_unpin(self, payload, settings, client_tag):
+        return self._dml_op_set_pin(payload, settings, client_tag, False)
+
+    def _dml_op_dml_sweep(
+        self, payload: Dict[str, Any], settings: Dict[str, Any], client_tag
+    ) -> Dict[str, Any]:
+        """TTL sweep — drops only ``pinned=false`` registry objects
+        older than ``ttl_days`` (chosen over folding into
+        ``data_health``: that action is documented report-only and
+        smuggling destructive drops into a health read would violate
+        its contract; an explicit op also gets its own audit row).
+        """
+        ttl = payload.get("ttl_days")
+        if ttl is None:
+            ttl = settings["ttl_days"]
+        elif (
+            isinstance(ttl, bool)
+            or not isinstance(ttl, (int, float))
+            or int(ttl) != ttl
+            or ttl < 1
+        ):
+            raise client_dml.DmlRejected(
+                f"ttl_days must be an integer >= 1, got {ttl!r}"
+            )
+        ttl = int(ttl)
+        expired = self.db.expired_registrations(ttl)
+        dropped: List[str] = []
+
+        def unit(cur):
+            # justified: each expired object needs its own
+            # kind-aware DROP + registry cleanup — a per-object unit
+            # keeps each lock hold short (interleave model).
+            for row in expired:
+                namespace = row["namespace"]
+                name = row["table_name"]
+                qualified = client_dml.qualified_name(namespace, name)
+                with self.db._write_lock:
+                    cur.execute("BEGIN TRANSACTION")
+                    try:
+                        kind = client_dml.catalog_object_kind(
+                            cur, namespace, name
+                        )
+                        if kind == "view":
+                            cur.execute(
+                                f"DROP VIEW IF EXISTS {qualified}"
+                            )
+                        elif kind == "table":
+                            cur.execute(
+                                f"DROP TABLE IF EXISTS {qualified}"
+                            )
+                        self.db.unregister_table(
+                            namespace, name, con=cur
+                        )
+                        cur.execute("COMMIT")
+                    except Exception:
+                        cur.execute("ROLLBACK")
+                        raise
+                dropped.append(row["full_name"])
+            return dropped
+
+        self._execute_dml_with_timeout(unit, settings["dml_timeout_seconds"])
+        return {
+            "ttl_days": ttl,
+            "dropped": dropped,
+            "rows_written": len(dropped),
+        }
+
+    def run_dml_admin(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute one ``dml_admin`` op; ALWAYS audited.
+
+        Returns ``{status: SUCCESS|FAILED|REJECTED, op, ...}`` —
+        validation failures are REJECTED (audited, not a transport
+        error), execution failures are FAILED.  Raises ``ValueError``
+        only when ``payload`` is not a JSON object at all (handled by
+        the Flight layer like every other payload-type error).
+        """
+        if not isinstance(payload, dict):
+            raise ValueError(
+                "dml_admin payload must be a JSON object, "
+                f"got {type(payload).__name__}"
+            )
+        settings = client_dml.resolve_settings(self.cfg)
+        op = payload.get("op")
+        target = self._dml_audit_target(payload)
+        client_tag: Optional[str] = None
+        start_time = datetime.now()
+        status = "SUCCESS"
+        result: Dict[str, Any] = {}
+        try:
+            client_tag = client_dml.check_client_tag(
+                payload.get("client_tag")
+            )
+            if not isinstance(op, str) or op not in client_dml.DML_OPS:
+                raise client_dml.DmlRejected(
+                    f"unknown dml_admin op {op!r}; closed enum: "
+                    f"{sorted(client_dml.DML_OPS)}"
+                )
+            handler = getattr(self, f"_dml_op_{op}")
+            result = handler(payload, settings, client_tag)
+        except client_dml.DmlRejected as exc:
+            status = "REJECTED"
+            result = {"error": str(exc)}
+        except Exception as exc:
+            logger.error("dml_admin op %r failed: %s", op, exc)
+            status = "FAILED"
+            result = {"error": str(exc)}
+        duration_ms = int(
+            (datetime.now() - start_time).total_seconds() * 1000
+        )
+        sql_sha = result.pop("_sql_sha256", None)
+        self.db.record_dml_audit(
+            client_tag=client_tag,
+            op=op if isinstance(op, str) else repr(op),
+            target=target,
+            source_sql_sha256=sql_sha,
+            rows_written=result.get("rows_written"),
+            status=status,
+            error=result.get("error"),
+            duration_ms=duration_ms,
+        )
+        return {
+            "status": status,
+            "op": op,
+            **result,
+            "duration_ms": duration_ms,
+        }
+
+    # ----- generalized do_put (descriptor-driven) ----------------------
+
+    def run_dml_put(self, descriptor: Dict[str, Any], arrow_table) -> Dict[str, Any]:
+        """Execute a generalized ``do_put`` against an allowed namespace.
+
+        ``descriptor`` is the parsed JSON command
+        ``{table, mode, namespace?, pinned?, client_tag?}``;
+        ``arrow_table`` is the fully-read ``pa.Table`` stream.  On any
+        failure the op is audited (REJECTED or FAILED) and the
+        exception re-raised so the Flight layer can surface it as a
+        ``FlightServerError`` — ``do_put`` has no result channel.
+        """
+        settings = client_dml.resolve_settings(self.cfg)
+        mode = descriptor.get("mode")
+        op_label = f"do_put:{mode}" if isinstance(mode, str) else "do_put"
+        target = self._dml_audit_target(descriptor)
+        client_tag: Optional[str] = None
+        start_time = datetime.now()
+        rows_written: Optional[int] = None
+        try:
+            client_tag = client_dml.check_client_tag(
+                descriptor.get("client_tag")
+            )
+            namespace, name = client_dml.parse_table_ref(
+                descriptor, settings["allowed_namespaces"]
+            )
+            target = f"{namespace}.{name}"
+            if mode not in client_dml.DO_PUT_MODES:
+                raise client_dml.DmlRejected(
+                    f"do_put mode must be one of "
+                    f"{sorted(client_dml.DO_PUT_MODES)}, got {mode!r}"
+                )
+            registered = self.db.get_registered_table(namespace, name)
+            if mode in ("append", "replace") and registered is None:
+                raise client_dml.DmlRejected(
+                    f"{namespace}.{name} is not registered — "
+                    f"{mode} requires a registered table"
+                )
+            if (
+                mode == "create_or_replace"
+                and registered is not None
+                and registered.get("has_pk")
+            ):
+                raise client_dml.DmlRejected(
+                    f"{namespace}.{name} is registered as PK-carrying — "
+                    f"create_or_replace would drop the constraint; use "
+                    f"mode=replace or drop_table first"
+                )
+            pinned = self._dml_pinned_flag(descriptor)
+            client_dml.check_quota(
+                settings, self.db.namespace_size_estimate_mb(namespace)
+            )
+            qualified = client_dml.qualified_name(namespace, name)
+
+            def unit(cur):
+                nonlocal rows_written
+                with self.db._write_lock:
+                    cur.register("dml_put_stage", arrow_table)
+                    try:
+                        if mode == "create_or_replace":
+                            cur.execute("BEGIN TRANSACTION")
+                            try:
+                                cur.execute(
+                                    f"CREATE OR REPLACE TABLE {qualified} "
+                                    f"AS SELECT * FROM dml_put_stage"
+                                )
+                                if (
+                                    client_dml.catalog_object_kind(
+                                        cur, namespace, name
+                                    )
+                                    != "table"
+                                ):
+                                    raise RuntimeError(
+                                        "post-write catalog assertion "
+                                        f"failed: {namespace}.{name} not "
+                                        "found in duckdb_tables()"
+                                    )
+                                self.db.register_table(
+                                    namespace,
+                                    name,
+                                    owner=client_tag,
+                                    has_pk=False,
+                                    pinned=pinned,
+                                    con=cur,
+                                )
+                                cur.execute("COMMIT")
+                            except Exception:
+                                cur.execute("ROLLBACK")
+                                raise
+                        else:
+                            # append/replace write into a registered,
+                            # possibly-constrained table — column-set
+                            # check first (schema mismatch -> REJECTED).
+                            self._check_stream_columns(
+                                cur, namespace, name, arrow_table
+                            )
+                            cur.execute("BEGIN TRANSACTION")
+                            try:
+                                if mode == "replace":
+                                    cur.execute(
+                                        f"DELETE FROM {qualified}"
+                                    )
+                                cur.execute(
+                                    f"INSERT INTO {qualified} BY NAME "
+                                    f"SELECT * FROM dml_put_stage"
+                                )
+                                rows_est = int(
+                                    cur.execute(
+                                        f"SELECT COUNT(*) FROM {qualified}"
+                                    ).fetchone()[0]
+                                )
+                                self.db.touch_table(
+                                    namespace,
+                                    name,
+                                    rows_est=rows_est,
+                                    con=cur,
+                                )
+                                cur.execute("COMMIT")
+                            except Exception:
+                                cur.execute("ROLLBACK")
+                                raise
+                        rows_written = int(arrow_table.num_rows)
+                    finally:
+                        cur.unregister("dml_put_stage")
+                return {
+                    "table": f"{namespace}.{name}",
+                    "mode": mode,
+                    "rows_written": rows_written,
+                }
+
+            result = self._execute_dml_with_timeout(
+                unit, settings["dml_timeout_seconds"]
+            )
+        except client_dml.DmlRejected as exc:
+            duration_ms = int(
+                (datetime.now() - start_time).total_seconds() * 1000
+            )
+            self.db.record_dml_audit(
+                client_tag=client_tag,
+                op=op_label,
+                target=target,
+                bytes_in=int(arrow_table.nbytes),
+                status="REJECTED",
+                error=str(exc),
+                duration_ms=duration_ms,
+            )
+            raise
+        except Exception as exc:
+            duration_ms = int(
+                (datetime.now() - start_time).total_seconds() * 1000
+            )
+            self.db.record_dml_audit(
+                client_tag=client_tag,
+                op=op_label,
+                target=target,
+                bytes_in=int(arrow_table.nbytes),
+                status="FAILED",
+                error=str(exc),
+                duration_ms=duration_ms,
+            )
+            raise
+        duration_ms = int(
+            (datetime.now() - start_time).total_seconds() * 1000
+        )
+        self.db.record_dml_audit(
+            client_tag=client_tag,
+            op=op_label,
+            target=target,
+            bytes_in=int(arrow_table.nbytes),
+            rows_written=rows_written,
+            status="SUCCESS",
+            duration_ms=duration_ms,
+        )
+        return {"status": "SUCCESS", **result, "duration_ms": duration_ms}
 
     # ------------------------------------------------------------------
     # Entry points

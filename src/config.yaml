@@ -1281,3 +1281,14 @@ signal_analysis:
     folder: C:\Intel\parquet\quant_strategy_building\version_p
   - name: version_q
     folder: C:\Intel\parquet\quant_strategy_building\version_q
+client_dml:
+  # F26-T1: client-issued DML confined to these schemas (dml_admin
+  # action + generalized do_put). pivot is the Bollinger-PM namespace.
+  allowed_namespaces:
+  - pivot
+  # null -> server.query_timeout_seconds bounds each op's execution unit
+  dml_timeout_seconds: null
+  # null -> advisory namespace-size quota off
+  max_namespace_mb: null
+  # dml_sweep drops only pinned=false registry objects older than this
+  ttl_days: 90

@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 import re
 from datetime import datetime
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -436,6 +436,75 @@ class SignalAnalysisConfig(BaseModel):
         return v
 
 
+class ClientDmlConfig(BaseModel):
+    """Client-issued DML guardrails (F26-T1 — the ``pivot`` namespace).
+
+    ``allowed_namespaces`` is the write confinement allowlist: only
+    schemas named here can be registered/written via the ``dml_admin``
+    action or a generalized ``do_put`` descriptor.  Names must match
+    ``^[a-z][a-z0-9_]*$`` (the same slug rule the server enforces).
+    ``dml_timeout_seconds`` bounds each op's execution unit
+    (``null`` -> ``server.query_timeout_seconds``).  ``max_namespace_mb``
+    is an optional advisory quota on a namespace's estimated footprint
+    (``null`` -> off).  ``ttl_days`` ages out unpinned registry objects
+    during a ``dml_sweep`` (pinned objects — the ``pivot`` default — are
+    never swept).
+    """
+
+    allowed_namespaces: List[str] = Field(default_factory=lambda: ["pivot"])
+    dml_timeout_seconds: Optional[float] = None
+    max_namespace_mb: Optional[float] = None
+    ttl_days: int = Field(default=90, ge=1)
+
+    @field_validator("allowed_namespaces", mode="before")
+    @classmethod
+    def validate_allowed_namespaces(cls, v) -> List[str]:
+        """``None`` -> ``[]`` (nothing writable); every entry must be a
+        slug — this list is the confinement boundary."""
+        if v is None:
+            return []
+        if not isinstance(v, (list, tuple)):
+            raise ValueError(
+                f"allowed_namespaces must be a list, got {type(v).__name__}"
+            )
+        # justified: per-element type+format validation cannot be
+        # vectorized — we must raise on the first offending entry.
+        for ns in v:
+            if not isinstance(ns, str) or not re.fullmatch(
+                r"[a-z][a-z0-9_]*", ns
+            ):
+                raise ValueError(
+                    f"allowed_namespaces entries must match "
+                    f"^[a-z][a-z0-9_]*$, got {ns!r}"
+                )
+        return list(v)
+
+    @field_validator("dml_timeout_seconds", "max_namespace_mb", mode="before")
+    @classmethod
+    def validate_optional_numbers(cls, v, info):
+        """``None`` stays ``None`` (null = inherit/off); reject bools
+        and non-positive numbers."""
+        if v is None:
+            return None
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0:
+            raise ValueError(
+                f"{info.field_name} must be null or a number > 0, "
+                f"got {v!r}"
+            )
+        return v
+
+    @field_validator("ttl_days", mode="before")
+    @classmethod
+    def validate_ttl_days(cls, v) -> int:
+        """``None`` falls back to 90; reject bools (``ge=1`` would
+        silently accept ``True``)."""
+        if v is None:
+            return 90
+        if isinstance(v, bool):
+            raise ValueError(f"ttl_days must be an integer >= 1, got bool {v}")
+        return v
+
+
 class R2Config(BaseModel):
     """Cloudflare R2 sync settings.
 
@@ -488,6 +557,7 @@ class PipelineConfig(BaseModel):
     signal_analysis: SignalAnalysisConfig = Field(
         default_factory=SignalAnalysisConfig
     )
+    client_dml: ClientDmlConfig = Field(default_factory=ClientDmlConfig)
 
     @property
     def db_path(self) -> str:

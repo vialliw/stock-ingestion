@@ -2864,3 +2864,4 @@ no min-periods guard needed (our in_warmup>=20 gate absorbs it).
 Their snapshot-cursor->Arrow->locked-CTAS lock mitigation accepted.
 
 [2026-09-23T08:58:53.052527+00:00] [executor] claimed F26-T1
+[2026-09-23T09:35:45.224251+00:00] [executor] blocked F26-T1 -> Implementation complete; suite red ONLY on 2 stale version-pins in tests/test_signal_pipeline.py (SCHEMA_VERSION==7 assertions, F24-T1 file outside F26-T1 output_files). Need output_files amended or micro-task to refresh pins, then verify+done.
