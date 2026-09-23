@@ -3797,5 +3797,52 @@
     "depends_on": [
       "F26-T5"
     ]
+  },
+  {
+    "id": "F27-T1",
+    "title": "F27: integrate cross-asset interpretation guide into Correlation tab",
+    "role": "executor",
+    "assigned_to": "executor",
+    "scope": "Integrate the interpretation guide from docs/enhancements/20260923 correlation dashboard info.md into the Correlation dashboard tab — INTEGRATE but NOT replace existing interpretation text. Plan: ~/.devin/plans/plan-corr-guide-integration.md. In scripts/correlation_dashboard.py: (1) NEW constant CORR_INTRO_GUIDE — markdown holding the doc intro: five-asset legend (^TNX, WTI (CL=F), ^IRX, SPY, SMH), the why-these-relationships-matter paragraph, and the closing Taken-together paragraph (near-verbatim, genericize doc-only references per existing convention). (2) NEW dict CORR_LOOKFOR_GUIDE with the SAME five keys as CORR_GUIDE (heatmap, normalized, multipanel, rolling, scatter) holding the doc five What-to-look-for items near-verbatim. CORR_GUIDE must remain byte-identical — keep the new text in the separate dict so replacement is structurally impossible. Update module docstring to note the second source doc. In scripts/report_app.py::_render_correlation_tab: (3) NEW tab-level expander AFTER the Parameters expander and BEFORE the heatmap section: st.expander(\"About these relationships\") + st.markdown(corr_dash.CORR_INTRO_GUIDE), collapsed by default. (4) Extend the local _guide(key) helper to render BOTH layers inside the same existing \"How to read this chart\" expander: st.markdown(CORR_GUIDE[key]) then a bold separator heading \"**What to look for — the asset-guide view.**\" then st.markdown(CORR_LOOKFOR_GUIDE[key]) — still five expanders total, mechanics text first. Update _render_correlation_tab docstring + the module-header guide-architecture prose (~lines 94-107). Tests: tests/test_correlation_dashboard.py — CORR_LOOKFOR_GUIDE keys == CORR_GUIDE keys; non-empty markdown; no screenshot refs; required-content assertions on the combined new text (asset names TNX/IRX/SPY/SMH + CL=F or WTI, SMH-SPY high link, oil-yield shock spikes, negative equity-yield episodes, curve steepening/flattening, non-linearities/clusters/structural breaks, discount-rate/duration language, vary-the-window note); PRESERVATION test — existing CORR_GUIDE caveat strings still present verbatim. tests/test_report_app.py — the new \"About these relationships\" expander renders once per tab; st.markdown receives both CORR_GUIDE[key] and CORR_LOOKFOR_GUIDE[key] per section; keep the existing count(\"How to read this chart\")==5 test passing. Docs: README.md + docs/README.md (byte-identical pair) — update the Correlation-tab description to mention the intro expander + two-layer per-chart guides. Gates: pytest green (baseline 1769), check_loops exit 0, READMEs byte-identical, git status clean.",
+    "input_files": [
+      "/docs/enhancements/20260923 correlation dashboard info.md",
+      "/scripts/correlation_dashboard.py",
+      "/scripts/report_app.py",
+      "/tests/test_correlation_dashboard.py",
+      "/tests/test_report_app.py"
+    ],
+    "output_files": [
+      "/scripts/correlation_dashboard.py",
+      "/scripts/report_app.py",
+      "/tests/test_correlation_dashboard.py",
+      "/tests/test_report_app.py",
+      "/README.md",
+      "/docs/README.md"
+    ],
+    "status": "in_progress",
+    "created_at": "2026-09-23T15:35:30.228772",
+    "claimed_by": null,
+    "claimed_at": null,
+    "verified_by": null,
+    "acceptance_criteria": [
+      {
+        "text": "all text from docs/enhancements/20260923 correlation dashboard info.md present in the app (intro + five per-chart sections + closing), adapted only where doc-specific"
+      },
+      {
+        "text": "every pre-existing CORR_GUIDE string unchanged — no replacement of existing interpretation text"
+      },
+      {
+        "text": "one \"About these relationships\" intro expander renders per tab after Parameters and before the first chart; five \"How to read this chart\" expanders still render, each containing both layers"
+      },
+      {
+        "text": "guide content still renders when chart data is insufficient (degrade-to-st.info behavior preserved)"
+      },
+      {
+        "text": "pytest green; check_loops exit 0; README.md and docs/README.md byte-identical; git status clean"
+      }
+    ],
+    "evidence": [],
+    "review_notes": [],
+    "depends_on": []
   }
 ]
