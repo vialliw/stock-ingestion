@@ -1,0 +1,87 @@
+Reply 2 — Bollinger pivot study PM (weekly-BB-pivot-hypothesis)
+================================================================
+Re: design-confirmation reply — answers to your four questions.
+
+BB parameters — confirmed, no change needed
+-------------------------------------------
+Window 20 / mult 2 / STDDEV_SAMP / Close basis matches our frozen
+spec verbatim — we consume BB_Upper/Central/Lower as-is.
+
+On the missing min-periods guard: **do not add it.** Our warmup gate
+already covers it — a ticker's weeks are event-eligible only when its
+weekly-bar count up to t is >= 20 (`in_warmup` flag, §5), which is
+exactly the set of rows where your ROWS BETWEEN window is complete.
+The partial-window bands on a ticker's first ≤19 weeks are simply
+never read as events; our bb_convention audit will document the
+absorption explicitly. If you ever tightened the guard on your side it
+would be compatible, but it's not required.
+
+1. PKs vs create_as — take the mix
+----------------------------------
+Option (b) for PK-carrying tables, (a) elsewhere. PK enforcement at
+write time is a real correctness signal for us — a duplicate
+(ticker, week_id) in bb_events or bb_features is a pipeline bug we
+want to fail loudly at insert, not surface in a later audit. Worth
+the extra day.
+
+  create_table + insert_select (structured column spec, real PKs):
+    week_calendar, weekly_bars, bb_events, bb_outcomes,
+    bb_outcome_flags, bb_features, run_config
+
+  plain create_as / do_put (constraint-free is fine):
+    data_quality_report, ca_boundary_checks, ca_exclusion_windows,
+    reference_basis_checks, analysis_results, v_daily_bars (view)
+
+One consequence to pin down: with (b) the table persists across runs,
+so our full-rebuild pattern needs a replace semantic — please include
+`mode: append | replace` on insert_select (replace = delete all rows
+then insert), or a standalone `truncate`/`delete_all` op. Without one
+of those, rebuilds would double the table every run. Failure mode is
+benign for us either way (rerun fixes it), we just need the contract
+stated.
+
+2. r4_class — accepted
+----------------------
+`value_text VARCHAR` added to bb_outcomes; r4_class stores
+reversal|continuation|order_ambiguous|unresolved there. Numeric
+outcomes keep using `value`. Confirmed as the table shape:
+
+    PRIMARY KEY (ticker, week_id, analysis_side, horizon, outcome)
+    value       DOUBLE   -- numeric outcomes; NULL when n/a
+    value_text  VARCHAR  -- categorical outcomes (r4_class)
+
+3. Column names — reply DDL is canonical
+----------------------------------------
+Confirm: `data_quality_report.check_name`,
+`ca_boundary_checks.med_vol_ratio` / `volume_verdict` are the intended
+names. (For the record, our in-progress local store already uses
+exactly those — the names you saw as `check` / `vol_ratio_adj` /
+`continuity_verdict` don't match our current DDL; trust the reply
+file.)
+
+4. Keyword denylist — acknowledged
+----------------------------------
+No impact; every source we touch is a canonical table
+(daily_close / weekly_close / weekly_indicators / splits_processed /
+company_metadata) or our own pivot.* objects. Denylisting
+read_parquet/read_csv/parquet_scan/sqlite_scan/COPY/ATTACH in the
+SELECT validator is the right hardening — it also blocks the
+"exfiltrate via SELECT" path, good catch.
+
+Lock mitigation — accepted
+--------------------------
+Snapshot-cursor read -> Arrow -> CREATE OR REPLACE under _write_lock
+is exactly the split we hoped for; seconds-scale stalls are fine at
+our rebuild frequency (a handful per phase, never daily).
+
+Standing notes
+--------------
+- Registry fields you listed (client_tag, op, target,
+  source_sql_sha256, rows_written, status incl. REJECTED) cover what
+  our evidence packets need — please also include schema/namespace in
+  `target` as a structured field, and a `rows_read` if cheap.
+- Our side stays paused at PIV-P1 until this ships; when it lands we
+  amend P1 scope from "extract to local DB" to "verify + derive into
+  pivot.*" and resume the B→C→D chain.
+
+End of reply 2.

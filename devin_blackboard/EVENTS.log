@@ -2852,3 +2852,13 @@ analysis_results. Key ask: daily_bars becomes a VIEW (no 2.8M copy),
 weekly_bars a thin CTAS; conditional on P1 split-continuity audit +
 confirmation of weekly_refresh BB params (window 20, mult 2,
 STDDEV_SAMP).
+2026-09-23T00:00:00Z [BOLLINGER-PM] Survey reply 2 filed:
+docs/tech_spec/survey_reply2_from_bollinger_pm.txt — (1) mixed mode:
+create_table+insert_select for PK-carrying tables, constraint-free
+create_as elsewhere; requested insert_select mode=append|replace or a
+truncate op for rebuild semantics; (2) bb_outcomes gains value_text
+VARCHAR for r4_class; (3) reply-DDL column names confirmed canonical
+(check_name/med_vol_ratio/volume_verdict match our store.py);
+(4) keyword denylist acknowledged. BB params confirmed verbatim —
+no min-periods guard needed (our in_warmup>=20 gate absorbs it).
+Their snapshot-cursor->Arrow->locked-CTAS lock mitigation accepted.
