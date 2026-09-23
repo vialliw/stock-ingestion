@@ -3124,3 +3124,43 @@ HONEST FINAL CALL: the kill-switch itself is correct and holds for every single-
 
 
 [2026-09-23T12:48:20.107521+00:00] [executor] claimed F26-T5
+[2026-09-23T13:00:58.164311+00:00] [executor] completed F26-T5 -> C-F26T4-1 closed (commit 1a75c2a). _validate_select_only (src/flight_server.py) now enforces exactly one StatementType.SELECT via duckdb.extract_statements (mirrors client_dml.validate_source_sql layer 4; SELECT/WITH prefix fast-path kept). Verified on duckdb 1.5.5: WITH..SELECT->SELECT, WITH..INSERT->INSERT rejected, trailing ;/;; + comment-only tails -> 1 stmt, PRAGMA/SHOW classify SELECT but die on prefix, string-literal semicolons don't split, parse errors -> ValueError. Tests +52 -> 1762/1762 pass (185s): 14 smuggle vectors + WITH..INSERT rejected at validator; TestDoGetMultiStatementOverWire real-gRPC + REAL temp-file DatabaseManager -- every vector FlightError with execute_query spy proving conn never reached; post-volley autoload/autoinstall=false, enable_external_access=true, stem() still CatalogException; legit SELECT/WITH/multi-line/comment-tail served with data. Docs: DATA_SERVICE_API.md sec.2 single-statement contract stated, 'anywhere else' overclaim fixed, built-in file-reader residual (read_text/glob/sniff_csv on do_get) disclosed as accepted for trusted local clients. Gates: check_loops exit 0 (17 files), README twins fc /b identical, git status clean. FOLLOW-UPS: flight_server_challenger.py retains identical prefix-only hole (test-only, outside output_files); db_challenger.py:90 unhardened (test-only). DEPLOYMENT: restart StockIngestion-FlightServer.
+Evidence map:
+[
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

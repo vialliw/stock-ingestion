@@ -3733,7 +3733,7 @@
       "/tests/test_flight_server.py",
       "/docs/DATA_SERVICE_API.md"
     ],
-    "status": "in_progress",
+    "status": "done",
     "created_at": "2026-09-23T13:48:05.383573",
     "claimed_by": null,
     "claimed_at": null,
