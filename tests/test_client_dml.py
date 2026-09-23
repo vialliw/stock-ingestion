@@ -26,7 +26,14 @@ no mocks on the execution path:
   ``add_parquet_key``, ``import_database``/``export_database``,
   ``describe``/``desc``/``summarize``/``explain``/``show*`` statement
   forms, bundled autoloadable-extension families — rejected + audited
-  on all three ops; comment-separated ``FROM 'x'`` literals denied).
+  on all three ops; comment-separated ``FROM 'x'`` literals denied.
+  F26-T4: extension autoload is disabled server-wide at
+  ``DatabaseManager`` open (``autoinstall``/``autoload_known_extensions
+  =false``, GLOBAL — do_get's identical hole closed too), the
+  autocomplete/fts/inet/excel entrypoints and built-in
+  ``truncate_duckdb_logs``/``write_log``/``error``/``stats`` are
+  denied, the ``(DESC`` arm spans comments, and an un-denied
+  autoloadable (``::INET``) is proven FAILED+audited at bind).
 * Generalized ``do_put`` (engine level): create_or_replace|append|
   replace; PK enforced (dup keys fail loudly); schema mismatch ->
   REJECTED.
@@ -362,6 +369,38 @@ class TestSourceSqlValidation:
             # documented false-positive cost: a string *value* that
             # looks like a data file is rejected too
             "SELECT * FROM t WHERE note = 'report.csv'",
+            # --- F26-T4: extension entrypoints + built-in side-effect
+            # functions (challenger-verified bypasses — autoload is now
+            # killed at the platform layer too, see db.py) -----------
+            # autocomplete / fts / inet / excel entrypoints
+            "SELECT * FROM sql_auto_complete('SEL')",
+            "SELECT check_peg_parser('x')",
+            "SELECT stem('running','english')",
+            "SELECT create_fts_index('t','c')",
+            "SELECT drop_fts_index('t')",
+            "SELECT host('127.0.0.1')",
+            "SELECT broadcast('127.0.0.1')",
+            "SELECT netmask('127.0.0.1/24')",
+            "SELECT network('127.0.0.1/24')",
+            "SELECT family('127.0.0.1')",
+            "SELECT html_escape('<a>')",
+            "SELECT html_unescape('&lt;')",
+            "SELECT excel_text('x')",
+            "SELECT text('x')",
+            "SELECT * FROM read_xlsx('x')",
+            "SELECT * FROM read_avro('x')",
+            # built-in side-effect functions (core, not ext-gated)
+            "SELECT * FROM truncate_duckdb_logs()",
+            "SELECT write_log('msg')",
+            "SELECT error('msg')",
+            "SELECT stats(1)",
+            # comment-separated call forms
+            "SELECT host /*c*/ ('127.0.0.1')",
+            "SELECT error -- c\n ('x')",
+            # B2: desc positional arm comment gap
+            "SELECT * FROM (/*c*/ DESC client_dml_audit)",
+            "SELECT * FROM ( /*a*/ /*b*/ DESC t)",
+            "SELECT * FROM (-- c\n DESC t)",
         ],
     )
     def test_denied_sources_rejected(self, sql):
@@ -383,6 +422,12 @@ class TestSourceSqlValidation:
             # is position-scoped to `(DESC ` only.
             "SELECT a FROM t ORDER BY a DESC",
             "SELECT a FROM t ORDER BY a desc, b ASC",
+            # F26-T4: generic-word entrypoints are denied in call-form
+            # only — legit column refs and TEXT casts must survive.
+            "SELECT host, network, family, stats, error, broadcast "
+            "FROM t",
+            "SELECT CAST(1 AS TEXT)",
+            "SELECT 1::TEXT AS t",
             # Read-only statement form (extracts as one SELECT, no
             # side effects) — documented as still allowed.
             "SELECT * FROM (UNPIVOT t ON a INTO NAME n VALUE v)",
@@ -906,6 +951,256 @@ class TestGeneratorFamilyRejected:
         assert rows.iloc[-1]["status"] == "REJECTED"
         assert rows.iloc[-1]["op"] == "insert_select"
         # The registered target must be untouched and empty.
+        db, _ = env
+        n = db.execute_query(
+            'SELECT COUNT(*) FROM "pivot"."week_calendar"'
+        ).to_pandas().iloc[0, 0]
+        assert int(n) == 0
+        self._assert_no_side_effects(env)
+
+
+class TestAutoloadKillSwitch:
+    """F26-T4 PRIMARY FIX — ``DatabaseManager`` applies
+    ``SET autoinstall_known_extensions=false`` +
+    ``SET autoload_known_extensions=false`` at open.  Both settings are
+    GLOBAL scope on the DB instance, so every cursor/read-connection
+    (the engine's execution path AND ``do_get``'s read path) inherits
+    them: any uninstalled extension entrypoint dies at bind with a
+    CatalogException ("exists in the X extension") — it can never
+    INSTALL (network egress + remote native code).  Verified live on
+    duckdb 1.5.5.  Unlike ``enable_external_access`` this is not a
+    one-way switch.  No server path uses an extension function (r2 =
+    boto3, Excel = pandas/openpyxl, weekly/signal/fear_greed =
+    built-ins + requests), so no explicit LOAD is issued."""
+
+    def test_settings_applied_at_open(self, env):
+        """Startup unaffected: the manager opened and both kill-switches
+        read back false on the write connection."""
+        db, _ = env
+        for setting in (
+            "autoinstall_known_extensions",
+            "autoload_known_extensions",
+        ):
+            value = db.conn.execute(
+                f"SELECT current_setting('{setting}')"
+            ).fetchone()[0]
+            assert value is False
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT stem('a','english')",
+            "SELECT * FROM sql_auto_complete('SEL')",
+            "SELECT host('127.0.0.1')",
+            "SELECT broadcast('127.0.0.1')",
+            "SELECT '1.2.3.4'::INET",
+        ],
+    )
+    def test_cursor_bind_fails_no_autoload(self, env, sql):
+        """A cursor on the write conn (what run_dml_admin executes on)
+        inherits the GLOBAL kill — each call raises a CatalogException
+        naming the extension instead of installing/loading it."""
+        db, _ = env
+        cur = db.conn.cursor()
+        try:
+            with pytest.raises(Exception) as excinfo:
+                cur.execute(sql)
+            assert "extension" in str(excinfo.value).lower()
+        finally:
+            cur.close()
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT stem('a','english')",
+            "SELECT * FROM sql_auto_complete('SEL')",
+            "SELECT host('127.0.0.1')",
+        ],
+    )
+    def test_do_get_path_killed_too(self, env, sql):
+        """``execute_query`` is the do_get read path — the settings are
+        instance-global, so the identical pre-existing autoload hole in
+        do_get is closed as well."""
+        db, _ = env
+        with pytest.raises(Exception) as excinfo:
+            db.execute_query(sql)
+        assert "extension" in str(excinfo.value).lower()
+
+    def test_legit_reads_unaffected(self, env):
+        """Plain SELECTs — on the write conn, a cursor and the do_get
+        path — are untouched by the kill-switch."""
+        db, _ = env
+        assert db.conn.execute("SELECT 42").fetchone()[0] == 42
+        assert db.conn.execute("SELECT CAST(1 AS TEXT)").fetchone()[0] == "1"
+        cur = db.conn.cursor()
+        try:
+            assert cur.execute("SELECT 1 + 1").fetchone()[0] == 2
+        finally:
+            cur.close()
+        t = db.execute_query("SELECT COUNT(*) AS n FROM daily_close")
+        assert int(t.to_pandas().iloc[0, 0]) == 0
+
+    def test_daily_write_path_smoke(self, env):
+        """The daily-path builtins still work under the kill-switch:
+        upsert + the weekly rebuilds (arg_min/date_trunc/window/LN —
+        no extension functions)."""
+        import pandas as pd
+
+        db, _ = env
+        n = db.upsert_dataframe(
+            pd.DataFrame(
+                {
+                    "Date": pd.to_datetime(["2026-01-02", "2026-01-05"]),
+                    "Ticker": ["AAA", "AAA"],
+                    "Open": [1.0, 2.0],
+                    "High": [1.0, 2.0],
+                    "Low": [1.0, 2.0],
+                    "Close": [1.0, 2.0],
+                    "Volume": [100.0, 200.0],
+                }
+            )
+        )
+        assert n == 2
+        assert db.rebuild_weekly_close() == 2
+        assert db.rebuild_weekly_indicators() == 2
+
+    def test_engine_bind_failure_is_failed_not_success(self, env):
+        """Belt vs kill-switch: an autoloadable TYPE the denylist does
+        not cover (``::INET`` cast — ``inet`` is deliberately not a
+        denied word) still passes validation but dies at bind → the op
+        is FAILED + audited, never SUCCESS, nothing materialized."""
+        db, eng = env
+        sql = "SELECT '1.2.3.4'::INET AS x"
+        # Validation genuinely lets this through — the fix under test
+        # is the bind-time kill, not a denylist hit.
+        assert client_dml.validate_source_sql(sql) == sql
+        setup_namespace(env)
+        result = eng.run_dml_admin(
+            {"op": "create_view", "table": "pivot.v", "sql": sql}
+        )
+        assert result["status"] == "FAILED"
+        assert "extension" in result["error"].lower()
+        rows = audit_df(env)
+        assert rows.iloc[-1]["status"] == "FAILED"
+        assert rows.iloc[-1]["op"] == "create_view"
+        assert client_dml.catalog_object_kind(db.conn, "pivot", "v") is None
+
+
+class TestExtensionEntrypointsRejected:
+    """F26-T4 BELT — the autoloadable-extension entrypoints the
+    challenger demonstrated live (autocomplete/fts/inet/excel + the
+    built-in log/error/stats functions) are REJECTED + audited on all
+    three source-SQL ops.
+
+    SAFETY: every vector is FIRST asserted against
+    ``validate_source_sql`` — if a future change stops rejecting, the
+    test fails there and the call never reaches execution.  (With the
+    F26-T4 kill-switch these calls cannot install anything anyway, but
+    the guard keeps the test honest and non-vacuous.)"""
+
+    DENIED_SQL = [
+        # autocomplete / fts / inet / excel entrypoints (enumerated on
+        # duckdb 1.5.5 via LOAD-diff of duckdb_functions())
+        "SELECT * FROM sql_auto_complete('SEL')",
+        "SELECT check_peg_parser('x')",
+        "SELECT stem('running','english')",
+        "SELECT create_fts_index('t','c')",
+        "SELECT drop_fts_index('t')",
+        "SELECT host('127.0.0.1')",
+        "SELECT broadcast('127.0.0.1')",
+        "SELECT netmask('127.0.0.1/24')",
+        "SELECT network('127.0.0.1/24')",
+        "SELECT family('127.0.0.1')",
+        "SELECT html_escape('<a>')",
+        "SELECT html_unescape('&lt;')",
+        "SELECT excel_text('x')",
+        "SELECT text('x')",
+        "SELECT * FROM read_xlsx('x')",
+        "SELECT * FROM read_avro('x')",
+        # built-in side-effect functions (core — NOT extension-gated)
+        "SELECT * FROM truncate_duckdb_logs()",
+        "SELECT write_log('msg')",
+        "SELECT error('msg')",
+        "SELECT stats(1)",
+        # comment-separated call forms
+        "SELECT host /*c*/ ('127.0.0.1')",
+        "SELECT error -- c\n ('x')",
+        # B2: desc positional arm comment gap
+        "SELECT * FROM (/*c*/ DESC client_dml_audit)",
+        "SELECT * FROM ( /*a*/ /*b*/ DESC t)",
+        "SELECT * FROM (-- c\n DESC t)",
+    ]
+
+    #: Extensions that may legitimately be loaded — the statically
+    #: linked set present before any op.  The kill-switch plus the
+    #: denylist must keep this set unchanged.
+    PRELOADED_EXTS = {"core_functions", "icu", "json", "parquet"}
+
+    def _assert_no_side_effects(self, env):
+        """No extension got installed/loaded by the attempted calls and
+        no pivot object materialized."""
+        db, _ = env
+        loaded = {
+            r[0]
+            for r in db.conn.execute(
+                "SELECT extension_name FROM duckdb_extensions() "
+                "WHERE loaded"
+            ).fetchall()
+        }
+        assert loaded <= self.PRELOADED_EXTS
+        assert client_dml.catalog_object_kind(db.conn, "pivot", "t") is None
+        assert client_dml.catalog_object_kind(db.conn, "pivot", "v") is None
+
+    @pytest.mark.parametrize("sql", DENIED_SQL)
+    def test_create_as_rejects_and_audits(self, env, sql):
+        # Guard FIRST: a validation miss fails here — the vector never
+        # reaches run_dml_admin.
+        with pytest.raises(client_dml.DmlRejected):
+            client_dml.validate_source_sql(sql)
+        _, eng = env
+        setup_namespace(env)
+        result = eng.run_dml_admin(
+            {"op": "create_as", "table": "pivot.t", "sql": sql}
+        )
+        assert result["status"] == "REJECTED"
+        rows = audit_df(env)
+        assert rows.iloc[-1]["status"] == "REJECTED"
+        assert rows.iloc[-1]["op"] == "create_as"
+        self._assert_no_side_effects(env)
+
+    @pytest.mark.parametrize("sql", DENIED_SQL)
+    def test_create_view_rejects_and_audits(self, env, sql):
+        with pytest.raises(client_dml.DmlRejected):
+            client_dml.validate_source_sql(sql)
+        _, eng = env
+        setup_namespace(env)
+        result = eng.run_dml_admin(
+            {"op": "create_view", "table": "pivot.v", "sql": sql}
+        )
+        assert result["status"] == "REJECTED"
+        rows = audit_df(env)
+        assert rows.iloc[-1]["status"] == "REJECTED"
+        assert rows.iloc[-1]["op"] == "create_view"
+        self._assert_no_side_effects(env)
+
+    @pytest.mark.parametrize("sql", DENIED_SQL)
+    def test_insert_select_rejects_and_audits(self, env, sql):
+        with pytest.raises(client_dml.DmlRejected):
+            client_dml.validate_source_sql(sql)
+        _, eng = env
+        setup_week_calendar(env)
+        result = eng.run_dml_admin(
+            {
+                "op": "insert_select",
+                "table": "pivot.week_calendar",
+                "mode": "append",
+                "sql": sql,
+            }
+        )
+        assert result["status"] == "REJECTED"
+        rows = audit_df(env)
+        assert rows.iloc[-1]["status"] == "REJECTED"
+        assert rows.iloc[-1]["op"] == "insert_select"
         db, _ = env
         n = db.execute_query(
             'SELECT COUNT(*) FROM "pivot"."week_calendar"'

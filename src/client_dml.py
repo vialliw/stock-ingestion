@@ -218,7 +218,36 @@ def parse_table_ref(
 # SEGFAULTED the server process = client-triggerable DoS; calling
 # either AUTO-INSTALLED the bundled extension = network egress + remote
 # native-code load; ``enable_profiling()``, ``(DESCRIBE t)`` and
-# ``(SUMMARIZE t)`` subquery forms also executed).
+# ``(SUMMARIZE t)`` subquery forms also executed), and hardened a third
+# time in F26-T4 after the challenger verified the family coverage still
+# missed the autoloadable entrypoints of *other* bundled extensions —
+# ``SELECT * FROM sql_auto_complete('SEL')`` (autocomplete),
+# ``stem('running','english')`` (fts) and ``host('127.0.0.1')``/
+# ``broadcast`` (inet) all passed validation AND executed with audited
+# SUCCESS, installing+loading their extensions server-wide; the
+# ``(/*c*/ DESC t)`` comment gap slipped the ``desc`` positional arm;
+# and the built-in side-effect functions ``truncate_duckdb_logs()``/
+# ``write_log()``/``error()``/``stats()`` were undenied.
+#
+# F26-T4 PRIMARY FIX — the durable boundary is now the platform
+# kill-switch, not this denylist: ``DatabaseManager`` applies
+# ``SET autoinstall_known_extensions=false`` +
+# ``SET autoload_known_extensions=false`` at open (src/db.py).  Both are
+# GLOBAL scope, so every cursor/read-connection on the instance
+# inherits them — this kills the *entire* autoload class at bind time
+# server-wide, INCLUDING the identical pre-existing hole in ``do_get``
+# (verified live on duckdb 1.5.5: ``stem``/``sql_auto_complete``/
+# ``host``/``broadcast``/``dbgen`` all raise CatalogException —
+# "exists in the X extension" but cannot install or load — while
+# ``SELECT 42`` is unaffected; and unlike ``enable_external_access``
+# this is NOT a one-way trap).  The trade-off: already-installed
+# extensions stop auto-loading by name too — the whole server was
+# audited and no code path uses an extension function (r2_sync uses
+# boto3 not httpfs; Excel ingest uses pandas/openpyxl; weekly rebuilds,
+# the signal pipelines and fear_greed use built-ins + requests), so no
+# explicit ``LOAD`` is issued.  Any remaining entrypoint name this
+# denylist misses — or any future extension entrypoint — now fails at
+# bind (FAILED+audited) instead of installing.
 #
 # WHAT IS ENFORCED NOW (all verified live on duckdb 1.5.5):
 #   * file/remote-read functions — the ``read_*``, ``parquet_*``,
@@ -237,12 +266,39 @@ def parse_table_ref(
 #     ``start_quack*``/``quack*``, ``ducklake*``, ``vss_*`` (calling an
 #     uninstalled bundled function triggers extension auto-install =
 #     egress + native-code load, so whole families are denied);
+#   * bundled autoloadable-extension *entrypoint names* (F26-T4,
+#     enumerated live on 1.5.5 by ``LOAD``-diffing
+#     ``duckdb_functions()`` for installed extensions and by the
+#     binder's "exists in the X extension" error hint):
+#     ``sql_auto_complete``/``check_peg_parser`` (autocomplete),
+#     ``stem``/``create_fts_index``/``drop_fts_index`` (fts),
+#     ``host``/``broadcast``/``netmask``/``network``/``family``/
+#     ``html_escape``/``html_unescape`` (inet), ``excel_text``/``text``
+#     (excel — ``read_xlsx``/``read_avro`` are already inside
+#     ``read_\w+``; ``enable_peg_parser``/``disable_peg_parser`` inside
+#     ``enable_*``/``disable_*``; inet's ``<<=``/``>>=`` are *operator*
+#     symbols and can't be name-denied — dead anyway under the
+#     kill-switch since INET can't be constructed).  The generic words
+#     (``host``/``broadcast``/``network``/``family``/``text``) are
+#     denied in call-form ``name (`` only — they are plausible column
+#     names and ``text`` collides with ``CAST(x AS TEXT)``/``::text``
+#     (the quoted-call slip ``"host"(...)`` is an accepted residual —
+#     see below).  ``motherduck``/``unity_catalog``/``encodings``
+#     expose no enumerable callable entrypoints on this build
+#     (attach-driven; ``ATTACH`` is already denied);
+#   * built-in side-effect functions (F26-T4 — these are core, NOT
+#     extension-gated, so the kill-switch does not cover them):
+#     ``truncate_duckdb_logs`` (wipes the server's duckdb log store),
+#     ``write_log`` (injects client text into it), ``error`` (raises),
+#     ``stats``;
 #   * statement-forms usable as table refs — ``describe``, ``desc`` in
 #     ``(`` position, ``summarize``, ``explain``, ``show``/``show_*``
 #     (``SELECT * FROM (DESCRIBE t)``/``(SUMMARIZE t)``/``(SHOW
 #     TABLES)``/``(DESC t)`` all verified live to execute; a bare
 #     ``desc`` is left allowed everywhere else because it is the
-#     ORDER BY direction keyword);
+#     ORDER BY direction keyword; the ``(`` -> ``desc`` gap spans
+#     ``/* */`` and ``--`` comments via ``_COMMENT_OR_WS`` — F26-T4,
+#     ``(/*c*/ DESC t)`` slipped the old ``\s``-only arm);
 #   * replacement-scan file/URL literals — a quoted token directly in
 #     table position (``FROM '<x>'``, ``JOIN '<x>'``, and
 #     double-quoted/after-comma tokens carrying path characters; the
@@ -263,35 +319,52 @@ def parse_table_ref(
 #     DROP/CREATE/ALTER/MERGE, ATTACH/DETACH/LOAD/INSTALL, SECRET,
 #     SET/PRAGMA/CALL/PREPARE/EXECUTE, COPY).
 #
-# WHY NOT THE PLATFORM SETTING (probed on duckdb 1.5.5 — do not
-# re-probe): ``enable_external_access``, ``allowed_directories`` and
-# ``allowed_paths`` are all GLOBAL scope — a ``SET`` on a dml cursor
-# leaks to the main connection and ``do_get``; ``SET LOCAL`` is
-# unimplemented; ``RESET enable_external_access`` is refused while the
+# WHY THE DENYLIST IS STILL HERE (probed on duckdb 1.5.5 — do not
+# re-probe): the autoload kill-switch (applied at ``DatabaseManager``
+# open — see above) covers the *extension* class completely, but it
+# does nothing for built-in file/remote readers and side-effect
+# functions, and the settings that would cover those —
+# ``enable_external_access``, ``allowed_directories``,
+# ``allowed_paths`` — are all GLOBAL scope (a ``SET`` on a dml cursor
+# leaks to the main connection and ``do_get``), ``SET LOCAL`` is
+# unimplemented, ``RESET enable_external_access`` is refused while the
 # database is running (a one-way switch — setting it once would
-# permanently break the server's own httpfs/R2 access until restart);
+# permanently break the server's own httpfs/R2 access until restart),
 # and a second ``duckdb.connect`` to the same file cannot carry a
 # different configuration, so a per-cursor restricted context is
-# impossible.  The denylist is therefore the enforcement layer.
+# impossible.  The denylist therefore remains the enforcement layer
+# for built-in functionality, and is now honest *defense-in-depth*
+# (belt) for the extension class rather than the sole boundary.
 #
 # KNOWN RESIDUAL GAPS (accepted + documented): a regex denylist cannot
-# prove total closure — the residual class is BOTH present-day and
-# future side-effect/generator functions: bundled or community
-# extension functions outside these families already shipping in the
-# current DuckDB build, and any new ones a future DuckDB
-# version/extension adds, can still slip through (the bundled list
-# above was enumerated from ``duckdb_extensions()`` on 1.5.5 only), as
-# can a relative-path literal deeper in a FROM list with no
-# separator/extension (e.g. ``FROM t, 'relpath'`` — verified on 1.5.5
-# that extension-less tokens resolve as *table names*, not files, so
-# this is narrow).  The contract already assumes *trusted* local
-# clients — this is defense-in-depth on a WRITE surface, not a sandbox
-# against hostile SQL.  False positives inside string
+# prove total closure.  Post-F26-T4 the residual class shrank: every
+# *uninstalled* extension entrypoint — denied or not, present or
+# future — now dies at bind under the kill-switch, so what remains is
+# (a) built-in side-effect/generator functions outside the denied
+# names (enumerated best-effort from ``duckdb_functions()`` on 1.5.5;
+# any future DuckDB version can add more), (b) the quoted-call slip on
+# the generic-word call-form names (``"host"(...)`` — chosen so legit
+# columns named ``host``/``stats``/``error`` and ``CAST(x AS TEXT)``
+# keep working), and (c) a relative-path literal deeper in a FROM list
+# with no separator/extension (e.g. ``FROM t, 'relpath'`` — verified
+# on 1.5.5 that extension-less tokens resolve as *table names*, not
+# files, so this is narrow).  The contract already assumes *trusted*
+# local clients — this is defense-in-depth on a WRITE surface, not a
+# sandbox against hostile SQL.  False positives inside string
 # literals/comments/values or identifiers colliding with a denied
 # family (e.g. a ``'report.csv'`` string value or a column named
-# ``query``/``show``/``describe``) are an acceptable, documented cost
-# of a closed API.  NOTE for client source SQL: ``pivot`` is a DuckDB
-# reserved word — references must be written ``"pivot"."table"``.
+# ``query``/``show``/``describe``/``stem``/``netmask``) are an
+# acceptable, documented cost of a closed API.  NOTE for client source
+# SQL: ``pivot`` is a DuckDB reserved word — references must be
+# written ``"pivot"."table"``.
+
+# Shared whitespace-or-comment bridge — ``\s`` OR a ``/* … */``
+# comment (incl. multiline — hence ``re.DOTALL`` on the consumers) OR
+# a ``-- …\n`` comment, zero or more times.  Used by the ``(DESC t)``
+# positional arm, the generic-word call-form arm and the
+# table-literal bridge below; comments-as-separators slipped each of
+# these when the bridge was ``\s``-only.
+_COMMENT_OR_WS = r"(?:\s|/\*.*?\*/|--[^\n]*(?:\n|$))*"
 _DENIED_KEYWORDS_RE = re.compile(
     r"\b(?:copy|attach|detach|load|install|set|call|prepare|execute|"
     r"secret|create|insert|update|delete|drop|alter|merge|"
@@ -303,8 +376,21 @@ _DENIED_KEYWORDS_RE = re.compile(
     r"json_execute_serialized_sql|json_serialize_plan|"
     r"dbgen|dsdgen|import_database|export_database|add_parquet_key|"
     r"load_aws_credentials|"
+    # F26-T4: extension entrypoints + built-in side-effect fns
+    # (distinctive names — see module comment for the enumeration)
+    r"sql_auto_complete|check_peg_parser|stem|"
+    r"create_fts_index|drop_fts_index|excel_text|netmask|"
+    r"html_escape|html_unescape|"
+    r"truncate_duckdb_logs|write_log|"
     r"describe|summarize|explain|show)\b"
-    r"|\(\s*desc\b"
+    r"|\(" + _COMMENT_OR_WS + r"desc\b"
+    # F26-T4: generic-word entrypoints denied in call-form only —
+    # ``host``/``broadcast``/``network``/``family`` are plausible
+    # column names and ``text`` collides with ``CAST(x AS TEXT)``;
+    # ``error``/``stats`` are built-in scalars.  The comment bridge
+    # keeps ``host /*c*/ (x)`` denied.
+    r"|\b(?:host|broadcast|network|family|text|error|stats)"
+    + _COMMENT_OR_WS + r"\("
     r"|\bread_\w+"
     r"|\bparquet_\w+"
     r"|\bpragma\w*"
@@ -317,7 +403,7 @@ _DENIED_KEYWORDS_RE = re.compile(
     r"|\bdelta_\w+|\biceberg_\w+|\bvortex_\w+|\blance_\w+"
     r"|\bducklake\w*|\bvss_\w+|\baws_\w+|\bazure_\w+"
     r"|\bstart_ui\w*|\bstart_quack\w*|\bquack\w*",
-    re.IGNORECASE,
+    re.IGNORECASE | re.DOTALL,
 )
 
 # Quoted literals in table position.  A single-quoted token right after
@@ -337,8 +423,8 @@ _DENIED_KEYWORDS_RE = re.compile(
 # Widening the separator — rather than pre-stripping comments — also
 # keeps literals that merely *contain* comment markers (``'x--y.csv'``)
 # denied: the bridge only has to reach the opening quote, never parse
-# the literal's content.
-_COMMENT_OR_WS = r"(?:\s|/\*.*?\*/|--[^\n]*(?:\n|$))*"
+# the literal's content.  The shared ``_COMMENT_OR_WS`` bridge is
+# defined above ``_DENIED_KEYWORDS_RE``.
 _DENIED_TABLE_LITERAL_RE = re.compile(
     r"\b(?:from|join)" + _COMMENT_OR_WS + r"'"
     r"|(?:\b(?:from|join)|,)" + _COMMENT_OR_WS + r"\"[^\"]*[\\/:*?\[\].]",

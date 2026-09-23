@@ -36,6 +36,16 @@ The ticket is a **JSON object with one `sql` key**. Only `SELECT` /
 `WITH` statements are accepted — DDL and DML are rejected
 (`FlightServerError`). Results stream back as Arrow record batches.
 
+> **Extension autoload is disabled server-wide** (F26-T4): the server
+> opens DuckDB with `autoinstall_known_extensions=false` and
+> `autoload_known_extensions=false`. A query that references a
+> function/type from an extension that is not already loaded
+> (e.g. `stem()`, `sql_auto_complete()`, `host()`, a `::INET` cast)
+> fails at bind with a CatalogException — it will **not** auto-install
+> or auto-load, on `do_get` or anywhere else. Use only built-in
+> functions in tickets; statically-linked extensions (`parquet`,
+> `json`, `icu`, `core_functions`) work as usual.
+
 ```python
 import json
 import pyarrow.flight as flight
@@ -335,11 +345,23 @@ covering four families —
   `import_database`/`export_database`, `load_aws_credentials`/
   `aws_*`/`azure_*`, and the bundled server-starter families
   `start_ui*`/`start_quack*`/`quack*`/`ducklake*`/`vss_*`;
+- **extension entrypoints** (enumerated from `duckdb_extensions()` +
+  `duckdb_functions()` on DuckDB 1.5.5): `sql_auto_complete`/
+  `check_peg_parser` (autocomplete), `stem`/`create_fts_index`/
+  `drop_fts_index` (fts), `host`/`broadcast`/`netmask`/`network`/
+  `family`/`html_escape`/`html_unescape` (inet), `excel_text`/`text`
+  (excel). Generic words (`host`, `broadcast`, `network`, `family`,
+  `text`, `error`, `stats`) are denied in **call form only** —
+  `host('1.2.3.4')` is rejected but `SELECT host FROM t` and
+  `CAST(x AS TEXT)` still work;
+- **built-in side-effect functions** (core — not extension-gated):
+  `truncate_duckdb_logs`, `write_log`, `error`, `stats`;
 - **statement forms usable as table refs:** `describe`/`desc`,
   `summarize`, `explain`, `show`/`show_*` —
   `SELECT * FROM (DESCRIBE t)`/`(SUMMARIZE t)`/`(SHOW TABLES)` are
   rejected (bare `desc` is only denied in `(`-position so
-  `ORDER BY … DESC` keeps working);
+  `ORDER BY … DESC` keeps working — and `/* */`/`--` comments
+  between `(` and `desc` do **not** evade it);
 - **introspection / side effects:** every `pragma*` and `duckdb_*`
   name, `current_setting`, `which_secret`, `setvariable`/`getvariable`,
   `checkpoint`/`force_checkpoint`, `nextval`/`setval`/`currval`,
@@ -365,24 +387,26 @@ primitive.
 > `SELECT * FROM "pivot"."my_table"`, not `pivot.my_table`
 > (unquoted `pivot.x` is a parser error).
 
-Three honest caveats. First, the denylist is deliberately
+Two honest caveats. First, the denylist is deliberately
 over-broad: a string *value* that merely resembles a file
 (`WHERE note = 'report.csv'`) or an identifier that collides with a
-denied family (a column named `query`, `show` or `describe`) is
-rejected — quote values accordingly. Second, it cannot *prove* total
-closure: the residual class is **present-day *and* future**
-side-effect/generator functions — bundled or community extension
-functions outside the families above may already ship in the current
-build, and any DuckDB version/extension can add more (the bundled
-list was enumerated from `duckdb_extensions()` on 1.5.5 only);
-likewise file readers introduced by future versions could slip
-through (verified on 1.5.5 that platform settings cannot be scoped
-per-cursor — `enable_external_access` is GLOBAL-only and a one-way
-switch — so the denylist is the enforcement layer). Third, an
+denied family (a column named `query`, `show`, `describe` or `stem`)
+is rejected — quote values accordingly. Second, the **durable
+boundary is the platform kill-switch, not the denylist**: extension
+autoload is disabled server-wide (see §2), so every uninstalled
+extension entrypoint — denied or not, present or future — dies at
+bind (FAILED+audited, never SUCCESS). What the denylist still covers
+is *built-in* functionality the kill-switch can't touch, and it
+cannot *prove* total closure there: the residual class is built-in
+side-effect/generator functions outside the denied names (enumerated
+best-effort from `duckdb_functions()` on 1.5.5 — any future DuckDB
+version can add more), the quoted-call slip on the generic-word
+call-form names (`"host"(...)` — the trade for keeping `SELECT host
+FROM t` legal), file readers introduced by future versions, and an
 extension-less relative-path literal deep in a `FROM` list
-(`FROM t, 'relpath'`) is not rejected — verified on 1.5.5 that such
-tokens resolve as *table names*, not files, so the hole is narrow.
-It is defense-in-depth on a **trusted-client** write surface, not a
+(`FROM t, 'relpath'` — verified on 1.5.5 that such tokens resolve as
+*table names*, not files, so the hole is narrow). The denylist is
+defense-in-depth on a **trusted-client** write surface, not a
 sandbox for hostile SQL.
 
 **Lifecycle & housekeeping.** `main.table_registry` records every

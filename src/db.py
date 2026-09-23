@@ -70,6 +70,31 @@ class DatabaseManager:
         self.db_path = db_path
         self._write_lock = threading.Lock()
         self.conn = duckdb.connect(self.db_path, read_only=False)
+        # F26-T4: kill the extension auto-install/auto-load class
+        # server-wide.  Calling an uninstalled-but-known function
+        # (``stem`` via fts, ``sql_auto_complete`` via autocomplete,
+        # ``host`` via inet, ``dbgen`` via tpch, ...) otherwise triggers
+        # a network ``INSTALL`` + native-code ``LOAD`` at *bind* time —
+        # egress + remote-code load reachable from client SQL.  Both
+        # settings are GLOBAL scope on the database instance, so every
+        # cursor/read-connection spawned from ``self.conn`` inherits
+        # them (verified live on duckdb 1.5.5: the calls above all
+        # raise CatalogException, ``SELECT 42`` is unaffected, and
+        # unlike ``enable_external_access`` this is NOT a one-way
+        # switch).  This also closes the identical pre-existing hole in
+        # ``do_get``, which reads through the same DB instance.
+        #
+        # Caveat: already-installed extensions also stop auto-loading
+        # by name — so every server code path was audited for extension
+        # functions before flipping this: ``r2_sync`` uses boto3 (not
+        # duckdb httpfs), Excel ingest uses pandas/openpyxl (not the
+        # excel ext), weekly rebuilds and the signal/fear_greed
+        # pipelines use pure built-in SQL + requests.  Nothing needs an
+        # extension, so no explicit ``LOAD`` is issued here.  If a
+        # future path ever does, ``LOAD <ext>`` immediately after these
+        # SETs (only bundled/disk-local names — never client input).
+        self.conn.execute("SET autoinstall_known_extensions=false")
+        self.conn.execute("SET autoload_known_extensions=false")
         self._init_schema()
 
     # ------------------------------------------------------------------
