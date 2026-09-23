@@ -126,11 +126,20 @@ class DmlClient:
         try:
             writer.write_table(arrow_table)
             writer.done_writing()
-        finally:
+        except Exception:
+            # A write-phase error is already propagating — still close
+            # the stream best-effort, but a secondary close() failure
+            # must never mask the primary one.
             try:
                 writer.close()
             except Exception:
                 pass
+            raise
+        # D-F26-1: on pyarrow the server's FlightServerError is
+        # delivered at close() — it MUST reach the caller.  Swallowing
+        # it here makes a server-audited FAILED/REJECTED write look
+        # like success (verified live on pyarrow 21.0.0).
+        writer.close()
 
     # ----- op wrappers -------------------------------------------
 

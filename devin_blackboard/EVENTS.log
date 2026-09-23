@@ -3223,3 +3223,43 @@ RESIDUALS (documented/accepted): built-in file readers on do_get (read_text/glob
 RECOMMENDED: F26-T6 fix task for scripts/dml_client.py put_frame (re-raise writer.close() errors) — small, single-file, plus a propagation test. Deployment reminder stands: restart StockIngestion-FlightServer.
 
 [2026-09-23T13:25:43.679001+00:00] [executor] claimed F26-T6
+[2026-09-23T13:35:24.268893+00:00] [executor] completed F26-T6 -> D-F26-1 fixed: scripts/dml_client.py put_frame no longer swallows writer.close() — errors from write_table/done_writing/close now propagate (close called on success path; on write-phase failure a best-effort close runs inside except WITHOUT masking the primary). Audited all DmlClient methods: admin()+10 op wrappers have no try/except (propagate); main()'s top-level handler prints+exit 1 (not a swallow) — no other terminal-op swallow found. Verified live pre/post fix on pyarrow 21.0.0: dup-PK/schema-mismatch/bad-namespace puts previously returned silently while server audited FAILED/REJECTED; post-fix all raise FlightServerError, valid put succeeds. Tests +7 in tests/test_client_dml.py: TestPutFrameOverWire x4 (real MarketDataFlightServer on ephemeral port + real temp DatabaseManager + real DmlClient — valid put lands rows+SUCCESS audit; dup-PK raises FlightError w/ FAILED audit + no dup rows; schema-mismatch raises w/ REJECTED audit; main.* namespace raises w/ REJECTED audit) + TestPutFrameErrorPropagation x3 (stubbed-writer pins: close() error propagates; done_writing error propagates + close still ran; primary write error not masked by secondary close error). Gates: pytest 1769/1769 (1762+7); check_loops --src-dir src exit 0; git status clean.
+Evidence map:
+[
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

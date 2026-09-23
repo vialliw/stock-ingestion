@@ -37,20 +37,40 @@ no mocks on the execution path:
 * Generalized ``do_put`` (engine level): create_or_replace|append|
   replace; PK enforced (dup keys fail loudly); schema mismatch ->
   REJECTED.
+* ``DmlClient.put_frame`` over REAL gRPC (D-F26-1): a server-side
+  FAILED/REJECTED ``do_put`` raises ``flight.FlightError`` at the
+  client — on pyarrow 21.0.0 the error is delivered at
+  ``writer.close()``, which must not be swallowed; a valid put still
+  succeeds.
 """
 
 from __future__ import annotations
 
+import socket
+import sys
+import threading
 import time
 import types
 from datetime import datetime, timedelta
+from pathlib import Path
+from unittest.mock import MagicMock
 
 import pyarrow as pa
+import pyarrow.flight as flight
 import pytest
 
-from src import client_dml
+from src import client_dml, flight_server
 from src.db import DatabaseManager, SCHEMA_VERSION
 from src.ingestion import IngestionEngine
+
+# scripts/ is not a package — put it on sys.path so the shipped
+# DmlClient helper can be imported (same pattern as
+# tests/test_scheduler.py).
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+import dml_client as client_helper  # noqa: E402
 
 
 # =====================================================================
@@ -1720,6 +1740,195 @@ class TestRunDmlPut:
         )
         rows = audit_df(env)
         assert rows.iloc[-1]["bytes_in"] > 0
+
+
+# =====================================================================
+# D-F26-1 — DmlClient.put_frame over real gRPC
+# =====================================================================
+#
+# ``put_frame`` wraps ``client.do_put``; on pyarrow 21.0.0 the server's
+# ``FlightServerError`` is delivered at ``writer.close()``.  The pre-fix
+# code wrapped that close in ``except Exception: pass``, so a write the
+# server audited FAILED/REJECTED returned silently to the caller —
+# falsifying the "Raises flight.FlightError on REJECTED/FAILED writes"
+# docstring.  These tests run the FULL wire path: a real
+# ``MarketDataFlightServer`` on an ephemeral port, a real temp-file
+# ``DatabaseManager`` + ``IngestionEngine``, and the shipped
+# ``DmlClient``.
+
+
+def _ephemeral_location():
+    """Return ``grpc://127.0.0.1:<free-port>`` for a throwaway server."""
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return f"grpc://127.0.0.1:{port}"
+
+
+@pytest.fixture
+def wire_dml(tmp_path):
+    """(db, engine, DmlClient) over real gRPC + a real temp DB."""
+    db = DatabaseManager(str(tmp_path / "wire.duckdb"))
+    cfg = make_cfg()
+    engine = IngestionEngine(db, cfg)
+    location = _ephemeral_location()
+    server = flight_server.MarketDataFlightServer(
+        location, db, engine, cfg
+    )
+    thread = threading.Thread(target=server.serve, daemon=True)
+    thread.start()
+    try:
+        client = flight.FlightClient(location)
+        client.wait_for_available(timeout=10)
+        yield db, engine, client_helper.DmlClient(
+            client, client_tag="test-wire"
+        )
+    finally:
+        try:
+            server.shutdown()
+        except Exception:
+            pass
+        thread.join(timeout=5)
+        db.close()
+
+
+class TestPutFrameOverWire:
+    """Server-side do_put failures MUST surface at the client."""
+
+    def _week_frame(self, ids=(1, 2)):
+        return pa.table(
+            {
+                "week_id": list(ids),
+                "week_date": pa.array(
+                    [datetime(2026, 1, 2).date()] * len(ids),
+                    type=pa.date32(),
+                ),
+                "is_partial": [False] * len(ids),
+            }
+        )
+
+    def _setup_pk_table(self, dml):
+        """register_namespace + create_table through the DmlClient
+        itself — even the setup is over the wire."""
+        assert dml.register_namespace("pivot")["status"] == "SUCCESS"
+        result = dml.create_table(
+            "pivot.week_calendar", WEEK_CALENDAR_COLS
+        )
+        assert result["status"] == "SUCCESS"
+        assert result["has_pk"] is True
+
+    def test_valid_put_succeeds(self, wire_dml):
+        db, _, dml = wire_dml
+        self._setup_pk_table(dml)
+        dml.put_frame(
+            "pivot.week_calendar", "append", self._week_frame()
+        )
+        rows = db.execute_query(
+            'SELECT week_id FROM "pivot"."week_calendar" ORDER BY 1'
+        ).to_pandas()
+        assert rows["week_id"].tolist() == [1, 2]
+        put_rows = audit_df((db, None))
+        assert put_rows.iloc[-1]["status"] == "SUCCESS"
+        assert put_rows.iloc[-1]["op"] == "do_put:append"
+
+    def test_dup_pk_append_raises_flight_error(self, wire_dml):
+        """The exact D-F26-1 repro: a dup-PK append is audited FAILED
+        server-side — the client MUST raise, not return silently."""
+        db, _, dml = wire_dml
+        self._setup_pk_table(dml)
+        dml.put_frame(
+            "pivot.week_calendar", "append", self._week_frame()
+        )
+        with pytest.raises(flight.FlightError) as excinfo:
+            dml.put_frame(
+                "pivot.week_calendar", "append", self._week_frame()
+            )
+        msg = str(excinfo.value).lower()
+        assert "primary key" in msg or "constraint" in msg
+        rows = audit_df((db, None))
+        assert rows.iloc[-1]["status"] == "FAILED"
+        assert rows.iloc[-1]["op"] == "do_put:append"
+        # No duplicate rows landed.
+        n = db.execute_query(
+            'SELECT COUNT(*) FROM "pivot"."week_calendar"'
+        ).to_pandas().iloc[0, 0]
+        assert int(n) == 2
+
+    def test_schema_mismatch_put_raises(self, wire_dml):
+        db, _, dml = wire_dml
+        self._setup_pk_table(dml)
+        bad = pa.table({"week_id": [3], "bogus_col": ["x"]})
+        with pytest.raises(flight.FlightError) as excinfo:
+            dml.put_frame("pivot.week_calendar", "append", bad)
+        assert "schema mismatch" in str(excinfo.value)
+        rows = audit_df((db, None))
+        assert rows.iloc[-1]["status"] == "REJECTED"
+
+    def test_rejected_namespace_put_raises(self, wire_dml):
+        """A do_put targeting a non-allowlisted namespace is REJECTED
+        server-side — it must raise at the client too."""
+        db, _, dml = wire_dml
+        with pytest.raises(flight.FlightError) as excinfo:
+            dml.put_frame(
+                "main.daily_close", "append", pa.table({"a": [1]})
+            )
+        assert "namespace" in str(excinfo.value).lower()
+        rows = audit_df((db, None))
+        assert rows.iloc[-1]["status"] == "REJECTED"
+        assert rows.iloc[-1]["op"] == "do_put:append"
+        assert rows.iloc[-1]["target"] == "main.daily_close"
+
+
+class TestPutFrameErrorPropagation:
+    """Pin the propagation contract with a stubbed writer — which call
+    delivers the server error varies across pyarrow versions, so the
+    guarantee under test is: an error from ANY of write_table /
+    done_writing / close reaches the caller, and a secondary close()
+    failure never masks a primary write-phase error."""
+
+    def _dml_with_writer(self, writer):
+        client = MagicMock()
+        client.do_put.return_value = (writer, MagicMock())
+        return client_helper.DmlClient(client)
+
+    def test_close_error_propagates(self):
+        """D-F26-1 core regression — a server error delivered at
+        close() MUST reach the caller."""
+        writer = MagicMock()
+        writer.close.side_effect = flight.FlightServerError(
+            "server-side write FAILED"
+        )
+        dml = self._dml_with_writer(writer)
+        with pytest.raises(flight.FlightError, match="FAILED"):
+            dml.put_frame("pivot.t", "append", pa.table({"a": [1]}))
+
+    def test_done_writing_error_propagates(self):
+        writer = MagicMock()
+        writer.done_writing.side_effect = flight.FlightServerError(
+            "write rejected"
+        )
+        dml = self._dml_with_writer(writer)
+        with pytest.raises(flight.FlightError, match="write rejected"):
+            dml.put_frame("pivot.t", "append", pa.table({"a": [1]}))
+        writer.close.assert_called_once()  # best-effort cleanup ran
+
+    def test_write_error_not_masked_by_close_error(self):
+        """write_table raised AND close() also raises -> the PRIMARY
+        write error propagates; the secondary close failure is the one
+        swallowed, never the other way around."""
+        writer = MagicMock()
+        writer.write_table.side_effect = flight.FlightServerError(
+            "primary write failure"
+        )
+        writer.close.side_effect = flight.FlightServerError(
+            "secondary close failure"
+        )
+        dml = self._dml_with_writer(writer)
+        with pytest.raises(flight.FlightError, match="primary"):
+            dml.put_frame("pivot.t", "append", pa.table({"a": [1]}))
+        writer.done_writing.assert_not_called()
+        writer.close.assert_called_once()
 
 
 # =====================================================================
