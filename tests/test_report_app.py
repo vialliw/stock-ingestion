@@ -1873,6 +1873,65 @@ class TestCorrelationTab:
             == "correlation_window.csv"
         )
 
+    def test_intro_expander_renders_once_after_parameters(
+        self, tmp_path, monkeypatch
+    ):
+        """F27-T1: one "About these relationships" expander per tab —
+        after the Parameters expander and before the first chart's
+        guide expander."""
+        pytest.importorskip("plotly")
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: self._corr_long_df(),
+        )
+        st = self._keyed_widgets(MagicMock())
+
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        expander_labels = [
+            c.args[0] for c in st.expander.call_args_list
+        ]
+        assert expander_labels.count("About these relationships") == 1
+        # Sits at index 1 — after Parameters (index 0), before every
+        # "How to read this chart" and the data-table expander.
+        assert expander_labels[0] == "Parameters"
+        assert expander_labels[1] == "About these relationships"
+
+    def test_guide_expanders_render_both_layers(
+        self, tmp_path, monkeypatch
+    ):
+        """F27-T1: each of the five "How to read this chart"
+        expanders renders the CORR_GUIDE mechanics entry AND the
+        CORR_LOOKFOR_GUIDE asset-guide entry; the intro expander
+        renders CORR_INTRO_GUIDE once."""
+        pytest.importorskip("plotly")
+        import correlation_dashboard as cd
+
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: self._corr_long_df(),
+        )
+        st = self._keyed_widgets(MagicMock())
+
+        report_app._render_correlation_tab(st, _config(tmp_path))
+
+        markdown_args = [c.args[0] for c in st.markdown.call_args_list]
+        # Intro text rendered exactly once.
+        assert markdown_args.count(cd.CORR_INTRO_GUIDE) == 1
+        for key in cd.CORR_GUIDE:
+            assert cd.CORR_GUIDE[key] in markdown_args, key
+            assert cd.CORR_LOOKFOR_GUIDE[key] in markdown_args, key
+            # Mechanics layer precedes the look-for layer.
+            assert markdown_args.index(
+                cd.CORR_GUIDE[key]
+            ) < markdown_args.index(cd.CORR_LOOKFOR_GUIDE[key])
+        # The bold separator heading renders once per chart.
+        assert markdown_args.count(
+            "**What to look for — the asset-guide view.**"
+        ) == 5
+
     def test_widget_defaults_and_keys(self, tmp_path, monkeypatch):
         pytest.importorskip("plotly")
         monkeypatch.setattr(

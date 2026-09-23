@@ -7,7 +7,9 @@ object-dtype ``datetime.date`` regression), ``to_wide`` pivot/labels/
 dropna (incl. the CL=F misaligned-calendar case), ``returns`` kinds,
 ``filter_window`` presets, normalized base-100 math, rolling corr vs a
 pandas reference, structural assertions on the five figures, and the
-``CORR_GUIDE`` per-chart markdown dict.
+guide constants — ``CORR_GUIDE`` (per-chart mechanics, byte-identical
+since F22) plus the F27-T1 second layer ``CORR_INTRO_GUIDE`` /
+``CORR_LOOKFOR_GUIDE``.
 """
 
 from __future__ import annotations
@@ -715,3 +717,96 @@ class TestCorrGuide:
         assert "Correlation-type" not in guide
         assert "Levels |" not in guide
         assert "Returns basis" in guide or "Returns-basis" in guide
+
+
+class TestCorrGuideIntegration:
+    """F27-T1 — the second interpretation layer from
+    ``docs/enhancements/20260923 correlation dashboard info.md``:
+    ``CORR_INTRO_GUIDE`` (tab-level intro) + ``CORR_LOOKFOR_GUIDE``
+    (per-chart "what to look for" entries), integrated WITHOUT
+    replacing ``CORR_GUIDE``."""
+
+    @staticmethod
+    def _new_text() -> str:
+        return cd.CORR_INTRO_GUIDE + "\n" + "\n".join(
+            cd.CORR_LOOKFOR_GUIDE.values()
+        )
+
+    def test_lookfor_keys_match_corr_guide(self):
+        """Same five chart keys — every chart gets both layers."""
+        assert set(cd.CORR_LOOKFOR_GUIDE) == set(cd.CORR_GUIDE)
+
+    def test_lookfor_entries_non_empty_markdown(self):
+        for key, text in cd.CORR_LOOKFOR_GUIDE.items():
+            assert isinstance(text, str) and text.strip(), key
+
+    def test_intro_guide_non_empty_markdown(self):
+        assert isinstance(cd.CORR_INTRO_GUIDE, str)
+        assert cd.CORR_INTRO_GUIDE.strip()
+
+    def test_no_screenshot_references(self):
+        """The app shows live data — no screenshot references may
+        survive in either new constant."""
+        assert "screenshot" not in cd.CORR_INTRO_GUIDE.lower()
+        for key, text in cd.CORR_LOOKFOR_GUIDE.items():
+            assert "screenshot" not in text.lower(), key
+
+    def test_asset_legend_present(self):
+        """The intro names all five series — ticker symbols for the
+        macro assets, CL=F or WTI for crude."""
+        intro = cd.CORR_INTRO_GUIDE
+        for name in ("TNX", "IRX", "SPY", "SMH"):
+            assert name in intro
+        assert "CL=F" in intro or "WTI" in intro
+
+    def test_smh_spy_high_link(self):
+        text = self._new_text()
+        assert "SMH–SPY" in text and "high" in text.lower()
+
+    def test_oil_yield_shock_spikes(self):
+        text = self._new_text()
+        assert "oil–yield" in text
+        assert "shock" in text.lower() or "spike" in text.lower()
+
+    def test_negative_equity_yield_episodes(self):
+        text = self._new_text().lower()
+        assert "negative equity–yield" in text
+
+    def test_curve_steepening_flattening(self):
+        text = self._new_text().lower()
+        assert "steepening" in text and "flattening" in text
+
+    def test_nonlinearities_clusters_structural_breaks(self):
+        text = self._new_text().lower()
+        assert "non-linearities" in text or "nonlinearities" in text
+        assert "cluster" in text
+        assert "structural break" in text
+
+    def test_discount_rate_duration_language(self):
+        text = self._new_text().lower()
+        assert "discount rate" in text or "discount-rate" in text
+        assert "duration" in text
+
+    def test_vary_the_window_interactivity_note(self):
+        text = self._new_text().lower()
+        assert "vary" in text and "window" in text
+
+    def test_corr_guide_preserved_verbatim(self):
+        """PRESERVATION — the pre-existing CORR_GUIDE caveat strings
+        are still present verbatim (integrate, NOT replace).  Each
+        phrase below is lifted from the F22/F23-era entries."""
+        guide = "\n".join(cd.CORR_GUIDE.values())
+        for phrase in (
+            # levels-vs-returns mechanics
+            "The **left** matrix correlates raw *levels*",
+            "The **right** matrix correlates *changes*",
+            # regime-shift reading
+            "This is the **regime-shift** detector",
+            # SMH duration note
+            "long-duration growth cash\n  flows make them more sensitive",
+            # IRX proxy caveat
+            "is only a *proxy* for\n  the policy/discount rate",
+            # causation caveat
+            "correlation is not causation",
+        ):
+            assert phrase in guide, phrase

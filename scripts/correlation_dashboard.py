@@ -65,7 +65,20 @@ Each chart section in the tab is followed by a compact
 ``docs/enhancements/20260922a interpretation guide.txt`` (genericized:
 no screenshot references, per-chart caveats kept).
 
-Version: 1.0 (F22-T1)
+A second interpretation layer comes from
+``docs/enhancements/20260923 correlation dashboard info.md`` (F27-T1 —
+"integrate but not replace"): ``CORR_INTRO_GUIDE`` is a tab-level
+markdown intro (the five-asset legend, the why-these-relationships-
+matter paragraph and the closing taken-together paragraph) rendered in
+an ``st.expander("About these relationships")`` after the Parameters
+expander, and ``CORR_LOOKFOR_GUIDE`` is a second per-chart dict with
+the same five keys holding that doc's "What to look for" items —
+rendered inside the same per-chart expander AFTER the ``CORR_GUIDE``
+mechanics text under a bold separator heading.  ``CORR_GUIDE`` itself
+is untouched (byte-identical) — the new text lives in separate
+constants so replacement is structurally impossible.
+
+Version: 1.1 (F27-T1 — second guide layer integrated)
 =============================================================================
 """
 
@@ -249,6 +262,101 @@ regression line and the full-window Pearson correlation in the title.
   correlations over a 2020-style recovery, a hiking cycle, and a
   calm drift can differ wildly, so always state the window when
   quoting a correlation.""",
+}
+
+# ------------------------------------------------------------------
+# Second interpretation layer — F27-T1 ("integrate but not replace").
+# Adapted near-verbatim from
+# docs/enhancements/20260923 correlation dashboard info.md — the only
+# genericization is that doc-only references (the doc's numbered item
+# list, its "interactive version" phrasing) are re-pointed at the
+# app's actual widget/chart names.  CORR_GUIDE above is deliberately
+# left byte-identical: the new text lives in these two constants.
+#
+# CORR_INTRO_GUIDE — tab-level intro rendered once in
+# st.expander("About these relationships") after the Parameters
+# expander: the five-asset legend, the why-these-relationships-matter
+# paragraph, and the closing taken-together paragraph.
+# ------------------------------------------------------------------
+
+CORR_INTRO_GUIDE: str = """\
+**Interpreting cross-asset correlations — yields, oil, equities &
+semiconductors.**  These charts examine the evolving relationships
+among five key market variables:
+
+- **^TNX** — the 10-year U.S. Treasury yield (a benchmark long-term
+  discount rate and risk-free rate proxy)
+- **WTI (CL=F)** — the price of West Texas Intermediate crude oil
+- **^IRX** — the 13-week Treasury bill yield (a short-term rate proxy
+  closely linked to Fed policy and the discount rate)
+- **SPY** — the S&P 500
+- **SMH** — the semiconductor sector (a high-duration, growth-
+  sensitive segment of equities)
+
+**Why these relationships matter.**  Interest rates and oil prices
+are two of the most powerful macro forces affecting asset valuations
+and economic conditions.  Higher yields raise the discount rate
+applied to future cash flows, which typically pressures equity
+valuations — especially for long-duration growth assets such as
+semiconductors.  Simultaneously, oil price moves influence inflation
+expectations, which in turn feed back into yields and monetary
+policy.  Understanding how tightly (or loosely) these variables move
+together helps investors anticipate regime shifts, assess risk, and
+interpret market pricing of growth, inflation, and policy.
+
+Taken together, the charts illustrate how the discount rate, energy
+prices, and equity markets interact across different market
+environments.  The Window preset above lets you vary the look-back
+window so you can test the stability of these relationships yourself."""
+
+# ------------------------------------------------------------------
+# CORR_LOOKFOR_GUIDE — the same five keys as CORR_GUIDE, holding the
+# doc's five "What to look for" items (numbering dropped; each entry
+# refers to the chart it sits under).  The tab renders each entry
+# inside the same "How to read this chart" expander AFTER the
+# CORR_GUIDE mechanics text, under a bold separator heading.
+# ------------------------------------------------------------------
+
+CORR_LOOKFOR_GUIDE: Dict[str, str] = {
+    "heatmap": """\
+Levels correlations capture long-term co-movement driven by shared
+trends (e.g., the post-2020 recovery and the 2022–2023 rate-hike
+cycle).  Returns correlations reveal short-term, day-to-day linkages.
+A large gap between the two often signals that co-movement is
+trend-driven rather than reactive.  Watch especially for the strength
+of the SMH–SPY link (typically very high) and the more variable
+oil–yield and equity–yield relationships.""",
+    "normalized": """\
+This view shows relative performance and the magnitude of moves.
+Note the dramatic divergence of SMH versus the broader market and the
+multi-year rise in both short- and long-term yields after 2021.
+Large directional swings in yields or oil that coincide with equity
+drawdowns or rallies are particularly informative.""",
+    "multipanel": """\
+These dual-axis charts make the timing of moves explicit.  Look for
+periods when oil and the 10-year yield rise or fall in tandem
+(inflation/geopolitical risk transmission), when equities sell off as
+yields rise (classic discount-rate pressure), and how the
+short-rate–long-rate relationship evolves (steepening or flattening
+of the curve).""",
+    "rolling": """\
+This is the most dynamic view.  Correlations are rarely stable.
+Watch for:
+
+- Spikes in oil–yield correlation during geopolitical or inflation
+  shocks
+- Episodes of negative equity–yield correlation (risk-off or
+  growth-scare regimes)
+- Persistent high SMH–SPY correlation (sector leadership or broad
+  risk appetite)
+
+Sudden breaks in these relationships often mark important regime
+changes.""",
+    "scatter": """\
+These reveal the overall shape of the relationship and any
+non-linearities or clusters of observations.  Tight linear patterns
+indicate stable co-movement; dispersed or curved clouds suggest
+changing regimes or structural breaks.""",
 }
 
 # ------------------------------------------------------------------

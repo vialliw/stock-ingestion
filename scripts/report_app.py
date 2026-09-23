@@ -75,9 +75,14 @@ Relative Rotation (RRG), then Fear & Greed, then Correlation:
   heatmaps, a base-100 normalized overlay, a three-row multi-panel
   overlay (WTI vs TNX / SPY+SMH vs TNX / IRX+TNX), rolling-window
   return correlations with a dashed y=0 line, and a scatter with OLS
-  trendline + Pearson corr in the title.  Each chart is followed by a
-  "How to read this chart" expander rendering the matching
-  ``correlation_dashboard.CORR_GUIDE`` entry; a data-table expander
+  trendline + Pearson corr in the title.  A collapsed "About these
+  relationships" expander after the Parameters block renders
+  ``correlation_dashboard.CORR_INTRO_GUIDE`` (the five-asset legend +
+  why-these-relationships-matter context), and each chart is followed
+  by a "How to read this chart" expander rendering two layers — the
+  matching ``correlation_dashboard.CORR_GUIDE`` mechanics entry then
+  the ``correlation_dashboard.CORR_LOOKFOR_GUIDE`` "what to look for"
+  entry under a bold separator heading; a data-table expander
   closes the tab with the wide frame + a CSV download button.  A
   window radio slices post-query (``1M/3M/6M/YTD/1Y/2Y/Max``, default
   ``Max``); configured tickers absent from ``daily_close`` are dropped
@@ -102,9 +107,13 @@ guide" expander (``WEEKLY_*_GUIDE`` for the weekly tabs,
 ``DAILY_*_GUIDE`` for the daily ones, and
 ``fear_greed_dashboard.FEAR_GREED_GUIDE`` — adapted from
 ``docs/enhancements/20260920b.md`` — for the Fear & Greed tab; the
-Correlation tab instead renders a per-chart
-``correlation_dashboard.CORR_GUIDE`` entry in a "How to read this
-chart" expander after each of its five charts).
+Correlation tab instead renders a tab-level "About these
+relationships" intro expander (``correlation_dashboard.CORR_INTRO_GUIDE``)
+plus a per-chart "How to read this chart" expander after each of its
+five charts, each holding two layers — the
+``correlation_dashboard.CORR_GUIDE`` mechanics entry followed by the
+``correlation_dashboard.CORR_LOOKFOR_GUIDE`` asset-guide "what to look
+for" entry).
 
 Every tab's bar chart is drawn through
 :func:`_render_ordered_bar_chart` — an Altair bar chart with
@@ -2312,6 +2321,18 @@ def _render_correlation_tab(st, config: PipelineConfig) -> None:
     rolling chart and the scatter; the left heatmap is always Levels.
     Sections with fewer than two usable aligned rows render
     ``st.info`` instead of a figure — the guide expanders still render.
+
+    Guides (F27-T1 — "integrate but not replace"): a collapsed
+    ``st.expander("About these relationships")`` right after the
+    Parameters block renders ``corr_dash.CORR_INTRO_GUIDE`` — the
+    five-asset legend and the why-these-relationships-matter context
+    from ``docs/enhancements/20260923 correlation dashboard info.md``.
+    Each of the five chart sections is still followed by ONE
+    ``st.expander("How to read this chart")``, now rendering two
+    layers: the pre-existing ``corr_dash.CORR_GUIDE[key]`` mechanics
+    text first (byte-identical), then a bold separator heading, then
+    ``corr_dash.CORR_LOOKFOR_GUIDE[key]`` — the doc's "what to look
+    for" item for that chart.
     """
     import correlation_dashboard as corr_dash
 
@@ -2376,6 +2397,13 @@ def _render_correlation_tab(st, config: PipelineConfig) -> None:
         )
         if st.button("Refresh data", key="corr_refresh"):
             _get_cached_fetch(st).clear()
+
+    # Tab-level intro guide (F27-T1) — the cross-asset "why these
+    # relationships matter" context from the second source doc,
+    # collapsed by default like every other guide expander.  Placed
+    # after Parameters and before the first chart section.
+    with st.expander("About these relationships"):
+        st.markdown(corr_dash.CORR_INTRO_GUIDE)
 
     # Min-2-assets guard — a correlation matrix needs at least two
     # series; warn and bail before hitting the database.
@@ -2467,8 +2495,13 @@ def _render_correlation_tab(st, config: PipelineConfig) -> None:
     ret_kind = corr_dash.RET_BASIS_TO_KIND.get(ret_basis, "daily")
 
     def _guide(key: str) -> None:
+        # Two layers inside ONE expander (F27-T1): the CORR_GUIDE
+        # mechanics text first (byte-identical), then the asset-guide
+        # "what to look for" entry under a bold separator heading.
         with st.expander("How to read this chart"):
             st.markdown(corr_dash.CORR_GUIDE[key])
+            st.markdown("**What to look for — the asset-guide view.**")
+            st.markdown(corr_dash.CORR_LOOKFOR_GUIDE[key])
 
     # 1) Heatmaps — levels (left, always) vs the chosen returns basis
     # (right).  None -> insufficient aligned rows -> st.info.
