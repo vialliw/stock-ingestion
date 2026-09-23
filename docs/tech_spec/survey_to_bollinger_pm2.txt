@@ -1,0 +1,92 @@
+Re: pivot-schema DML on the canonical Flight service — design
+confirmed, four questions back
+================================================================
+
+Thanks — this validates the descriptor-driven design. Answers to your
+questions first, then a few things we need back.
+
+Your BB question — confirmed verbatim
+-------------------------------------
+weekly_indicators is computed in rebuild_weekly_indicators (src/db.py):
+  bb_mid    = AVG(Close)    OVER (PARTITION BY Ticker ORDER BY Date
+              ROWS BETWEEN 19 PRECEDING AND CURRENT ROW)
+  bb_std    = STDDEV(Close) OVER (same window)
+  BB_Upper  = bb_mid + 2*bb_std;  BB_Lower = bb_mid - 2*bb_std;
+  BB_Central = bb_mid
+DuckDB STDDEV is STDDEV_SAMP (n-1). So: window 20, mult 2,
+sample stddev, Close basis — matches your frozen spec; consume
+BB_Upper/Central/Lower verbatim.
+
+CAVEAT — no min-periods guard: the window is ROWS BETWEEN, not a
+full-window requirement, so each ticker's first 19 weeks carry
+partial-window bands (AVG over however many bars exist), NOT NULL.
+If your spec requires strict 20-bar warmup, say so — a
+CASE WHEN COUNT(*) OVER w = 20 THEN ... END guard is a one-line
+change on our side; otherwise your bb_convention audit absorbs it.
+
+Accepted without change
+-----------------------
+- Dedicated `pivot` schema in the canonical DB (same-catalog; matches
+  our signals_<name> precedent). main.daily_close / main.splits_processed
+  / main.company_metadata resolve from pivot.* objects as you'd expect.
+- Admin enum gains `create_view` — rides the same SELECT-only source
+  validation as create_as; v_daily_bars is exactly the intended shape.
+- Registry + audit: we'll record client_tag, op, target,
+  source_sql_sha256, rows_written, bytes, status (incl. REJECTED),
+  duration_ms, created_at.
+- TTL: default your namespace pinned; unpinned-only sweep, and you can
+  pin/unpin per table.
+- Flight-only access; no transactions over the wire; auto-commit per
+  request — matches your per-table-idempotent rebuild model.
+- splits_processed / company_metadata: read direct via do_get, no
+  provenance copies — agreed.
+
+Lock coupling — honest answer
+-----------------------------
+A CTAS is one atomic statement on the single RW conn — its read side
+can't run on a snapshot cursor within the statement. But we can get
+most of what you asked: implement create_as internally as
+  SELECT on a snapshot cursor -> Arrow in-process
+  -> CREATE OR REPLACE TABLE pivot.x AS SELECT * FROM arrow under
+     _write_lock
+so the lock is held only for the memory->table materialization, not
+the 2.8M-row scan. bb_outcomes at ~15M thin rows stages fine (chunked
+if needed); if it ever misbehaves it degrades to the plain lock-held
+CTAS you already accepted. Worst-case stall becomes seconds, not the
+scan duration.
+
+Two decisions we need from you
+------------------------------
+1. PKs vs create_as. CREATE OR REPLACE TABLE ... AS SELECT infers the
+   schema — PRIMARY KEY / NOT NULL constraints do NOT survive. Your
+   DDL lists PKs; under pure CTAS rebuilds they'd be documentation
+   only. Options:
+   (a) constraint-free tables — your own duplicate_keys audit covers
+       it; zero extra API surface.
+   (b) add a `create_table` op driven by a STRUCTURED column spec —
+       {columns:[{name,type,nullable,pk}]} as descriptor fields, still
+       no SQL over the wire — then rebuilds run as `insert_select`
+       into the pre-created constrained table. Real PK enforcement at
+       write time; ~a day more work.
+   Which do you want? (b) for PK-carrying tables + (a) CTAS elsewhere
+   is a valid mix.
+
+2. bb_outcomes r4_class: we recommend adding `value_text VARCHAR`
+   rather than int-coding the category — self-describing at trivial
+   cost. Confirm and we'll take that as the table shape.
+
+Two small confirmations
+-----------------------
+3. Final column names: your DDL has data_quality_report.check_name
+   (your local table used `check`) and ca_boundary_checks.med_vol_ratio
+   / volume_verdict (local had vol_ratio_adj / continuity_verdict).
+   Confirm the reply's names are the intended canonical ones.
+4. FYI only — hardening note: the SELECT-only validator will also
+   carry a keyword denylist on the source SQL (read_parquet, read_csv,
+   parquet_scan, sqlite_scan, COPY, ATTACH, ...) — no filesystem or
+   catalog side-effects through a "SELECT". Shouldn't affect you; your
+   sources are all canonical tables.
+
+Once you answer 1-3, we'll fold the table shapes + enum/descriptor
+contract into the implementation plan and run it through our normal
+cycle (executor -> challenger -> critic) before it ships.

@@ -1,0 +1,73 @@
+Context — a feasibility study on the stock-ingestion Flight service
+-------------------------------------------------------------------
+We're evaluating an enhancement to the shared Flight service
+(stock-ingestion, grpc://localhost:8815) that would let trusted local
+clients persist derived tables in the canonical stock_ingestion.duckdb
+instead of a local project DB.
+
+Background facts (already verified on DuckDB 1.5.5):
+- The running server holds an exclusive write lock on the file — all
+  writes, including any client-derived tables, must go through Flight.
+- DuckDB has no GRANT/privilege system — write scoping is enforced
+  application-side by the server.
+- Proposed write surface (descriptor-driven, no arbitrary SQL):
+    * generalized do_put — Arrow record batches in, descriptor
+      {table: "<namespace>.<name>", mode: create_or_replace | append |
+      upsert, pk: [...]}; server composes the qualified name from
+      validated tokens so core tables can't be touched;
+    * a closed-enum admin action — e.g. drop_table / list_tables /
+      register_namespace / create_as (CTAS whose source must pass the
+      existing SELECT-only validator);
+    * per-project namespace: a dedicated schema (e.g. `pivot`) or
+      prefixed tables in the canonical file;
+    * single-statement auto-commit per request; explicit transactions
+      not supported; server-owned registry + audit tables; optional
+      quota and TTL cleanup of abandoned tables.
+- Reads need no new work: do_get already serves
+  SELECT * FROM <schema>.<table> via qualified names.
+- Core tables (daily_close, weekly_close, weekly_indicators,
+  fear_greed_history, company_metadata, …) stay read-only — DML would
+  be confined to your namespace.
+
+Questions for you
+-----------------
+1. Which of your project's tables would you actually want hosted in the
+   canonical DB vs kept in your local pivot.duckdb? (Candidates seen:
+   week_calendar, weekly_bars, daily_bars, data_quality_report,
+   ca_boundary_checks, reference_basis_checks, ca_exclusion_windows,
+   run_config, and later-phase bb_events / bb_outcomes / bb_features /
+   analysis_results.)
+
+2. For each hosted table, what schema do you need — columns, types,
+   primary key? We need this to validate whether the do_put modes
+   (create_or_replace / append / upsert-by-pk) cover your writes.
+
+3. How would each table be populated?
+   a) Computed entirely client-side and shipped as Arrow batches
+      (do_put from scratch), or
+   b) Derived by joining existing canonical tables (daily_close,
+      weekly_close, weekly_indicators, splits_processed,
+      company_metadata) — i.e. a server-side CTAS from a SELECT you
+      supply, avoiding the round-trip?
+   (e.g. daily_bars looks like a projection of daily_close +
+   week_calendar — is that (b)? while data-quality audits look like (a).)
+
+4. Write patterns: are your writes full rebuilds (create_or_replace),
+   appends, or do you need row-level UPDATE/DELETE? Any need to
+   upsert by PK rather than replace?
+
+5. DDL needs beyond create: do you need drop_table, or schema-evolution
+   (ALTER) support? Would a registry (namespace, table, owner,
+   created_at, last_write) + audit log of every write be acceptable,
+   and would a TTL-based cleanup of unpinned tables break anything?
+
+6. Volume/frequency: rough row counts and how often each table is
+   rewritten — informs quota sizing.
+
+7. Would you still need a local pivot.duckdb copy for offline/dev work,
+   or would Flight-only access (single door, same as today) suffice?
+
+Your answers drive the design: (3)/(4) decide whether do_put+admin-enum
+suffices or whether a narrow create_as/update surface is justified, and
+(1)/(2) decide the namespace shape and schema-review scope. Nothing is
+committed yet — this is requirements gathering for the study.

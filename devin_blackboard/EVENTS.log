@@ -2862,3 +2862,5 @@ VARCHAR for r4_class; (3) reply-DDL column names confirmed canonical
 (4) keyword denylist acknowledged. BB params confirmed verbatim —
 no min-periods guard needed (our in_warmup>=20 gate absorbs it).
 Their snapshot-cursor->Arrow->locked-CTAS lock mitigation accepted.
+
+[2026-09-23T08:58:53.052527+00:00] [executor] claimed F26-T1
