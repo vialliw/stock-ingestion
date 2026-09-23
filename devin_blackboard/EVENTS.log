@@ -3283,3 +3283,52 @@ COMPOSITE F26 VERDICT: **PASS** — F26-T1..T6 all independently verified. Prior
 [2026-09-23T15:35:37] [orchestrator] F27-T1 REGISTERED — integrate cross-asset interpretation guide from docs/enhancements/20260923 correlation dashboard info.md into the Correlation tab (integrate, NOT replace). Plan: ~/.devin/plans/plan-corr-guide-integration.md. Design: NEW CORR_INTRO_GUIDE constant -> "About these relationships" expander after Parameters/before heatmaps; NEW CORR_LOOKFOR_GUIDE dict (same 5 keys as CORR_GUIDE) rendered inside the existing "How to read this chart" expanders after the mechanics text — CORR_GUIDE stays byte-identical. output_files: scripts/correlation_dashboard.py, scripts/report_app.py, tests/test_correlation_dashboard.py, tests/test_report_app.py, README.md, docs/README.md. Spawning executor B.
 
 [2026-09-23T14:36:31.086347+00:00] [executor] claimed F27-T1
+[2026-09-23T14:46:11.274819+00:00] [executor] completed F27-T1 -> Integrated the 20260923 correlation-dashboard interpretation guide into the Correlation tab (integrate, NOT replace). correlation_dashboard.py: NEW CORR_INTRO_GUIDE (asset legend + why-it-matters + taken-together, near-verbatim) + NEW CORR_LOOKFOR_GUIDE (same 5 keys as CORR_GUIDE); CORR_GUIDE byte-identical (git-verified). report_app.py: 'About these relationships' expander after Parameters/before heatmaps + _guide() renders CORR_GUIDE then bold separator then CORR_LOOKFOR_GUIDE in the same expander (5 total). Tests +15 -> pytest 1784/1784; check_loops exit 0; READMEs byte-identical; git clean; --verify ALL PASS. Commit 2c8c7ed.
+Evidence map:
+[
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

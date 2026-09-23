@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-23T13:43:32+00:00
+Last Updated: 2026-09-23T14:46:05.519683+00:00
 Current Branch: main
 
 ## Active Blocker
@@ -572,3 +572,13 @@ efresh_fear_greed.py %*`). `requirements.txt` + `requests>=2.31`.
 - Live gRPC smoke verified the full Bollinger contract workflow: namespace -> create_table(PK) -> insert_select append/replace (dup-PK fails loudly, replace idempotent) -> create_as(arrow_snapshot) -> create_view (quoted "pivot") -> drop -> registry/audit accurate.
 - Boundary verified live: confinement REJECTEDs, autoload-off bind-failures, single-statement do_get rejection, source denylist.
 - Composite F26: PASS (critic re-gate after T6). 1769 tests. Residuals documented: built-in file-readers on do_get (accepted, disclosed); test-only challenger-module parity items (flight_server_challenger prefix-only hole, db_challenger no kill-switch) queued non-blocking.
+
+## F27-T1 — Cross-asset interpretation guide integrated into Correlation tab — done (executor B)
+
+- "integrate but NOT replace" enforced structurally: `CORR_GUIDE` byte-identical (git diff shows only the docstring version line changed in correlation_dashboard.py); the doc text lives in two NEW constants.
+- scripts/correlation_dashboard.py: `CORR_INTRO_GUIDE` (tab-level markdown — five-asset legend ^TNX/WTI (CL=F)/^IRX/SPY/SMH + why-these-relationships-matter + taken-together paragraph, near-verbatim from `docs/enhancements/20260923 correlation dashboard info.md`, only doc-only refs genericized to the app's Window preset) and `CORR_LOOKFOR_GUIDE` dict (same 5 keys as CORR_GUIDE — heatmap/normalized/multipanel/rolling/scatter — the doc's five "What to look for" items, numbering dropped). Module docstring notes the second source doc.
+- scripts/report_app.py `_render_correlation_tab`: collapsed `st.expander("About these relationships")` after the Parameters block / before the heatmap section renders CORR_INTRO_GUIDE; `_guide(key)` renders CORR_GUIDE[key] -> bold "**What to look for — the asset-guide view.**" -> CORR_LOOKFOR_GUIDE[key] inside the same "How to read this chart" expander (still 5 total). Function docstring + module-header guide prose updated.
+- Tests +15 (1784 total): tests/test_correlation_dashboard.py TestCorrGuideIntegration x13 (key parity, non-empty markdown, no screenshots, asset legend, SMH-SPY high link, oil-yield shock spikes, negative equity-yield episodes, curve steepening/flattening, non-linearities/clusters/structural breaks, discount-rate/duration, vary-the-window note, verbatim preservation of CORR_GUIDE caveats); tests/test_report_app.py x2 (intro expander once at index 1 after Parameters; st.markdown receives CORR_GUIDE[key]+CORR_LOOKFOR_GUIDE[key] per section, mechanics first, separator x5). Existing count("How to read this chart")==5 test unchanged.
+- README.md + docs/README.md: Correlation bullet + Guides paragraph updated; byte-identical (cmp verified).
+- Gates: pytest 1784/1784 (207s); check_loops --src-dir src exit 0 (17 files); READMEs byte-identical; git status clean; --verify F27-T1 ALL PASS (5/5 prose ACs — no command fields, same as F26-T6). Commit 2c8c7ed.
+- Deviation: TASKS.json entry was registered with status="pending"; corrected to "todo" before claim (protocol expects todo).
