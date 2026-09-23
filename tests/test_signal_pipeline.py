@@ -110,12 +110,12 @@ class TestSchemaV7:
             "cluster_metadata",
         } <= tables
 
-    def test_schema_version_is_7(self, db):
-        assert SCHEMA_VERSION == 7
+    def test_schema_version_recorded(self, db):
+        assert SCHEMA_VERSION >= 7  # signal-pipeline schema landed at v7
         row = db.conn.execute(
             "SELECT MAX(version) FROM schema_version"
         ).fetchone()
-        assert row[0] == 7
+        assert row[0] == SCHEMA_VERSION
 
     def test_signal_records_column_layout(self, db):
         cols = db.conn.execute(
@@ -138,11 +138,11 @@ class TestSchemaV7:
         path = str(tmp_path / "reopen.duckdb")
         db1 = DatabaseManager(path)
         db1.close()
-        db2 = DatabaseManager(path)  # re-init on existing v7 DB
+        db2 = DatabaseManager(path)  # re-init on existing migrated DB
         row = db2.conn.execute(
             "SELECT MAX(version) FROM schema_version"
         ).fetchone()
-        assert row[0] == 7
+        assert row[0] == SCHEMA_VERSION
         # tables still exist, no error
         db2.conn.execute("SELECT COUNT(*) FROM signal_records").fetchone()
 
