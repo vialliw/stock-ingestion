@@ -3177,3 +3177,47 @@ AC (regression): do_get/do_put/do_action code paths untouched by the diff (only 
 GATES: pytest 1762/1762 (177s, own run), check_loops exit 0 (17 files), README.md == docs/README.md fc /b identical, git status clean, scope clean (1a75c2a = output_files only; 9753598 = blackboard only).
 NON-BLOCKERS (unchanged, confirmed test-only): src/flight_server_challenger.py:85 retains the prefix-only+forbidden-regex validator (no extract_statements — same multi-statement hole); src/db_challenger.py:90 bare duckdb.connect (no kill-switch). Neither imported by any src/ or scripts/ prod path (grep: zero 'import.*challenger' in src/; src/main.py uses src.db + src.flight_server; run_flight_server.py -> src.main). Recommend the orchestrator-tracked parity fix for flight_server_challenger remains queued.
 HONEST FINAL CALL: the boundary (kill-switch + single-statement-SELECT + dml_admin denylist + confinement) is now adequate for trusted local clients. The C-F26T4-1 bypass class is dead end-to-end: extract_statements runs the real DuckDB parser, so any second statement — however disguised (comments, unicode, string literals, case) — counts as 2 and dies before the conn; a single statement must classify SELECT and pass the SELECT/WITH prefix. No statement-level escape remains (SET/LOAD/INSTALL/ATTACH/COPY/PRAGMA/VACUUM/CALL/PREPARE are all statement-level). Residual surface = built-in scalar/table fns inside a SELECT (file readers + benign side-effect fns) — accurately disclosed, acceptable for a local trusted-client read endpoint. DEPLOYMENT REMINDER stands: restart StockIngestion-FlightServer for the fix to take effect.
+
+[2026-09-23T13:24:11.205171+00:00] [critic] F26 composite acceptance gate (HEAD eadcdb7, own probes on duckdb 1.5.5 + real gRPC) -> VERDICT: FAIL on ONE defect; all other ACs PASS
+
+METHOD: own %TEMP% probes (deleted after): real temp-file DatabaseManager + real IngestionEngine + real MarketDataFlightServer/FlightClient on ephemeral port; execute_query spy for pre-conn proof; git log --stat on all F26 commits; own pytest run.
+
+F26-T1 (client-DML surface):
+- AC1 PASS: SCHEMA_VERSION=8; table_registry (namespace,table_name,full_name,owner,has_pk,pinned,created_at,last_write,rows_est + PK(ns,table)) and client_dml_audit (audit_id PK,client_tag,op,target,source_sql_sha256,bytes_in,rows_written,status,error,duration_ms,created_at) both created; every op audited incl. REJECTED (my volley: 38 audit rows, 22 REJECTED).
+- AC2 PASS: all 10 ops live end-to-end — register_namespace (allowlist), create_table (structured spec -> real PRIMARY KEY), create_as (materialized_via=arrow_snapshot observed), create_view, insert_select append+replace (replace atomic: dup-PK insert FAILED loud, txn rolled back to prior row), drop_table (registered-only, kind-aware view/table), list_tables, pin/unpin, dml_sweep (expired unpinned dropped, pinned kept — verified by backdating created_at+last_write).
+- AC3 PASS: main.*, unlisted ns, bad-name, unqualified and unregistered targets all REJECTED+audited; post-write catalog assertion in each write unit (ingestion.py:1738/1846/1916/2283).
+- AC4 PASS: 4-layer source validation verified (prefix + keyword denylist + table/path literal denylist + extract_statements single-SELECT; WITH..DELETE dies at layer 2).
+- AC5 PASS: do_put 3 modes verified engine-level AND over real gRPC (append dup-PK -> FlightServerError at writer.close; BY NAME subset; create_or_replace over PK table refused; legacy non-JSON descriptor -> daily_close upsert intact).
+- AC6 FAIL (defect D-F26-1): config block exists+works, but scripts/dml_client.py DmlClient.put_frame SWALLOWS server write errors — the finally block wraps writer.close() in except Exception:pass, and on pyarrow 21.0.0 the server's FlightServerError arrives at close() (verified live: direct do_put close raised 'do_put write failed: Constraint Error: Duplicate key k: 1'; put_frame returned with NO error; audit row shows do_put:append FAILED). The helper's own docstring 'Raises flight.FlightError on REJECTED/FAILED writes' is falsified — a vendored client sees silent success on a failed write (incl. the AC5 dup-PK 'fail loudly' case). Fix: re-raise close errors when the write phase completed (or drop the except:pass). scripts/dml_client.py is in F26-T1 output_files -> needs a fix task.
+- AC7 PASS (gates, see composite).
+
+F26-T2 (exfil-via-SELECT):
+- AC1 PASS: ~75 own vectors — every family sampled and REJECTED at validate_source_sql + e2e on all 3 source ops: read_text/read_blob/read_json/read_parquet/parquet_scan/read_csv_auto/sniff_csv/csv_sniffer/st_read, FROM '<abs-path>'/t,'path'/FROM /*c*/ 'x'/FROM --c 'x', 'https://'+'s3://' literals, data-file-ext literals anywhere, postgres_/mysql_/odbc_/sqlite_/delta_/iceberg_ scanners, pragma_*/duckdb_*/current_setting/which_secret/getvariable, force_checkpoint/nextval/setseed/copy_database/pg_sleep/query/query_table/json_execute_serialized_sql.
+- AC2 PASS: heavy create_as source (md5 over range(2e8)) timed out at 1.6s under dml_timeout_seconds=1.5 -> FAILED+audited, table not created, worker interrupted.
+- AC3 PASS: docs honest (module comment + DATA_SERVICE_API.md distinguish kill-switch boundary from best-effort denylist; residuals enumerated).
+- AC4 PASS.
+
+F26-T3 (generator family):
+- AC1 PASS: dbgen/dsdgen/tpch_*/tpcds_*/enable_*/disable_*/verify_*/add_parquet_key/import_database/export_database + (DESCRIBE)/(SUMMARIZE)/(DESC)/(SHOW TABLES)/(EXPLAIN) subquery forms + describe()/summarize() call forms all DmlRejected at validation (never executed — post-volley loaded set has no tpch/tpcds).
+- AC2 PASS: comment-gap vectors 'SELECT * FROM /* gap */ 'path'' and 'FROM -- c
+ 'x'' and '(/*c*/ DESC t)' all denied via _COMMENT_OR_WS bridge.
+- AC3 PASS: residual wording accurate; 'pivot is a reserved word' claim verified live (unquoted CREATE SCHEMA pivot and SELECT FROM pivot.t are Parser Errors on 1.5.5; quoted works).
+- AC4 PASS.
+
+F26-T4 (kill-switch):
+- AC1 PASS: db.py:96-97 SET autoinstall/autoload=false at open; verified false on write conn AND read path (execute_query); stem/sql_auto_complete/host/::INET/dbgen all die at bind with CatalogException through do_get-style reads AND real gRPC; loaded set stayed {core_functions,icu,json,parquet} after full volley; spot-checked startup + canonical read + upsert_dataframe — zero server path needs an extension. (Note: explicit LOAD/INSTALL DO run on a bare execute_query call — statement-level, unreachable from clients: do_get gates single-SELECT, dml sources denylist them; internal API only.)
+- AC2 PASS: entrypoints denied — sql_auto_complete/stem/host(/broadcast(/netmask(/network(/family(/html_escape/excel_text/create_fts_index/drop_fts_index/check_peg_parser/truncate_duckdb_logs/write_log/error(/stats( + desc comment-arm.
+- AC3 PASS: docs accurate.
+- AC4 PASS.
+
+F26-T5 (do_get single-statement):
+- AC1 PASS: 24 wire vectors (all 6 round-4 + BOM-adjacent/comment/string-literal/case/3-statement evasions + WITH..INSERT + PREPARE/CALL/COPY/VACUUM/PRAGMA/SHOW forms) rejected pre-conn — execute_query spy = 0 calls for every vector.
+- AC2 PASS: 11 legit shapes served incl. trailing ;/;;/padding, single+multi CTE, string literal 'a;b', -- and /* */ tails, VALUES subquery.
+- AC3 PASS: sec.2 states the contract AND discloses the file-reader residual — verified live: SELECT content FROM read_text(sentinel) exfiltrated SENTINEL-5 through do_get (matches doc).
+- AC4 PASS.
+
+COMPOSITE: no SUCCESS audit row for any rejected-only target; no client objects in main (only server-owned tables); registry accurate (empty after drops); Bollinger workflow end-to-end over real gRPC via shipped DmlClient: register pivot -> create_table weekly_bars PK(week_id,Ticker) -> insert_select replace x2 idempotent (3 rows, no dup) -> create_as CTAS from weekly_close -> create_view -> do_put create_or_replace+append -> list/pin/unpin/drop -> registry empty -> legacy do_put daily_close intact. pytest 1762/1762 (190s own run); check_loops exit 0 (17 files); README twins byte-identical (89842 B); git status clean; task-commit diffs all inside output_files (stray: docs/enhancements/20260923 correlation dashboard info.md swept into claim commit 8d52de0 — harmless docs note).
+
+RESIDUALS (documented/accepted): built-in file readers on do_get (read_text/glob/sniff_csv verified reachable — disclosed in sec.2); quoted-call slip 'host(...)' passes validation but dies at bind while the extension is unloaded (verified: it executed ONLY after a bare execute_query('LOAD inet') — a statement no client path can issue); test-only challenger parity items unchanged (flight_server_challenger.py prefix-only hole; db_challenger.py:90 no kill-switch); dml_client.put_frame bug D-F26-1 above is the sole blocker.
+
+RECOMMENDED: F26-T6 fix task for scripts/dml_client.py put_frame (re-raise writer.close() errors) — small, single-file, plus a propagation test. Deployment reminder stands: restart StockIngestion-FlightServer.
