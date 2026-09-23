@@ -3036,3 +3036,59 @@ Evidence map:
     "output": ""
   }
 ][2026-09-23T11:46:08.922265+00:00] [executor] F26-T3 done (commit c4bc84e). Generator/side-effect family denied in src/client_dml.py validate_source_sql: dbgen|dsdgen|tpch_*|tpcds_*|enable_*|disable_*|verify_*|add_parquet_key|import_database|export_database|load_aws_credentials + describe/desc-in-paren/summarize/explain/show* statement-form table refs + bundled autoloadable families (st_* delta_* iceberg_* vortex_* lance_* ducklake* vss_* aws_* azure_* start_ui* start_quack* quack*). Table-literal bridge widened to span /*..*/ and -- comments (chose widening over comment-stripping so x--y.csv literals stay denied - live-verified they bind as files). Probes in TEMP probe_f26t3 on throwaway :memory: conn only, dbgen/dsdgen never invoked. Tests +147 (validator vectors + TestGeneratorFamilyRejected 34x3 engine ops, each guarded by validate-raises assert first so a miss fails without executing; no-side-effects assert on 15 tpch/tpcds catalog names). pytest 1598/1598, check_loops exit 0, README twins identical, git status clean.
+[2026-09-23T12:09:31.829972+00:00] [challenger] F26-T3 adversarial re-verify (HEAD 0ec9525, impl c4bc84e) -> NEEDS-WORK. Own probes in %TEMP% probe_f26t4/p1-p9 (real DatabaseManager+IngestionEngine+run_dml_admin + throwaway :memory: conns, duckdb 1.5.5, deleted after; dbgen/dsdgen never invoked).
+
+B1 MEDIUM - autoloadable-extension entrypoints OUTSIDE the denied families pass validation AND execute with audited SUCCESS: "SELECT * FROM sql_auto_complete('SEL')" (autocomplete), "SELECT stem('running','english')" (fts), "SELECT host('127.0.0.1')"/broadcast (inet). Verified live through run_dml_admin: create_as -> SUCCESS on all three + duckdb_extensions() shows each ext INSTALLED (new files under ~/.duckdb/extensions/v1.5.5, mtimes=probe time) and LOADED (persists globally for the server process); create_view -> SUCCESS (the LIMIT-0 bind probe itself triggers install); insert_select(stem AS s) -> SUCCESS 1 row. Same property the executor used to deny whole families ("calling an uninstalled bundled function triggers extension auto-install = egress + remote native-code load") - but the family coverage missed autocomplete/fts/inet entrypoints, all enumerable from duckdb_extensions() on this build (the code comment claims exactly that enumeration). Probe also found excel_text/text-style names are map-known but NOT autoload-marked, and motherduck/unity_catalog/encodings/avro have entrypoints per duckdb_extensions() but I could not confirm callable names - class proven, coverage not exhaustive. Denylist gap at src/client_dml.py:295-321.
+  PLATFORM FIX MISSED (recommend): "SET autoinstall_known_extensions=false" + "SET autoload_known_extensions=false" kills the ENTIRE autoload class at bind time - verified live: stem/sql_auto_complete/host/dbgen ALL CatalogException, SELECT 42 fine, cursor inherits (global). The F26-T2 platform analysis covered enable_external_access/allowed_directories/allowed_paths/SET LOCAL/second-connect but not this pair. Unlike enable_external_access it is NOT a one-way trap; only caveat: already-installed exts (httpfs for R2) also stop auto-loading by name, so server startup must LOAD httpfs explicitly. Strictly stronger than any denylist for the install/egress class.
+
+B2 LOW - desc positional arm comment gap: "SELECT * FROM (/*c*/ DESC client_dml_audit)" and a stacked-comment variant PASS validation and execute+audit SUCCESS (materialized a pivot table holding a main table's schema). The arm at src/client_dml.py:307 only spans \s, not comments - inconsistent with the F26-T3 comment bridge applied to _DENIED_TABLE_LITERAL_RE. Fix: "(" + _COMMENT_OR_WS + "desc". Severity low (schema introspection; do_get already exposes schemas) but a live miss of a pinned arm - "(DESC t)" is test-pinned denied while "(/*c*/ DESC t)" sails through.
+
+B3 LOW - "SELECT * FROM truncate_duckdb_logs()" and "SELECT write_log('msg')" un-denied -> audited SUCCESS via create_as; log-truncation is an anti-forensic-ish side effect on the server's duckdb log store, write_log injects client text into it. stats()/error() trivial.
+
+VERIFIED NON-ISSUES (live, ~60 vectors): case (DBGEN), quoted names ("dbgen"()), schema-qualified (main./system.), token-split comments (db/**/gen -> parse error), CTE shadowing (rejected FP), nested depth, PIVOT-in-subquery (extract_statements=2 reject), UNPIVOT/VALUES/FROM-first/CROSS/NATURAL joins (execute, read-only - fine), literal bridges incl. LF/TAB/CRLF/VT/FF + stacked comments + unterminated comment (parse reject) + JOIN 'x' + FROM t,'x.csv' + FROM '' + 'x--y.csv'; FROM t , 'x' passes but binds as table name -> FAILED (documented residual); multi-statement rejected; SELECT 1;; = 1 stmt harmless; ORDER BY x DESC regression clean; EXPORT/IMPORT DATABASE/VACUUM/USE/RESET/ANALYZE do NOT parse as table refs; pragma-type fns (database_size/table_info/etc.) not callable in FROM; bare csv/parquet/sleep/inet/cidr names don't exist; substrait not a known ext on 1.5.5; no to_csv/to_parquet function forms.
+
+Timeout regression OK: sum over range(5e9) w/ 0.5s budget -> FAILED in 0.52s audited FAILED, engine usable after, no degrade; denied heavy source REJECTED in 0.002s (validation precedes execution). Audit integrity: SUCCESS/FAILED/REJECTED all correct; no SUCCESS for a rejected op; no side-effect tables in main on any attack. Vacuity: TestGeneratorFamilyRejected asserts validate_source_sql raises BEFORE run_dml_admin (test_client_dml.py:860/877/892); monkeypatch demo - weakening _DENIED_KEYWORDS_RE lets dbgen pass -> the pytest.raises guard fails first = not vacuous. Gates: pytest 1598/1598 (221s), check_loops exit 0 (17 files), README twins identical, git status clean.
+
+VERDICT NEEDS-WORK: B1 is a demonstrated present-day bypass of exactly the class F26-T3 claimed to close (autoload egress + remote native-code load, audited SUCCESS, permanent loaded-extension surface expansion for the whole server). Residual-risk statement: a regex denylist cannot close this boundary - every DuckDB release/extension adds entrypoints, and autoload means any un-denied NAME pulls remote code; for trusted local clients the real confinement (server-composed namespacing) is intact and the denylist is honest defense-in-depth, but the durable fix is autoinstall/autoload_known_extensions=false at DB open + explicit LOAD for server-needed exts.
+
+[2026-09-23T12:11:53.982011+00:00] [executor] claimed F26-T4
+[2026-09-23T12:32:35.816740+00:00] [executor] completed F26-T4 -> commit 516e5cb. PRIMARY: autoinstall+autoload_known_extensions=false at DatabaseManager open (src/db.py:75-79) - GLOBAL, kills whole autoload class at bind server-wide incl. pre-existing do_get hole; verified live on 1.5.5 via real DatabaseManager (stem/sql_auto_complete/host/broadcast/::INET all CatalogException 'exists in the X extension'; SELECT 42 + CAST AS TEXT + COUNT + upsert + weekly rebuilds all fine). Audit: zero server paths use extension fns (r2_sync=boto3, Excel=pandas/openpyxl, weekly/signal/fear_greed=builtins+requests) - no LOAD needed. BELT: denylist +12 bare entrypoint names + 7-name call-form arm + desc-arm _COMMENT_OR_WS bridge (B2). Entrypoints enumerated live via LOAD-diff + binder hints; motherduck/unity_catalog/encodings have none enumerable. Tests +112 (1710/1710 pass, 194s), incl. engine-level REJECTED/FAILED+audited never SUCCESS, no-ext-loaded side-effect asserts, FP regression pins. check_loops exit 0, README twins identical, git clean.
+Evidence map:
+[
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-23T12:55:00.000000+00:00
+Last Updated: 2026-09-23T12:09:31.829972+00:00
 Current Branch: main
 
 ## Active Blocker
@@ -552,3 +552,5 @@ efresh_fear_greed.py %*`). `requirements.txt` + `requests>=2.31`.
 - Docs: src/client_dml.py denylist comment rewritten — WHAT IS ENFORCED NOW adds the generator/side-effect + statement-form + bundled-extension bullets and the comment-spanning literal bridge; KNOWN RESIDUAL GAPS now scopes the residual class as present-day AND future side-effect/generator functions (bundled list enumerated on 1.5.5 only) + notes `pivot` is a reserved word needing `"pivot"."t"` quoting in client source SQL. DATA_SERVICE_API.md §4.1: denylist bullets updated (generator/side-effect + statement-form + literal comment note), quoting note callout (`"pivot"."my_table"`), caveats now say the residual is present+future side-effect fns and add the narrow `FROM t,'relpath'` residual.
 - Out of scope per task: B3 trivial introspection fns (pg_*/current_*/inet_*/version) and B6 documented false-positive class — unchanged.
 - Gates: pytest 1598/1598 (baseline 1451 + 147); check_loops --src-dir src exit 0 (17 files); README.md==docs/README.md byte-identical (untouched); git status clean; --verify F26-T3 ALL PASS (4/4). Commit c4bc84e. DEPLOYMENT NOTE: restart StockIngestion-FlightServer task so the running server picks up the hardened denylist.
+
+- F26-T3 challenger round-3 adversarial re-verify (challenger C, HEAD 0ec9525) -> NEEDS-WORK. B1 MEDIUM: un-denied autoloadable-extension entrypoints sql_auto_complete (autocomplete) / stem (fts) / host+broadcast (inet) pass validate_source_sql and execute with audited SUCCESS via all 3 source ops - extension INSTALL (egress + remote native-code load + ~/.duckdb/extensions disk write) + LOADED persists globally; same class executor denied whole families over, coverage just missed these entrypoints (src/client_dml.py:295-321). PLATFORM FIX MISSED: SET autoinstall_known_extensions=false + autoload_known_extensions=false verified live to kill the whole autoload class at bind (global, not one-way like enable_external_access; needs explicit LOAD httpfs at startup). B2 LOW: (/*c*/ DESC t) passes+executes - the desc arm (client_dml.py:307) doesn't span comments. B3 LOW: truncate_duckdb_logs()/write_log() un-denied side effects. ~60-vector evasion matrix otherwise clean; timeout/audit/vacuity/gates all verified (pytest 1598, check_loops 0, twins identical, git clean). Full detail in EVENTS.log.
