@@ -2,8 +2,9 @@
 
 Implements ``MarketDataFlightServer`` per spec §10 (reference
 implementation): a ``flight.FlightServerBase`` subclass that exposes a
-read-only ``do_get`` endpoint (SELECT-only SQL validated before reaching
-DuckDB) and a ``do_action`` endpoint routing the administrative actions
+read-only ``do_get`` endpoint (single-statement SELECT-only SQL
+validated before reaching DuckDB) and a ``do_action`` endpoint routing
+the administrative actions
 (initial_load, daily_load, on_request_load, metadata_load,
 weekly_refresh, fear_greed_refresh, signal_pipeline, signal_analysis,
 dml_admin, daily_report, health_check, data_health, get_run_history,
@@ -25,6 +26,7 @@ import re
 import threading
 from datetime import datetime
 
+import duckdb
 import pandas as pd
 import pyarrow as pa
 import pyarrow.flight as flight
@@ -39,17 +41,49 @@ logger = logging.getLogger(__name__)
 # =====================================================================
 
 def _validate_select_only(sql: str) -> None:
-    """Reject non-SELECT/non-WITH statements for ``do_get``.
+    """Reject anything but a single SELECT statement for ``do_get``.
 
-    Strips leading/trailing whitespace, uppercases the string, and
-    verifies it starts with ``SELECT`` or ``WITH`` (CTE).  Raises
-    ``ValueError`` for any other statement type so that ``do_get`` can
+    Two layers:
+
+    1. Prefix fast-path — the stripped text must start with ``SELECT``
+       or ``WITH`` (CTE).
+    2. ``duckdb.extract_statements`` — the ticket must parse as
+       *exactly one* statement whose type is ``StatementType.SELECT``
+       (the same check ``client_dml.validate_source_sql`` applies).
+       ``WITH ... SELECT`` classifies SELECT and passes;
+       ``WITH ... INSERT`` classifies INSERT and is rejected.
+       Trailing semicolons and comment-only tails still count as the
+       single leading statement.
+
+    Layer 2 closes the F26-T5 hole (challenger finding C-F26T4-1): a
+    prefix-only check let multi-statement tickets through and
+    ``conn.execute`` ran *every* statement — verified over real gRPC,
+    ``SELECT 1; SET autoload_known_extensions=true`` re-armed the
+    F26-T4 extension kill-switch instance-wide, and the same channel
+    reached ``LOAD``/``INSTALL``/``SET enable_external_access`` (a
+    one-way R2 breaker)/``SET memory_limit``/``SET threads``.
+
+    Raises ``ValueError`` for any violation so that ``do_get`` can
     translate it into a ``FlightServerError``.
     """
     stripped = sql.strip().upper()
     if not stripped.startswith("SELECT") and not stripped.startswith("WITH"):
         raise ValueError(
             "Only SELECT and WITH (CTE) statements are allowed via do_get"
+        )
+    try:
+        statements = duckdb.extract_statements(sql.strip())
+    except Exception as exc:
+        raise ValueError(f"do_get query does not parse: {exc}") from exc
+    if len(statements) != 1:
+        raise ValueError(
+            "do_get accepts exactly one statement, "
+            f"got {len(statements)}"
+        )
+    stmt_type = statements[0].type
+    if stmt_type != duckdb.StatementType.SELECT:
+        raise ValueError(
+            f"do_get accepts only SELECT statements, got {stmt_type}"
         )
 
 
@@ -147,7 +181,8 @@ class MarketDataFlightServer(flight.FlightServerBase):
     """Arrow Flight server exposing read-only SQL and admin actions.
 
     ``do_get`` accepts a JSON ticket containing an ``sql`` field,
-    validates it is SELECT/WITH-only, executes it via
+    validates it is a single SELECT-type statement
+    (``_validate_select_only``), executes it via
     ``DatabaseManager.execute_query`` and returns a
     ``flight.RecordBatchStream``.
 

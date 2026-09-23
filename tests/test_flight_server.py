@@ -25,6 +25,7 @@ import os
 import socket
 import threading
 import time
+import types
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
@@ -1928,3 +1929,213 @@ class TestDoPutDescriptor:
         )
         ingest_engine.run_dml_put.assert_not_called()
         db_mgr.upsert_dataframe.assert_called_once()
+
+
+# =====================================================================
+# F26-T5: do_get single-statement enforcement (challenger C-F26T4-1)
+# =====================================================================
+#
+# The challenger's round-4 live probe proved that a prefix-only
+# ``_validate_select_only`` let multi-statement tickets through and
+# ``conn.execute`` ran EVERY statement: 'SELECT 1; SET
+# autoload_known_extensions=true' re-armed the F26-T4 kill-switch
+# instance-wide, 'SELECT 1; LOAD inet' loaded an installed extension,
+# and the same channel reached SET enable_external_access=false (a
+# one-way R2 breaker), INSTALL and SET memory_limit/threads.  The
+# executor impl now enforces exactly one SELECT-type statement via
+# ``duckdb.extract_statements`` — the same check
+# ``client_dml.validate_source_sql`` applies.
+#
+# Scope note: these tests pin the EXECUTOR implementation only
+# (``_executor_module`` = src.flight_server).  The challenger variant
+# keeps its own regex-prefix validator and is outside F26-T5's
+# output_files.
+
+
+def _do_get_ticket(sql):
+    """Build a ``do_get`` ticket carrying ``{"sql": sql}``."""
+    return flight.Ticket(json.dumps({"sql": sql}).encode("utf-8"))
+
+
+# The challenger's exact smuggle vectors plus second-statement variants.
+_REARM_VECTORS = [
+    # The proven re-arm: one ticket flips the kill-switch server-wide.
+    "SELECT 1; SET autoload_known_extensions=true",
+    "SELECT 1; SET autoinstall_known_extensions=true",
+    # Direct LOAD of an installed extension (no autoload needed).
+    "SELECT 1; LOAD inet",
+    # INSTALL = network egress for not-on-disk extensions.
+    "SELECT 1; INSTALL tpch",
+    # One-way breaker: kills the server's R2/httpfs until restart.
+    "SELECT 1; SET enable_external_access=false",
+    # Performance degradation knobs.
+    "SELECT 1; SET memory_limit='64MB'",
+    "SELECT 1; SET threads=1",
+    # Three-statement re-arm + exploit chain.
+    "SELECT 1; SET autoload_known_extensions=true; "
+    "SELECT stem('running','english')",
+    # Plain second statements (any kind) must die too.
+    "SELECT 1; SELECT 2",
+    "SELECT 1; DROP TABLE daily_close",
+    "SELECT 1; DELETE FROM daily_close",
+    "SET autoload_known_extensions=true; SELECT 1",
+    "SELECT 1;\nSET autoload_known_extensions = true",
+    # A trailing unparsable fragment is still not a clean single
+    # statement — extract_statements raises and we reject.
+    "SELECT 1; garbage$$$",
+]
+
+# Legit single-statement SELECTs that must keep passing — the shapes
+# real consumers (and the report scripts) send.
+_LEGIT_SELECTS = [
+    "SELECT 1",
+    "SELECT 42 AS answer",
+    "SELECT * FROM daily_close",
+    "SELECT 1;",
+    "SELECT 1;;",
+    "  SELECT 1  ;  ",
+    "SELECT 1\n;\n",
+    # Comment-only tails count as the single statement.
+    "SELECT 1 -- trailing comment",
+    "SELECT 1; -- comment-only tail",
+    "SELECT 1; /* comment-only tail */",
+    "SELECT 1;\n-- comment-only tail\n",
+    "SELECT 1 /* block comment */",
+    # WITH ... SELECT classifies SELECT.
+    "WITH cte AS (SELECT * FROM daily_close) SELECT * FROM cte",
+    "WITH x AS (SELECT 1 AS a) SELECT * FROM x;",
+    # Multi-line (the §7 recipe style).
+    "SELECT Ticker,\n       Close\nFROM daily_close\nORDER BY Date",
+    # A semicolon inside a string literal is not a second statement.
+    "SELECT '; SET x=1' AS s",
+]
+
+
+class TestDoGetSingleStatementValidation:
+    """``_validate_select_only`` — single-statement SELECT enforcement."""
+
+    @pytest.mark.parametrize("sql", _REARM_VECTORS)
+    def test_multi_statement_rejected(self, sql):
+        with pytest.raises(ValueError):
+            _executor_module._validate_select_only(sql)
+
+    def test_with_insert_rejected(self):
+        # A single statement that classifies INSERT (not SELECT) —
+        # passes the WITH prefix but must die on the type check.
+        with pytest.raises(ValueError):
+            _executor_module._validate_select_only(
+                "WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x"
+            )
+
+    @pytest.mark.parametrize("sql", _LEGIT_SELECTS)
+    def test_legit_single_select_accepted(self, sql):
+        # Must not raise.
+        _executor_module._validate_select_only(sql)
+
+
+@pytest.fixture
+def exec_wire_db(tmp_path):
+    """REAL executor server + real client + REAL DatabaseManager.
+
+    Unlike ``wire_server`` (mocked db), a real DB is required here so a
+    successful smuggle would leave real evidence — flipped settings or
+    a loaded extension — and the post-attempt assertions can read the
+    actual server state back.
+    """
+    from src.db import DatabaseManager
+
+    db_mgr = DatabaseManager(str(tmp_path / "f26t5.duckdb"))
+    cfg = types.SimpleNamespace(
+        server=types.SimpleNamespace(query_timeout_seconds=30),
+    )
+    location = _ephemeral_location()
+    server = _executor_module.MarketDataFlightServer(
+        location, db_mgr, MagicMock(), cfg
+    )
+    thread = threading.Thread(target=server.serve, daemon=True)
+    thread.start()
+    try:
+        client = flight.FlightClient(location)
+        client.wait_for_available(timeout=10)
+        yield server, client, db_mgr
+    finally:
+        try:
+            server.shutdown()
+        except Exception:
+            pass
+        try:
+            thread.join(timeout=2)
+        except Exception:
+            pass
+        try:
+            db_mgr.close()
+        except Exception:
+            pass
+
+
+class TestDoGetMultiStatementOverWire:
+    """Real-gRPC + real-DuckDB proof that the re-arm vectors die at
+    validation — never reaching the conn — and leave no trace."""
+
+    @pytest.mark.parametrize("sql", _REARM_VECTORS)
+    def test_smuggle_ticket_rejected_before_conn(self, exec_wire_db, sql):
+        _, client, db_mgr = exec_wire_db
+        spy = MagicMock(wraps=db_mgr.execute_query)
+        db_mgr.execute_query = spy
+        with pytest.raises(flight.FlightError):
+            client.do_get(_do_get_ticket(sql)).read_all()
+        # The ticket never reached DuckDB — rejected at validation.
+        spy.assert_not_called()
+
+    def test_server_state_untouched_after_rearm_attempts(self, exec_wire_db):
+        """Fire every re-arm vector over real gRPC, then prove the
+        F26-T4 kill-switch is still armed, the one-way
+        ``enable_external_access`` breaker is NOT tripped, and an
+        autoloadable extension fn still cannot bind."""
+        _, client, db_mgr = exec_wire_db
+        # justified: each smuggle vector must be replayed verbatim over
+        # the wire — no vectorizable shortcut exists for a gRPC call.
+        for sql in _REARM_VECTORS:
+            with pytest.raises(flight.FlightError):
+                client.do_get(_do_get_ticket(sql)).read_all()
+        for setting in (
+            "autoinstall_known_extensions",
+            "autoload_known_extensions",
+        ):
+            value = db_mgr.conn.execute(
+                f"SELECT current_setting('{setting}')"
+            ).fetchone()[0]
+            assert value is False, f"{setting} re-armed to {value!r}"
+        assert (
+            db_mgr.conn.execute(
+                "SELECT current_setting('enable_external_access')"
+            ).fetchone()[0]
+            is True
+        )
+        # Autoload is still dead end-to-end: stem() (fts) fails at bind.
+        with pytest.raises(Exception) as excinfo:
+            db_mgr.execute_query("SELECT stem('running','english')")
+        assert "extension" in str(excinfo.value).lower()
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT 42 AS answer",
+            "SELECT 42 AS answer;",
+            "WITH x AS (SELECT 7 AS v) SELECT v FROM x",
+            "SELECT 1 AS a,\n       2 AS b",
+            "SELECT 1 AS a; -- comment-only tail",
+        ],
+    )
+    def test_legit_queries_still_served(self, exec_wire_db, sql):
+        """The read path itself is unbroken over the wire."""
+        _, client, _ = exec_wire_db
+        table = client.do_get(_do_get_ticket(sql)).read_all()
+        assert table.num_rows == 1
+
+    def test_legit_query_returns_data(self, exec_wire_db):
+        _, client, _ = exec_wire_db
+        table = client.do_get(
+            _do_get_ticket("SELECT 42 AS answer")
+        ).read_all()
+        assert table.to_pandas().iloc[0, 0] == 42

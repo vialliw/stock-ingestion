@@ -32,9 +32,15 @@ client.wait_for_available(timeout=5)   # raises if the service is down
 
 ## 2. Querying — `do_get`
 
-The ticket is a **JSON object with one `sql` key**. Only `SELECT` /
-`WITH` statements are accepted — DDL and DML are rejected
-(`FlightServerError`). Results stream back as Arrow record batches.
+The ticket is a **JSON object with one `sql` key**. It must be
+**exactly one `SELECT` statement** — the server parses the ticket with
+`duckdb.extract_statements` and rejects, before the query ever reaches
+DuckDB, anything that is not a single `SELECT`-type statement
+(`FlightServerError`): DDL/DML, `SET`, `LOAD`, `INSTALL`, `PRAGMA`,
+and multi-statement payloads such as `SELECT 1; SET …` are all
+refused. `WITH … SELECT` counts as SELECT; trailing semicolons and
+comment-only tails are fine. Results stream back as Arrow record
+batches.
 
 > **Extension autoload is disabled server-wide** (F26-T4): the server
 > opens DuckDB with `autoinstall_known_extensions=false` and
@@ -42,9 +48,21 @@ The ticket is a **JSON object with one `sql` key**. Only `SELECT` /
 > function/type from an extension that is not already loaded
 > (e.g. `stem()`, `sql_auto_complete()`, `host()`, a `::INET` cast)
 > fails at bind with a CatalogException — it will **not** auto-install
-> or auto-load, on `do_get` or anywhere else. Use only built-in
-> functions in tickets; statically-linked extensions (`parquet`,
-> `json`, `icu`, `core_functions`) work as usual.
+> or auto-load. And because `do_get` accepts only a single SELECT
+> statement (F26-T5), there is no ticket path to `SET`/`LOAD`/`INSTALL`
+> that could re-arm the switch. Use only built-in functions in
+> tickets; statically-linked extensions (`parquet`, `json`, `icu`,
+> `core_functions`) work as usual.
+
+> **Built-in file readers remain reachable on `do_get`** — accepted
+> residual for trusted local clients. `do_get` carries no function
+> denylist, so *built-in* functions — including file readers such as
+> `read_text`, `read_blob`, `glob`, `sniff_csv` — still execute inside
+> a SELECT and can read files on the **server** host. This is a
+> pre-existing contract limitation (the server is a read endpoint for
+> trusted clients on the local machine), not a sandbox boundary. The
+> `dml_admin` write path (§4.1) *does* denylist these names; `do_get`
+> deliberately does not.
 
 ```python
 import json
