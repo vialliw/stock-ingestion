@@ -3035,4 +3035,4 @@ Evidence map:
     "passed": true,
     "output": ""
   }
-]
+][2026-09-23T11:46:08.922265+00:00] [executor] F26-T3 done (commit c4bc84e). Generator/side-effect family denied in src/client_dml.py validate_source_sql: dbgen|dsdgen|tpch_*|tpcds_*|enable_*|disable_*|verify_*|add_parquet_key|import_database|export_database|load_aws_credentials + describe/desc-in-paren/summarize/explain/show* statement-form table refs + bundled autoloadable families (st_* delta_* iceberg_* vortex_* lance_* ducklake* vss_* aws_* azure_* start_ui* start_quack* quack*). Table-literal bridge widened to span /*..*/ and -- comments (chose widening over comment-stripping so x--y.csv literals stay denied - live-verified they bind as files). Probes in TEMP probe_f26t3 on throwaway :memory: conn only, dbgen/dsdgen never invoked. Tests +147 (validator vectors + TestGeneratorFamilyRejected 34x3 engine ops, each guarded by validate-raises assert first so a miss fails without executing; no-side-effects assert on 15 tpch/tpcds catalog names). pytest 1598/1598, check_loops exit 0, README twins identical, git status clean.
