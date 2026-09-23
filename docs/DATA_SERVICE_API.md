@@ -322,21 +322,37 @@ covering four families —
   `LOAD`, `INSTALL`, `SET`, `CALL`, `PREPARE`, `EXECUTE`, `SECRET`,
   `CREATE`, `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `MERGE`;
 - **file / remote readers:** every `read_*`, `parquet_*`, `sqlite_*`,
-  `st_read*`, `postgres_*`, `mysql_*`, `odbc_*` name, plus `glob`,
-  `sniff_csv`/`csv_sniffer`, `delta_scan`, `iceberg_scan`,
-  `query`/`query_table` and the `json_*serialize*_sql` plan-execution
-  helpers;
+  `st_*`, `postgres_*`, `mysql_*`, `odbc_*` name, plus `glob`,
+  `sniff_csv`/`csv_sniffer`, the `delta_*`/`iceberg_*`/`vortex_*`/
+  `lance_*` format scanners, `query`/`query_table` and the
+  `json_*serialize*_sql` plan-execution helpers;
+- **generator / side-effect functions:** `dbgen`/`dsdgen` and the
+  `tpch_*`/`tpcds_*` families (calling `dbgen` writes the TPC-H tables
+  into `main` and `dsdgen` crashes the server — and either call
+  auto-installs the bundled extension, i.e. network egress + remote
+  native-code load), every `enable_*`/`disable_*`/`verify_*` session
+  toggle (`enable_profiling`, `enable_logging`, …), `add_parquet_key`,
+  `import_database`/`export_database`, `load_aws_credentials`/
+  `aws_*`/`azure_*`, and the bundled server-starter families
+  `start_ui*`/`start_quack*`/`quack*`/`ducklake*`/`vss_*`;
+- **statement forms usable as table refs:** `describe`/`desc`,
+  `summarize`, `explain`, `show`/`show_*` —
+  `SELECT * FROM (DESCRIBE t)`/`(SUMMARIZE t)`/`(SHOW TABLES)` are
+  rejected (bare `desc` is only denied in `(`-position so
+  `ORDER BY … DESC` keeps working);
 - **introspection / side effects:** every `pragma*` and `duckdb_*`
   name, `current_setting`, `which_secret`, `setvariable`/`getvariable`,
   `checkpoint`/`force_checkpoint`, `nextval`/`setval`/`currval`,
   `setseed`, `copy_database`, `pg_sleep`/`sleep_ms`;
 - **file/URL literals:** a quoted token in table position
-  (`FROM '<path>'`, `JOIN 'https://…'`, `FROM t, "a/b.csv"`), any
-  `'scheme://…'` literal, absolute/relative/UNC/home path literals, and
-  literals ending in a known data-file extension (`'.csv'`,
-  `'.parquet'`, `'.duckdb'`, …) are rejected wherever they appear —
-  this kills the DuckDB replacement-scan shorthand that reads files or
-  autoloads httpfs for remote URLs.
+  (`FROM '<path>'`, `JOIN 'https://…'`, `FROM t, "a/b.csv"` — `/* */`
+  and `--` comments between `FROM`/`JOIN`/`,` and the literal do **not**
+  evade the check), any `'scheme://…'` literal,
+  absolute/relative/UNC/home path literals, and literals ending in a
+  known data-file extension (`'.csv'`, `'.parquet'`, `'.duckdb'`, …)
+  are rejected wherever they appear — this kills the DuckDB
+  replacement-scan shorthand that reads files or autoloads httpfs for
+  remote URLs.
 
 The statement must also classify via `duckdb.extract_statements` as
 exactly one SELECT-type statement (so `WITH x AS (DELETE ...) SELECT`
@@ -344,15 +360,28 @@ and multi-statement payloads are rejected too). A client transaction
 verb can never cross the wire — `replace` is the atomic-rebuild
 primitive.
 
-Two honest caveats. First, the denylist is deliberately
+> **Quoting note:** `pivot` is a DuckDB *reserved word*. Source SQL
+> that reads back pivot objects must double-quote it —
+> `SELECT * FROM "pivot"."my_table"`, not `pivot.my_table`
+> (unquoted `pivot.x` is a parser error).
+
+Three honest caveats. First, the denylist is deliberately
 over-broad: a string *value* that merely resembles a file
 (`WHERE note = 'report.csv'`) or an identifier that collides with a
-denied family (a column named `query`) is rejected — quote values
-accordingly. Second, it cannot *prove* total closure: file readers
-introduced by future DuckDB versions/extensions outside these
-families could slip through (verified on 1.5.5 that platform settings
-cannot be scoped per-cursor — `enable_external_access` is GLOBAL-only
-and a one-way switch — so the denylist is the enforcement layer).
+denied family (a column named `query`, `show` or `describe`) is
+rejected — quote values accordingly. Second, it cannot *prove* total
+closure: the residual class is **present-day *and* future**
+side-effect/generator functions — bundled or community extension
+functions outside the families above may already ship in the current
+build, and any DuckDB version/extension can add more (the bundled
+list was enumerated from `duckdb_extensions()` on 1.5.5 only);
+likewise file readers introduced by future versions could slip
+through (verified on 1.5.5 that platform settings cannot be scoped
+per-cursor — `enable_external_access` is GLOBAL-only and a one-way
+switch — so the denylist is the enforcement layer). Third, an
+extension-less relative-path literal deep in a `FROM` list
+(`FROM t, 'relpath'`) is not rejected — verified on 1.5.5 that such
+tokens resolve as *table names*, not files, so the hole is narrow.
 It is defense-in-depth on a **trusted-client** write surface, not a
 sandbox for hostile SQL.
 

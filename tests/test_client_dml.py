@@ -20,7 +20,13 @@ no mocks on the execution path:
   ``extract_statements`` single-SELECT check (F26-T2: every
   challenger-verified exfil vector rejected + audited on all three
   source-SQL ops; the create_as snapshot read is bounded by
-  ``dml_timeout_seconds`` via worker + interrupt).
+  ``dml_timeout_seconds`` via worker + interrupt.  F26-T3: the
+  generator/side-effect family — ``dbgen``/``dsdgen``/``tpch_*``/
+  ``tpcds_*``/``enable_*``/``disable_*``/``verify_*``,
+  ``add_parquet_key``, ``import_database``/``export_database``,
+  ``describe``/``desc``/``summarize``/``explain``/``show*`` statement
+  forms, bundled autoloadable-extension families — rejected + audited
+  on all three ops; comment-separated ``FROM 'x'`` literals denied).
 * Generalized ``do_put`` (engine level): create_or_replace|append|
   replace; PK enforced (dup keys fail loudly); schema mismatch ->
   REJECTED.
@@ -294,6 +300,65 @@ class TestSourceSqlValidation:
             # serialized-plan execution bypass
             "SELECT json_execute_serialized_sql('{}')",
             "SELECT json_serialize_sql('SELECT 1')",
+            # --- F26-T3: generator/side-effect family --------------
+            # (challenger-verified: dbgen wrote 8 tpch tables into
+            # main via the CTAS fallback, create_view was a latent
+            # write bomb, dsdgen SEGFAULTED the server — these are
+            # asserted REJECTED at validation, NEVER executed)
+            "SELECT * FROM dbgen(sf=0.001)",
+            "SELECT * FROM dbgen()",
+            "SELECT * FROM dsdgen(sf=0.001)",
+            "SELECT * FROM tpch_queries()",
+            "SELECT * FROM tpch_answers()",
+            "SELECT * FROM tpcds_queries()",
+            "SELECT * FROM tpcds_answers()",
+            "SELECT * FROM enable_profiling()",
+            "SELECT * FROM disable_profiling()",
+            "SELECT * FROM enable_logging()",
+            "SELECT * FROM disable_optimizer()",
+            "SELECT * FROM enable_checkpoint_on_shutdown()",
+            "SELECT * FROM verify_parallelism()",
+            "SELECT * FROM add_parquet_key('k','v')",
+            "SELECT import_database('d')",
+            "SELECT * FROM export_database('d')",
+            "SELECT * FROM load_aws_credentials('p')",
+            "SELECT * FROM aws_load_something()",
+            "SELECT * FROM azure_transport_option()",
+            # statement-forms usable as table refs (verified live:
+            # DESCRIBE/DESC/SUMMARIZE/SHOW TABLES all execute inside
+            # FROM (...); desc is position-scoped so ORDER BY ... DESC
+            # stays legal)
+            "SELECT * FROM (DESCRIBE t)",
+            "SELECT * FROM (DESC t)",
+            "SELECT * FROM (SUMMARIZE t)",
+            "SELECT * FROM (SHOW TABLES)",
+            "SELECT * FROM (SHOW ALL TABLES)",
+            "SELECT * FROM (EXPLAIN SELECT 1)",
+            "SELECT * FROM show_tables()",
+            "SELECT * FROM show_databases()",
+            # bundled autoloadable-extension families (calling one
+            # triggers extension auto-install = egress + native code)
+            "SELECT * FROM start_ui()",
+            "SELECT * FROM start_ui_server()",
+            "SELECT * FROM start_quack_server()",
+            "SELECT * FROM quack_x()",
+            "SELECT * FROM vortex_scan('x')",
+            "SELECT * FROM lance_scan('x')",
+            "SELECT * FROM ducklake_flush_inlined_data('x')",
+            "SELECT * FROM vss_match('a','b')",
+            "SELECT * FROM delta_history('x')",
+            "SELECT * FROM iceberg_to_ducklake('x')",
+            "SELECT * FROM st_layers('x.shp')",
+            "SELECT * FROM st_read_meta('x.shp')",
+            # --- F26-T3: comment gap in the table-literal bridge -----
+            "SELECT * FROM /* c */ 'x.csv'",
+            "SELECT * FROM -- c\n 'x.csv'",
+            "SELECT * FROM/**/'x.csv'",
+            'SELECT * FROM t, /* c */ "a/b.csv"',
+            # extension-less single-quoted literal in table position —
+            # isolates the comment-gap fix (no path-literal fallback)
+            "SELECT * FROM /* c */ 'relpath'",
+            "SELECT * FROM 'x--y.csv'",
             # documented false-positive cost: a string *value* that
             # looks like a data file is rejected too
             "SELECT * FROM t WHERE note = 'report.csv'",
@@ -314,6 +379,13 @@ class TestSourceSqlValidation:
             'SELECT * FROM "pivot"."t" JOIN "pivot"."u" '
             'ON "t"."a" = "u"."a"',
             "SELECT a FROM t WHERE d = '2026/01/02'",
+            # F26-T3: ORDER BY DESC must survive — the `desc` deny arm
+            # is position-scoped to `(DESC ` only.
+            "SELECT a FROM t ORDER BY a DESC",
+            "SELECT a FROM t ORDER BY a desc, b ASC",
+            # Read-only statement form (extracts as one SELECT, no
+            # side effects) — documented as still allowed.
+            "SELECT * FROM (UNPIVOT t ON a INTO NAME n VALUE v)",
         ]:
             assert client_dml.validate_source_sql(sql)
 
@@ -701,6 +773,145 @@ class TestExfilVectorsRejected:
         rows = audit_df(env)
         assert rows.iloc[-1]["status"] == "REJECTED"
         assert rows.iloc[-1]["op"] == "insert_select"
+
+
+class TestGeneratorFamilyRejected:
+    """F26-T3 — the bundled generator/side-effect family and
+    statement-form table refs are REJECTED + audited on ALL three
+    source-SQL ops (create_as / create_view / insert_select share the
+    one ``validate_source_sql`` chokepoint).
+
+    SAFETY: ``dbgen`` writes the 8 TPC-H tables into ``main``
+    (audited-SUCCESS confinement breach) and ``dsdgen`` SEGFAULTS the
+    process (client-triggerable DoS).  Every vector is therefore FIRST
+    asserted against ``validate_source_sql`` directly — if a future
+    change stops rejecting, the test fails on that line and the
+    dangerous SQL never reaches ``run_dml_admin``/execution.  None of
+    these functions is ever invoked by this suite."""
+
+    DENIED_SQL = [
+        # generator/side-effect family (live-verified breach/crash)
+        "SELECT * FROM dbgen(sf=0.001)",
+        "SELECT * FROM dbgen()",
+        "SELECT * FROM dsdgen(sf=0.001)",
+        "SELECT * FROM tpch_queries()",
+        "SELECT * FROM tpch_answers()",
+        "SELECT * FROM tpcds_queries()",
+        "SELECT * FROM tpcds_answers()",
+        "SELECT * FROM enable_profiling()",
+        "SELECT * FROM disable_profiling()",
+        "SELECT * FROM enable_logging()",
+        "SELECT * FROM disable_optimizer()",
+        "SELECT * FROM verify_parallelism()",
+        "SELECT * FROM add_parquet_key('k','v')",
+        "SELECT import_database('d')",
+        "SELECT * FROM export_database('d')",
+        "SELECT * FROM load_aws_credentials('p')",
+        # statement-forms usable as table refs
+        "SELECT * FROM (DESCRIBE t)",
+        "SELECT * FROM (DESC t)",
+        "SELECT * FROM (SUMMARIZE t)",
+        "SELECT * FROM (SHOW TABLES)",
+        "SELECT * FROM (EXPLAIN SELECT 1)",
+        "SELECT * FROM show_tables()",
+        # bundled autoloadable-extension families
+        "SELECT * FROM start_ui()",
+        "SELECT * FROM start_quack_server()",
+        "SELECT * FROM vortex_scan('x')",
+        "SELECT * FROM lance_scan('x')",
+        "SELECT * FROM ducklake_flush_inlined_data('x')",
+        "SELECT * FROM vss_match('a','b')",
+        "SELECT * FROM delta_history('x')",
+        "SELECT * FROM st_layers('x.shp')",
+        # comment-gap in the table-literal bridge
+        "SELECT * FROM /* c */ 'x.csv'",
+        "SELECT * FROM -- c\n 'x.csv'",
+        "SELECT * FROM/* c */ 'relpath'",
+        "SELECT * FROM 'x--y.csv'",
+    ]
+
+    #: Catalog objects dbgen/dsdgen would land in ``main`` if they ran.
+    GENERATOR_OUTPUT_TABLES = (
+        "customer", "lineitem", "nation", "orders", "part", "partsupp",
+        "region", "supplier",          # tpch (dbgen)
+        "call_center", "catalog_sales", "store_sales", "web_sales",
+        "date_dim", "item", "store",   # tpcds (dsdgen)
+    )
+
+    def _assert_no_side_effects(self, env):
+        """The generator must never have run: no TPC-H/TPC-DS tables in
+        ``main`` and no pivot object materialized."""
+        db, _ = env
+        names = ", ".join(
+            f"'{n}'" for n in self.GENERATOR_OUTPUT_TABLES
+        )
+        count = db.execute_query(
+            "SELECT COUNT(*) FROM information_schema.tables "
+            f"WHERE table_schema = 'main' AND table_name IN ({names})"
+        ).to_pandas().iloc[0, 0]
+        assert int(count) == 0
+        assert client_dml.catalog_object_kind(db.conn, "pivot", "t") is None
+        assert client_dml.catalog_object_kind(db.conn, "pivot", "v") is None
+
+    @pytest.mark.parametrize("sql", DENIED_SQL)
+    def test_create_as_rejects_and_audits(self, env, sql):
+        # Guard FIRST: if validation ever stops rejecting this vector,
+        # fail here — the dangerous SQL must never reach execution.
+        with pytest.raises(client_dml.DmlRejected):
+            client_dml.validate_source_sql(sql)
+        _, eng = env
+        setup_namespace(env)
+        result = eng.run_dml_admin(
+            {"op": "create_as", "table": "pivot.t", "sql": sql}
+        )
+        assert result["status"] == "REJECTED"
+        rows = audit_df(env)
+        assert rows.iloc[-1]["status"] == "REJECTED"
+        assert rows.iloc[-1]["op"] == "create_as"
+        self._assert_no_side_effects(env)
+
+    @pytest.mark.parametrize("sql", DENIED_SQL)
+    def test_create_view_rejects_and_audits(self, env, sql):
+        # Same guard: a create_view on dbgen is a latent write bomb —
+        # never let it be created.
+        with pytest.raises(client_dml.DmlRejected):
+            client_dml.validate_source_sql(sql)
+        _, eng = env
+        setup_namespace(env)
+        result = eng.run_dml_admin(
+            {"op": "create_view", "table": "pivot.v", "sql": sql}
+        )
+        assert result["status"] == "REJECTED"
+        rows = audit_df(env)
+        assert rows.iloc[-1]["status"] == "REJECTED"
+        assert rows.iloc[-1]["op"] == "create_view"
+        self._assert_no_side_effects(env)
+
+    @pytest.mark.parametrize("sql", DENIED_SQL)
+    def test_insert_select_rejects_and_audits(self, env, sql):
+        with pytest.raises(client_dml.DmlRejected):
+            client_dml.validate_source_sql(sql)
+        _, eng = env
+        setup_week_calendar(env)
+        result = eng.run_dml_admin(
+            {
+                "op": "insert_select",
+                "table": "pivot.week_calendar",
+                "mode": "append",
+                "sql": sql,
+            }
+        )
+        assert result["status"] == "REJECTED"
+        rows = audit_df(env)
+        assert rows.iloc[-1]["status"] == "REJECTED"
+        assert rows.iloc[-1]["op"] == "insert_select"
+        # The registered target must be untouched and empty.
+        db, _ = env
+        n = db.execute_query(
+            'SELECT COUNT(*) FROM "pivot"."week_calendar"'
+        ).to_pandas().iloc[0, 0]
+        assert int(n) == 0
+        self._assert_no_side_effects(env)
 
 
 class TestCreateAsTimeout:

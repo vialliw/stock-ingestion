@@ -2996,3 +2996,43 @@ AC1 FAIL: every F26-T1 challenger vector verified REJECTED+audited live (read_*/
 RECOMMENDED FIX: deny dbgen/dsdgen/tpch_*/tpcds_* (generator+side-effect family) + enable_/disable_ session toggles (enable_profiling etc.) + add_parquet_key + import/export_database; better still, consider rejecting ANY source SQL that binds to an autoloaded-extension table function - the autoload itself is egress+native-code-load. Verdict NEEDS-WORK: an audited-SUCCESS op writing into main and a client-SQL segfault exceed the trusted-client residual-risk budget even with honest docs.
 
 [2026-09-23T11:21:30.356603+00:00] [executor] claimed F26-T3
+[2026-09-23T11:45:32.464740+00:00] [executor] completed F26-T3 -> F26-T3 done (executor B): generator/side-effect family closed in src/client_dml.py validate_source_sql. _DENIED_KEYWORDS_RE gains dbgen|dsdgen|import_database|export_database|add_parquet_key|load_aws_credentials + describe|summarize|explain|show keyword arms; (\s*desc\b position-scoped arm ((DESC t) executes as table ref on 1.5.5, verified live; ORDER BY..DESC untouched); prefix arms tpch_|tpcds_|enable_|disable_|verify_|show_|st_|delta_|iceberg_|vortex_|lance_|ducklake|vss_|aws_|azure_|start_ui|start_quack|quack. Probed duckdb 1.5.5 throwaway :memory: conn (never dbgen/dsdgen): bundled ext list enumerated via duckdb_extensions(); enable_logging confirmed table-fn; import_database/show_tables/verify_* exist in duckdb_functions but bind as pragma-type (denied defensively); (UNPIVOT..) executes but is read-only -> left allowed, documented. _DENIED_TABLE_LITERAL_RE comment gap fixed: separator widened to \s OR /*..*/ OR --..newline (DOTALL) - chose widening over comment-stripping specifically so 'x--y.csv' file refs stay denied (live-verified they bind as files). Tests: +55 validator vectors, +34x3 engine-level REJECTED+audited across create_as/create_view/insert_select in TestGeneratorFamilyRejected - every vector guarded by a validate_source_sql-raises assert FIRST so a regression fails without ever executing dbgen/dsdgen; _assert_no_side_effects checks 15 tpch/tpcds table names absent from main; legit DESC/UNPIVOT sources asserted accepted. Docs: residual-gaps wording now scopes present-day AND future side-effect/generator fns; pivot reserved-word quoting note added to DATA_SERVICE_API.md. Gates: pytest 1598/1598 (baseline 1451 +147), check_loops exit 0 (17 files), README twins fc /b identical, git status clean (only 3 output_files).
+Evidence map:
+[
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

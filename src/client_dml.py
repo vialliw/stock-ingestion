@@ -209,19 +209,47 @@ def parse_table_ref(
 # ``FROM 'https://...'`` replacement-scan shorthands worked, the latter
 # autoloading httpfs = network egress/SSRF; ``pragma_*``/``duckdb_*``
 # table functions slipped past the ``\bpragma\b`` boundary and
-# ``duckdb_secrets()`` leaked key metadata).
+# ``duckdb_secrets()`` leaked key metadata), and hardened again in
+# F26-T3 after the challenger verified the bundled generator/side-effect
+# family was still open (``SELECT * FROM dbgen(sf=0.001)`` passed all
+# layers and the inline-CTAS fallback wrote the 8 TPC-H tables into
+# ``main`` = audited-SUCCESS confinement breach; a ``create_view`` on it
+# was a latent write bomb firing on any later SELECT; ``dsdgen``
+# SEGFAULTED the server process = client-triggerable DoS; calling
+# either AUTO-INSTALLED the bundled extension = network egress + remote
+# native-code load; ``enable_profiling()``, ``(DESCRIBE t)`` and
+# ``(SUMMARIZE t)`` subquery forms also executed).
 #
 # WHAT IS ENFORCED NOW (all verified live on duckdb 1.5.5):
 #   * file/remote-read functions — the ``read_*``, ``parquet_*``,
-#     ``sqlite_*``, ``st_read*`` prefix families plus ``glob``,
-#     ``sniff_csv``/``csv_sniffer``, ``delta_scan``/``iceberg_scan``
-#     and the remote-DB scanners ``postgres_*``/``mysql_*``/``odbc_*``;
+#     ``sqlite_*``, ``st_*`` (spatial — ``st_read``/``st_layers``/
+#     ``st_read_meta``/``st_drivers``) prefix families plus ``glob``,
+#     ``sniff_csv``/``csv_sniffer``, the remote-DB scanners
+#     ``postgres_*``/``mysql_*``/``odbc_*``, and the bundled format
+#     scanners ``delta_*``/``iceberg_*``/``vortex_*``/``lance_*``;
+#   * generator/side-effect functions — ``dbgen``/``dsdgen`` and the
+#     ``tpch_*``/``tpcds_*`` families (catalog writes + crash, see
+#     above), the ``enable_*``/``disable_*``/``verify_*`` session
+#     toggles (``enable_profiling``/``enable_logging`` verified live),
+#     ``add_parquet_key``, ``import_database``/``export_database`` and
+#     ``load_aws_credentials``/``aws_*``/``azure_*``;
+#   * bundled autoloadable-extension server starters — ``start_ui*``,
+#     ``start_quack*``/``quack*``, ``ducklake*``, ``vss_*`` (calling an
+#     uninstalled bundled function triggers extension auto-install =
+#     egress + native-code load, so whole families are denied);
+#   * statement-forms usable as table refs — ``describe``, ``desc`` in
+#     ``(`` position, ``summarize``, ``explain``, ``show``/``show_*``
+#     (``SELECT * FROM (DESCRIBE t)``/``(SUMMARIZE t)``/``(SHOW
+#     TABLES)``/``(DESC t)`` all verified live to execute; a bare
+#     ``desc`` is left allowed everywhere else because it is the
+#     ORDER BY direction keyword);
 #   * replacement-scan file/URL literals — a quoted token directly in
 #     table position (``FROM '<x>'``, ``JOIN '<x>'``, and
-#     double-quoted/after-comma tokens carrying path characters), plus
-#     ``'…://…'`` URL literals, absolute/relative/UNC/home path
-#     literals, and literals ending in a known data-file extension
-#     ANYWHERE in the text;
+#     double-quoted/after-comma tokens carrying path characters; the
+#     FROM/JOIN/comma -> quote gap spans ``/* */`` and ``--``
+#     comments), plus ``'…://…'`` URL literals, absolute/relative/UNC/
+#     home path literals, and literals ending in a known data-file
+#     extension ANYWHERE in the text;
 #   * catalog/introspection leaks — ``pragma*`` (prefix: the old
 #     ``\bpragma\b`` boundary missed ``pragma_*``), ``duckdb_*``,
 #     ``current_setting``, ``which_secret``,
@@ -247,34 +275,48 @@ def parse_table_ref(
 # impossible.  The denylist is therefore the enforcement layer.
 #
 # KNOWN RESIDUAL GAPS (accepted + documented): a regex denylist cannot
-# prove total closure — file readers introduced by future DuckDB
-# versions/extensions and not in these families, or a relative-path
-# literal deeper in a FROM list with no separator/extension (e.g.
-# ``FROM t, 'relpath'`` — verified on 1.5.5 that extension-less tokens
-# resolve as *table names*, not files, so this is narrow), can still
-# slip through.  The contract already assumes *trusted* local clients —
-# this is defense-in-depth on a WRITE surface, not a sandbox against
-# hostile SQL.  False positives inside string literals/comments/values
-# (e.g. a ``'report.csv'`` string value or a column named ``query``)
-# are an acceptable, documented cost of a closed API.
+# prove total closure — the residual class is BOTH present-day and
+# future side-effect/generator functions: bundled or community
+# extension functions outside these families already shipping in the
+# current DuckDB build, and any new ones a future DuckDB
+# version/extension adds, can still slip through (the bundled list
+# above was enumerated from ``duckdb_extensions()`` on 1.5.5 only), as
+# can a relative-path literal deeper in a FROM list with no
+# separator/extension (e.g. ``FROM t, 'relpath'`` — verified on 1.5.5
+# that extension-less tokens resolve as *table names*, not files, so
+# this is narrow).  The contract already assumes *trusted* local
+# clients — this is defense-in-depth on a WRITE surface, not a sandbox
+# against hostile SQL.  False positives inside string
+# literals/comments/values or identifiers colliding with a denied
+# family (e.g. a ``'report.csv'`` string value or a column named
+# ``query``/``show``/``describe``) are an acceptable, documented cost
+# of a closed API.  NOTE for client source SQL: ``pivot`` is a DuckDB
+# reserved word — references must be written ``"pivot"."table"``.
 _DENIED_KEYWORDS_RE = re.compile(
     r"\b(?:copy|attach|detach|load|install|set|call|prepare|execute|"
     r"secret|create|insert|update|delete|drop|alter|merge|"
     r"glob|sniff_csv|csv_sniffer|query|query_table|"
-    r"delta_scan|delta_metadata|"
-    r"iceberg_scan|iceberg_metadata|iceberg_snapshots|"
     r"which_secret|copy_database|current_setting|"
     r"checkpoint|force_checkpoint|nextval|setval|currval|setseed|"
-    r"setvariable|getvariable|pg_sleep|sleep_ms|st_drivers|"
+    r"setvariable|getvariable|pg_sleep|sleep_ms|"
     r"json_serialize_sql|json_deserialize_sql|"
-    r"json_execute_serialized_sql|json_serialize_plan)\b"
+    r"json_execute_serialized_sql|json_serialize_plan|"
+    r"dbgen|dsdgen|import_database|export_database|add_parquet_key|"
+    r"load_aws_credentials|"
+    r"describe|summarize|explain|show)\b"
+    r"|\(\s*desc\b"
     r"|\bread_\w+"
     r"|\bparquet_\w+"
     r"|\bpragma\w*"
     r"|\bduckdb_\w+"
     r"|\bsqlite_\w+"
-    r"|\bst_read\w*"
-    r"|\bpostgres_\w+|\bmysql_\w+|\bodbc_\w+",
+    r"|\bst_\w+"
+    r"|\bpostgres_\w+|\bmysql_\w+|\bodbc_\w+"
+    r"|\btpch_\w+|\btpcds_\w+"
+    r"|\benable_\w+|\bdisable_\w+|\bverify_\w+|\bshow_\w+"
+    r"|\bdelta_\w+|\biceberg_\w+|\bvortex_\w+|\blance_\w+"
+    r"|\bducklake\w*|\bvss_\w+|\baws_\w+|\bazure_\w+"
+    r"|\bstart_ui\w*|\bstart_quack\w*|\bquack\w*",
     re.IGNORECASE,
 )
 
@@ -286,10 +328,21 @@ _DENIED_KEYWORDS_RE = re.compile(
 # contains them.  The ``,`` arm covers ``FROM t, "x.csv"`` — the same
 # path characters that mark it non-identifier keep false positives to
 # pathological identifier names only.
+#
+# The separator is ``\s`` OR a comment (``/* … */`` incl. multiline,
+# or ``-- …\n``) — F26-T3: the challenger verified
+# ``SELECT * FROM /* c */ 'x.csv'`` and ``SELECT * FROM -- c\n 'x.csv'``
+# slipped the old ``\s*``-only bridge (and a live probe confirmed the
+# quoted token still binds as a file reference through comments).
+# Widening the separator — rather than pre-stripping comments — also
+# keeps literals that merely *contain* comment markers (``'x--y.csv'``)
+# denied: the bridge only has to reach the opening quote, never parse
+# the literal's content.
+_COMMENT_OR_WS = r"(?:\s|/\*.*?\*/|--[^\n]*(?:\n|$))*"
 _DENIED_TABLE_LITERAL_RE = re.compile(
-    r"\b(?:from|join)\s*'"
-    r"|(?:\b(?:from|join)\s*|,\s*)\"[^\"]*[\\/:*?\[\].]",
-    re.IGNORECASE,
+    r"\b(?:from|join)" + _COMMENT_OR_WS + r"'"
+    r"|(?:\b(?:from|join)|,)" + _COMMENT_OR_WS + r"\"[^\"]*[\\/:*?\[\].]",
+    re.IGNORECASE | re.DOTALL,
 )
 
 # URL / path / data-file-extension literals ANYWHERE in the text —
@@ -312,12 +365,14 @@ def validate_source_sql(sql: Any) -> str:
 
     1. SELECT/WITH prefix on the stripped text (same as ``do_get``).
     2. Keyword/function denylist on the raw text — mutation/session
-       verbs, file/remote-read families, introspection and side-effect
-       names (see module comment).
+       verbs, file/remote-read families, introspection, generator and
+       side-effect names, statement-forms usable as table refs
+       (``(DESCRIBE t)`` et al.) and bundled autoloadable-extension
+       families (see module comment).
     3. Replacement-scan literal denylist — quoted tokens in table
        position (``FROM '<path>'`` / ``JOIN 'https://…'`` and
-       path-bearing double-quoted tokens) plus URL/path/data-file
-       literals anywhere in the text.
+       path-bearing double-quoted tokens, spanning ``/* */``/``--``
+       comments) plus URL/path/data-file literals anywhere in the text.
     4. ``duckdb.extract_statements`` — exactly one statement whose type
        is ``StatementType.SELECT`` (a ``WITH ... INSERT`` classifies as
        INSERT and is rejected even though it passes the prefix check).
