@@ -22,8 +22,13 @@ never a SQL parser:
   composed server-side against a type whitelist.
 * ``create_as``/``create_view``/``insert_select`` take a *source* SELECT
   that must pass :func:`validate_source_sql`: SELECT/WITH prefix +
-  keyword denylist + ``duckdb.extract_statements`` single-statement
-  SELECT-type check.
+  keyword/function denylist + replacement-scan literal denylist +
+  ``duckdb.extract_statements`` single-statement SELECT-type check.
+  The denylist blocks the file-read/remote-read/introspection/
+  side-effect families enumerated in its comment — including the
+  ``FROM '<path>'``/``FROM 'https://…'`` replacement-scan shorthands —
+  but cannot prove total closure (documented residual gaps); it is
+  defense-in-depth on a trusted-client write surface, not a sandbox.
 * Op and mode enums are closed sets — anything outside them is a
   :class:`DmlRejected`, which the engine audits with status REJECTED.
 
@@ -196,21 +201,106 @@ def parse_table_ref(
 # Source-SQL validation (create_as / create_view / insert_select)
 # ---------------------------------------------------------------------
 
-# Keyword denylist — applied to the raw statement text with word
-# boundaries.  Conservative by design: it also closes the
-# exfil-via-SELECT path (read_parquet/read_csv/COPY ... TO can read or
-# write arbitrary files reachable by the server account) and blocks
-# anything that mutates (INSERT/UPDATE/DELETE/DROP/CREATE/ALTER/MERGE),
-# attaches catalogs (ATTACH/DETACH/LOAD/INSTALL), touches credentials
-# (SECRET), changes session state (SET/PRAGMA/CALL/PREPARE/EXECUTE).
-# False positives inside string literals/comments are an acceptable
-# cost of a closed API.
+# Source-SQL denylist — applied to the raw statement text.  F26-T1,
+# hardened in F26-T2 after the challenger review demonstrated live that
+# the original list did NOT close the exfil-via-SELECT path it claimed
+# to close (read_text/read_blob/glob/read_json materialized arbitrary
+# server files into pivot objects; ``FROM '<path>'`` and
+# ``FROM 'https://...'`` replacement-scan shorthands worked, the latter
+# autoloading httpfs = network egress/SSRF; ``pragma_*``/``duckdb_*``
+# table functions slipped past the ``\bpragma\b`` boundary and
+# ``duckdb_secrets()`` leaked key metadata).
+#
+# WHAT IS ENFORCED NOW (all verified live on duckdb 1.5.5):
+#   * file/remote-read functions — the ``read_*``, ``parquet_*``,
+#     ``sqlite_*``, ``st_read*`` prefix families plus ``glob``,
+#     ``sniff_csv``/``csv_sniffer``, ``delta_scan``/``iceberg_scan``
+#     and the remote-DB scanners ``postgres_*``/``mysql_*``/``odbc_*``;
+#   * replacement-scan file/URL literals — a quoted token directly in
+#     table position (``FROM '<x>'``, ``JOIN '<x>'``, and
+#     double-quoted/after-comma tokens carrying path characters), plus
+#     ``'…://…'`` URL literals, absolute/relative/UNC/home path
+#     literals, and literals ending in a known data-file extension
+#     ANYWHERE in the text;
+#   * catalog/introspection leaks — ``pragma*`` (prefix: the old
+#     ``\bpragma\b`` boundary missed ``pragma_*``), ``duckdb_*``,
+#     ``current_setting``, ``which_secret``,
+#     ``setvariable``/``getvariable``;
+#   * session/catalog side effects — ``checkpoint``/``force_checkpoint``,
+#     ``nextval``/``setval``/``currval``, ``setseed``, ``copy_database``,
+#     ``pg_sleep``/``sleep_ms``, the ``query``/``query_table``
+#     SQL-in-SQL functions and the ``json_*serialize*_sql``
+#     serialized-plan execution helpers;
+#   * plus the original mutation/session verbs (INSERT/UPDATE/DELETE/
+#     DROP/CREATE/ALTER/MERGE, ATTACH/DETACH/LOAD/INSTALL, SECRET,
+#     SET/PRAGMA/CALL/PREPARE/EXECUTE, COPY).
+#
+# WHY NOT THE PLATFORM SETTING (probed on duckdb 1.5.5 — do not
+# re-probe): ``enable_external_access``, ``allowed_directories`` and
+# ``allowed_paths`` are all GLOBAL scope — a ``SET`` on a dml cursor
+# leaks to the main connection and ``do_get``; ``SET LOCAL`` is
+# unimplemented; ``RESET enable_external_access`` is refused while the
+# database is running (a one-way switch — setting it once would
+# permanently break the server's own httpfs/R2 access until restart);
+# and a second ``duckdb.connect`` to the same file cannot carry a
+# different configuration, so a per-cursor restricted context is
+# impossible.  The denylist is therefore the enforcement layer.
+#
+# KNOWN RESIDUAL GAPS (accepted + documented): a regex denylist cannot
+# prove total closure — file readers introduced by future DuckDB
+# versions/extensions and not in these families, or a relative-path
+# literal deeper in a FROM list with no separator/extension (e.g.
+# ``FROM t, 'relpath'`` — verified on 1.5.5 that extension-less tokens
+# resolve as *table names*, not files, so this is narrow), can still
+# slip through.  The contract already assumes *trusted* local clients —
+# this is defense-in-depth on a WRITE surface, not a sandbox against
+# hostile SQL.  False positives inside string literals/comments/values
+# (e.g. a ``'report.csv'`` string value or a column named ``query``)
+# are an acceptable, documented cost of a closed API.
 _DENIED_KEYWORDS_RE = re.compile(
-    r"\b("
-    r"read_parquet|read_csv|parquet_scan|sqlite_scan|"
-    r"copy|attach|detach|load|install|pragma|set|call|prepare|execute|"
-    r"secret|create|insert|update|delete|drop|alter|merge"
-    r")\b",
+    r"\b(?:copy|attach|detach|load|install|set|call|prepare|execute|"
+    r"secret|create|insert|update|delete|drop|alter|merge|"
+    r"glob|sniff_csv|csv_sniffer|query|query_table|"
+    r"delta_scan|delta_metadata|"
+    r"iceberg_scan|iceberg_metadata|iceberg_snapshots|"
+    r"which_secret|copy_database|current_setting|"
+    r"checkpoint|force_checkpoint|nextval|setval|currval|setseed|"
+    r"setvariable|getvariable|pg_sleep|sleep_ms|st_drivers|"
+    r"json_serialize_sql|json_deserialize_sql|"
+    r"json_execute_serialized_sql|json_serialize_plan)\b"
+    r"|\bread_\w+"
+    r"|\bparquet_\w+"
+    r"|\bpragma\w*"
+    r"|\bduckdb_\w+"
+    r"|\bsqlite_\w+"
+    r"|\bst_read\w*"
+    r"|\bpostgres_\w+|\bmysql_\w+|\bodbc_\w+",
+    re.IGNORECASE,
+)
+
+# Quoted literals in table position.  A single-quoted token right after
+# FROM/JOIN is ALWAYS a file/URL reference (single quotes are never
+# identifiers); a double-quoted token is an identifier UNLESS it
+# carries path characters or a dot — every server-creatable name
+# matches ``^[a-z][a-z0-9_]*$`` so no legitimate qualified reference
+# contains them.  The ``,`` arm covers ``FROM t, "x.csv"`` — the same
+# path characters that mark it non-identifier keep false positives to
+# pathological identifier names only.
+_DENIED_TABLE_LITERAL_RE = re.compile(
+    r"\b(?:from|join)\s*'"
+    r"|(?:\b(?:from|join)\s*|,\s*)\"[^\"]*[\\/:*?\[\].]",
+    re.IGNORECASE,
+)
+
+# URL / path / data-file-extension literals ANYWHERE in the text —
+# they also appear as arguments to readers we may have missed, or
+# deeper in a FROM list (``FROM t, 'x.csv'``).
+_DENIED_PATH_LITERAL_RE = re.compile(
+    r"'[^']*://"
+    r"|'(?:[a-zA-Z]:[\\/]|\.{1,2}[\\/]|~[\\/]|[\\/]{1,2})"
+    r"|'[^']*\.(?:csv|tsv|parquet|jsonl?|ndjson|duckdb|db|sqlite3?|"
+    r"xlsx?|txt|avro|arrow|feather|ipc|orc|geojson|shp|xml|ya?ml|"
+    r"gz|zst|zip|7z|tar|bson|sas7bdat|xpt)'",
     re.IGNORECASE,
 )
 
@@ -218,11 +308,17 @@ _DENIED_KEYWORDS_RE = re.compile(
 def validate_source_sql(sql: Any) -> str:
     """Validate a *source* SELECT for create_as/create_view/insert_select.
 
-    Three independent layers (belt + suspenders, per the study):
+    Five independent layers (belt + suspenders, per the study):
 
     1. SELECT/WITH prefix on the stripped text (same as ``do_get``).
-    2. Keyword denylist on the raw text (see module comment).
-    3. ``duckdb.extract_statements`` — exactly one statement whose type
+    2. Keyword/function denylist on the raw text — mutation/session
+       verbs, file/remote-read families, introspection and side-effect
+       names (see module comment).
+    3. Replacement-scan literal denylist — quoted tokens in table
+       position (``FROM '<path>'`` / ``JOIN 'https://…'`` and
+       path-bearing double-quoted tokens) plus URL/path/data-file
+       literals anywhere in the text.
+    4. ``duckdb.extract_statements`` — exactly one statement whose type
        is ``StatementType.SELECT`` (a ``WITH ... INSERT`` classifies as
        INSERT and is rejected even though it passes the prefix check).
 
@@ -238,6 +334,18 @@ def validate_source_sql(sql: Any) -> str:
     if match:
         raise DmlRejected(
             f"source sql contains denied keyword {match.group(0)!r}"
+        )
+    match = _DENIED_TABLE_LITERAL_RE.search(stripped)
+    if match:
+        raise DmlRejected(
+            f"source sql contains a quoted file/URL reference in table "
+            f"position {match.group(0)!r}"
+        )
+    match = _DENIED_PATH_LITERAL_RE.search(stripped)
+    if match:
+        raise DmlRejected(
+            f"source sql contains a file/URL literal "
+            f"{match.group(0)!r}"
         )
     try:
         statements = duckdb.extract_statements(stripped)

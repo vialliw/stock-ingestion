@@ -15,8 +15,12 @@ no mocks on the execution path:
 * Confinement: names regex-validated + server-composed; ``main.*`` and
   unregistered namespaces/tables -> REJECTED + audit row; post-write
   ``duckdb_tables()`` catalog assertion.
-* Source-SQL validation: SELECT/WITH prefix + keyword denylist +
-  ``extract_statements`` single-SELECT check.
+* Source-SQL validation: SELECT/WITH prefix + keyword/function
+  denylist + replacement-scan literal denylist +
+  ``extract_statements`` single-SELECT check (F26-T2: every
+  challenger-verified exfil vector rejected + audited on all three
+  source-SQL ops; the create_as snapshot read is bounded by
+  ``dml_timeout_seconds`` via worker + interrupt).
 * Generalized ``do_put`` (engine level): create_or_replace|append|
   replace; PK enforced (dup keys fail loudly); schema mismatch ->
   REJECTED.
@@ -24,6 +28,7 @@ no mocks on the execution path:
 
 from __future__ import annotations
 
+import time
 import types
 from datetime import datetime, timedelta
 
@@ -234,11 +239,83 @@ class TestSourceSqlValidation:
             "",
             None,
             123,
+            # --- F26-T2: every challenger-verified exfil vector -----
+            # file/remote-read functions (all verified live to
+            # materialize arbitrary server files pre-fix)
+            "SELECT * FROM read_text('C:/tmp/x.txt')",
+            "SELECT * FROM read_blob('/etc/passwd')",
+            "SELECT * FROM glob('C:/data/*')",
+            "SELECT * FROM read_json('x.json')",
+            "SELECT * FROM read_json_objects('x.json')",
+            "SELECT * FROM read_ndjson('x.ndjson')",
+            "SELECT * FROM read_duckdb('other.duckdb')",
+            "SELECT * FROM csv_sniffer('x.csv')",
+            "SELECT * FROM sniff_csv('x.csv')",
+            "SELECT * FROM parquet_metadata('x.parquet')",
+            "SELECT * FROM parquet_schema('x.parquet')",
+            "SELECT * FROM parquet_file_metadata('x')",
+            "SELECT * FROM parquet_kv_metadata('x')",
+            "SELECT * FROM sqlite_query('x.db','SELECT 1')",
+            "SELECT * FROM sqlite_attach('x.db')",
+            "SELECT * FROM delta_scan('d/')",
+            "SELECT * FROM iceberg_scan('i/')",
+            "SELECT * FROM st_read('x.shp')",
+            "SELECT * FROM postgres_scan('h','u','t')",
+            "SELECT * FROM query('SELECT 1')",
+            "SELECT * FROM query_table('t')",
+            # replacement-scan shorthands (verified live: file
+            # contents materialized; httpfs autoload + HTTP egress)
+            "SELECT * FROM 'C:/data/x.csv'",
+            'SELECT * FROM "C:/data/x.csv"',
+            "SELECT * FROM 'x.csv'",
+            "SELECT * FROM 'a/b/c'",
+            "SELECT * FROM 'https://evil.example/x.csv'",
+            "SELECT * FROM 's3://bucket/key'",
+            "SELECT * FROM pivot.t, 'x.csv'",
+            'SELECT * FROM pivot.t, "x.csv"',
+            # introspection leaks (verified: duckdb_secrets() leaked
+            # key metadata; pragma_* slipped the \bpragma\b boundary)
+            "SELECT * FROM pragma_database_size()",
+            "SELECT * FROM pragma_table_info('daily_close')",
+            "SELECT * FROM duckdb_secrets()",
+            "SELECT * FROM duckdb_settings()",
+            "SELECT * FROM duckdb_databases()",
+            "SELECT current_setting('threads')",
+            "SELECT * FROM which_secret('s','t')",
+            "SELECT setvariable('v', 1), getvariable('v')",
+            # session/catalog side effects
+            "SELECT * FROM force_checkpoint()",
+            "SELECT * FROM checkpoint()",
+            "SELECT nextval('s'), setval('s',1), currval('s')",
+            "SELECT setseed(0.5)",
+            "SELECT * FROM copy_database('a','b')",
+            "SELECT pg_sleep(60)",
+            "SELECT sleep_ms(500)",
+            # serialized-plan execution bypass
+            "SELECT json_execute_serialized_sql('{}')",
+            "SELECT json_serialize_sql('SELECT 1')",
+            # documented false-positive cost: a string *value* that
+            # looks like a data file is rejected too
+            "SELECT * FROM t WHERE note = 'report.csv'",
         ],
     )
     def test_denied_sources_rejected(self, sql):
         with pytest.raises(client_dml.DmlRejected):
             client_dml.validate_source_sql(sql)
+
+    def test_legit_literals_and_qualified_idents_accepted(self):
+        """Date/string literals and quoted qualified names must NOT
+        trip the literal denylist."""
+        for sql in [
+            "SELECT Ticker, Close FROM daily_close "
+            "WHERE Date >= '2026-01-01' ORDER BY 1",
+            "SELECT a, 'hello world' FROM t",
+            "SELECT a, 'and/or' FROM t",
+            'SELECT * FROM "pivot"."t" JOIN "pivot"."u" '
+            'ON "t"."a" = "u"."a"',
+            "SELECT a FROM t WHERE d = '2026/01/02'",
+        ]:
+            assert client_dml.validate_source_sql(sql)
 
     def test_multi_statement_rejected(self):
         with pytest.raises(client_dml.DmlRejected):
@@ -544,6 +621,152 @@ class TestCreateAs:
             }
         )
         assert result["status"] == "REJECTED"
+
+
+class TestExfilVectorsRejected:
+    """F26-T2 — every vector the challenger verified live as an
+    exfil-via-SELECT hole must now be REJECTED + audited on ALL
+    source-SQL ops (create_as / create_view / insert_select share the
+    one ``validate_source_sql`` chokepoint)."""
+
+    EXFIL_SQL = [
+        "SELECT * FROM read_text('C:/tmp/x.txt')",
+        "SELECT * FROM read_blob('/etc/passwd')",
+        "SELECT * FROM glob('C:/data/*')",
+        "SELECT * FROM read_json('x.json')",
+        "SELECT * FROM 'C:/data/x.csv'",
+        "SELECT * FROM 'https://evil.example/x.csv'",
+        "SELECT * FROM pragma_database_size()",
+        "SELECT * FROM duckdb_secrets()",
+        "SELECT * FROM csv_sniffer('x.csv')",
+        "SELECT * FROM sqlite_attach('x.db')",
+        "SELECT * FROM force_checkpoint()",
+        "SELECT nextval('s')",
+    ]
+
+    @pytest.mark.parametrize("sql", EXFIL_SQL)
+    def test_create_as_rejects_and_audits(self, env, sql):
+        _, eng = env
+        setup_namespace(env)
+        result = eng.run_dml_admin(
+            {"op": "create_as", "table": "pivot.t", "sql": sql}
+        )
+        assert result["status"] == "REJECTED"
+        rows = audit_df(env)
+        assert rows.iloc[-1]["status"] == "REJECTED"
+        assert rows.iloc[-1]["op"] == "create_as"
+        # Nothing may have been materialized.
+        db, _ = env
+        assert client_dml.catalog_object_kind(db.conn, "pivot", "t") is None
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT * FROM read_text('C:/tmp/x.txt')",
+            "SELECT * FROM 'x.csv'",
+            "SELECT * FROM duckdb_secrets()",
+        ],
+    )
+    def test_create_view_rejects_and_audits(self, env, sql):
+        _, eng = env
+        setup_namespace(env)
+        result = eng.run_dml_admin(
+            {"op": "create_view", "table": "pivot.v", "sql": sql}
+        )
+        assert result["status"] == "REJECTED"
+        rows = audit_df(env)
+        assert rows.iloc[-1]["status"] == "REJECTED"
+        assert rows.iloc[-1]["op"] == "create_view"
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT * FROM read_text('C:/tmp/x.txt')",
+            "SELECT * FROM 'x.csv'",
+            "SELECT * FROM pragma_database_size()",
+        ],
+    )
+    def test_insert_select_rejects_and_audits(self, env, sql):
+        _, eng = env
+        setup_week_calendar(env)
+        result = eng.run_dml_admin(
+            {
+                "op": "insert_select",
+                "table": "pivot.week_calendar",
+                "mode": "append",
+                "sql": sql,
+            }
+        )
+        assert result["status"] == "REJECTED"
+        rows = audit_df(env)
+        assert rows.iloc[-1]["status"] == "REJECTED"
+        assert rows.iloc[-1]["op"] == "insert_select"
+
+
+class TestCreateAsTimeout:
+    """F26-T2/F3 — the create_as snapshot read is bounded by
+    ``dml_timeout_seconds`` (worker + interrupt), not run synchronously
+    outside any deadline."""
+
+    def test_heavy_snapshot_read_times_out(self, tmp_path):
+        db = DatabaseManager(str(tmp_path / "t.duckdb"))
+        cfg = make_cfg(dml_timeout_seconds=0.5)
+        eng = IngestionEngine(db, cfg)
+        try:
+            eng.run_dml_admin(
+                {"op": "register_namespace", "namespace": "pivot"}
+            )
+            # sum() forces a real multi-billion-row scan (verified
+            # interruptible on duckdb 1.5.5: ~4s+ of work, killed by
+            # interrupt() in <0.1s).
+            start = time.time()
+            result = eng.run_dml_admin(
+                {
+                    "op": "create_as",
+                    "table": "pivot.t",
+                    "sql": "SELECT sum(i) AS s FROM "
+                           "range(5000000000) t(i)",
+                }
+            )
+            elapsed = time.time() - start
+            assert result["status"] == "FAILED"
+            assert (
+                "timeout" in result["error"].lower()
+                or "interrupt" in result["error"].lower()
+            )
+            assert elapsed < 20  # unbounded pre-fix; ~0.5s now
+            rows = (
+                db.execute_query(
+                    "SELECT status, error FROM client_dml_audit "
+                    "ORDER BY audit_id"
+                )
+                .to_pandas()
+            )
+            assert rows.iloc[-1]["status"] == "FAILED"
+            # A timed-out snapshot must NOT degrade to inline CTAS —
+            # no table may land after the FAILED audit.
+            assert db.get_registered_table("pivot", "t") is None
+            assert (
+                client_dml.catalog_object_kind(db.conn, "pivot", "t")
+                is None
+            )
+        finally:
+            db.close()
+
+    def test_fast_snapshot_still_succeeds(self, env):
+        """The bounded path doesn't break the normal Arrow snapshot."""
+        _, eng = env
+        setup_namespace(env)
+        result = eng.run_dml_admin(
+            {
+                "op": "create_as",
+                "table": "pivot.t",
+                "sql": "SELECT 1 AS a",
+            }
+        )
+        assert result["status"] == "SUCCESS"
+        assert result["materialized_via"] == "arrow_snapshot"
+        assert result["rows_written"] == 1
 
 
 class TestCreateView:

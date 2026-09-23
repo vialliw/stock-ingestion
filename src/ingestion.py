@@ -19,6 +19,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+import duckdb
 import pandas as pd
 import pandas_market_calendars as mcal
 import requests
@@ -1568,7 +1569,10 @@ class IngestionEngine:
     # ``self.db._write_lock``; the heavy ``create_as`` source scan runs
     # on a read cursor OUTSIDE the lock (snapshot -> Arrow -> locked
     # materialization, the PM's accepted lock mitigation).  Timeout is
-    # the worker+Timer+interrupt() pattern from the study (§4.4).
+    # the worker+Timer+interrupt() pattern from the study (§4.4) —
+    # F26-T2/F3: the snapshot read goes through the SAME timeout worker
+    # (it previously ran synchronously outside any deadline, so a
+    # pathological source could pin the action thread unboundedly).
     # ------------------------------------------------------------------
 
     def _execute_dml_with_timeout(self, fn, timeout_seconds: float):
@@ -1782,8 +1786,38 @@ class IngestionEngine:
         # ``_write_lock``, materialize from the in-process Arrow frame
         # under the lock.  If the snapshot cannot be materialized as
         # Arrow, degrade to a plain CTAS inside the locked unit.
+        #
+        # F26-T2/F3: the snapshot read goes through
+        # ``_execute_dml_with_timeout`` (worker + Timer +
+        # cursor.interrupt()) so it is bounded by
+        # ``dml_timeout_seconds`` like every other op phase —
+        # previously ``db.execute_query`` ran synchronously here with
+        # no deadline and a heavy source pinned the thread.
+        #
+        # A timed-out/interrupted snapshot does NOT degrade: the
+        # interrupt cancels the in-flight scan but leaves the cursor
+        # usable (verified on duckdb 1.5.5 — interrupt() on an idle
+        # cursor does not latch), so re-running the same source as
+        # inline CTAS would re-pin a worker under _write_lock for a
+        # second full timeout.  Fail loudly instead (FAILED + audit).
+        def snapshot(cur):
+            # Mirror ``_read_only_conn``: explicit READ ONLY txn —
+            # defense-in-depth on top of validate_source_sql.
+            cur.execute("BEGIN TRANSACTION READ ONLY")
+            try:
+                return cur.execute(sql).fetch_arrow_table()
+            finally:
+                try:
+                    cur.execute("ROLLBACK")
+                except Exception:
+                    pass
+
         try:
-            arrow = self.db.execute_query(sql)
+            arrow = self._execute_dml_with_timeout(
+                snapshot, settings["dml_timeout_seconds"]
+            )
+        except (TimeoutError, duckdb.InterruptException):
+            raise
         except Exception as exc:
             logger.warning(
                 "create_as snapshot read failed (%s); degrading to "

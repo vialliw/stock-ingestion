@@ -2936,3 +2936,43 @@ Evidence map:
 [2026-09-23T10:19:27.391824+00:00] [challenger] F26-T1 adversarial review (HEAD 36d7230, impl 097a0dd) -> NEEDS-WORK. Trusted nothing; own probes in %TEMP% (probe_f26_srcsql/adv2/adv3/adv4.py) on real DatabaseManager+IngestionEngine+direct run_dml_admin/run_dml_put, duckdb 1.5.5. AC-LETTER 7/7 met and WRITE confinement is airtight; but the source-SQL denylist fails its stated purpose and the timeout does not cover the heaviest op phase. AC1 PASS: v8 creates main.table_registry PK(ns,table)+main.client_dml_audit (db.py:251-279,339-344); live audit rows for SUCCESS/FAILED/REJECTED with op/target/sha256/bytes_in/rows_written/duration_ms. AC2 PASS: all ops live-verified (register_namespace; create_table real PK; create_as arrow_snapshot + inline-CTAS degrade; create_view w/ LIMIT 0 bind probe; insert_select append|replace; drop_table kind-aware; list_tables; pin/unpin; dml_sweep). AC3 PASS (critical): 29/29 dml_admin + 11/11 do_put confinement attacks REJECTED+audited - main.daily_close/signal_records/table_registry/client_dml_audit via every op, evil/pg_temp/unset ns, case tricks Main./PIVOT./main .x, quoted "main"."x", a.b.c, pivot..x, edge whitespace, non-string table, ns/table mismatch, op __init__. daily_close unchanged. Post-write duckdb_tables() assertion proven NON-VACUOUS by mutation (forced catalog miss -> RuntimeError -> whole unit rolled back: no table, no registry row, FAILED audited). No write outside pivot possible through any path tried. AC4 LETTER-PASS INTENT-FAIL: all 3 layers exist+work (SELECT/WITH prefix, denylist, extract_statements single-SELECT; multi-stmt, WITH..INSERT/DELETE, SELECT INTO, comment/string tricks all correctly rejected) - but see F1/F2/F4. AC5 PASS: do_put create_or_replace/append/replace live; dup PK ConstraintException loud; replace NULL->NOT NULL rolls back preserving old rows; schema-mismatch REJECTED; legacy path intact (None/PATH/non-JSON/no-table descriptors -> daily_close MERGE upsert, no registry row). AC6 PASS: client_dml config block (config.py:439-507, config.yaml:1284) + scripts/dml_client.py. AC7 PASS w/ note: pytest 1383/1383 own run (146.8s); check_loops+--strict exit 0 (17 files); README twins byte-identical; BUT git status NOT literally clean - untracked 0-byte docs/enhancements/3.txt (mtime post-dates done commit; not executor code). FINDINGS: F1 HIGH - denylist does NOT close file-read exfil despite docstring claiming so (client_dml.py:199-215): verified live SUCCESS+materialized for read_text/read_blob/glob and FROM '<path>' path shorthand; same class passes for read_json(_objects), parquet_metadata/schema, csv_sniffer, sqlite_query, sqlite_attach, query(). create_view makes it persistent; insert_select same hole - arbitrary file read into audited-SUCCESS pivot tables. F2 HIGH - URL shorthand network egress/SSRF: SELECT * FROM 'https://host/x.csv' passes all 3 layers -> httpfs AUTOLOADED + HTTP HEAD issued live (failed only on DNS). Remote read + egress + SSRF. F3 MEDIUM - create_as snapshot read OUTSIDE dml_timeout: execute_query(sql) at ingestion.py:1786 synchronous before _execute_dml_with_timeout, no timeout of its own. Verified: timeout=1.0s, range(1.5e9) scan succeeded in 4.32s; pathological source (huge join / dead URL) pins the thread. F4 MEDIUM - word-boundary gap (\bpragma\b misses pragma_*): pragma_database_size/table_info, duckdb_secrets() (leaks secret metadata + key_id; secret value redacted), duckdb_settings(), duckdb_databases(), current_setting() all pass+execute. F5 LOW - side-effect fns pass: force_checkpoint() executed (blocked only by txn ctx), sqlite_attach attaches to cursor catalog (contained), nextval would mutate sequences. F6 LOW - record_dml_audit queues on _write_lock post-op (0.5s-timeout op returned at 1.81s behind a 2s writer; audit still lands). F7 LOW - narrow race: _timeout() puts TimeoutError unconditionally; timer in commit->put window yields FAILED audit on committed write (us-scale; interrupt() verified to poison cursor next-execute - lock-blocked ops never land). F8 LOW - TOCTOU: has_pk guards (ingestion.py:1767/1860) + dml_sweep expired list (:2081) read outside _write_lock. F9 INFO - done message claims db_challenger parity; db_challenger.py has ZERO dml code (SCHEMA_VERSION 5, no registry refs). Arguably correct-by-scope but claim misleading. F10 INFO - untracked 0-byte docs/enhancements/3.txt breaks clean-git-status gate. Vacuous-test review: test_client_dml.py asserts real catalog/registry/audit state; no assert-nothing tests; SUCCESS only recorded post-write (assertion-failure mutation -> FAILED). RECOMMENDED FIX (orchestrator decision): surgical enable_external_access=false (and/or allowed_directories) on the dml source cursors - closes F1/F2/F4/F5 at platform level without touching do_get - OR extend denylist + reject quoted path literals in FROM + wrap the snapshot read in the timeout worker. Confinement itself is clean; the hole is read-side exfil on a WRITE surface. poll_tasks.py has no --review flag; verdict recorded here.
 
 [2026-09-23T10:22:19.244786+00:00] [executor] claimed F26-T2
+[2026-09-23T10:43:19.305435+00:00] [executor] completed F26-T2 -> F1-F4 fixed. (a) Denylist rewritten in src/client_dml.py: function families read_*/parquet_*/pragma*/duckdb_*/sqlite_*/st_read*/postgres_*/mysql_*/odbc_* + glob/sniff_csv/csv_sniffer/delta/iceberg/query/query_table/json_serialize*_sql + introspection (current_setting/which_secret/setvariable/getvariable) + side effects (checkpoint/force_checkpoint/nextval/setval/currval/setseed/copy_database/pg_sleep/sleep_ms); literal regexes kill FROM '<path>'/FROM 'https://' replacement-scan shorthands (both quote styles, FROM/JOIN/comma position) + '://'/path/data-extension literals anywhere. Scoped platform settings probed on duckdb 1.5.5 and IMPOSSIBLE (all GLOBAL scope, SET LOCAL unimplemented, RESET one-way, 2nd conn config mismatch) — documented in code+docs. (b) create_as snapshot now runs through _execute_dml_with_timeout under READ ONLY txn; TimeoutError/InterruptException re-raise (no degrade — verified interrupt does not latch idle cursors). Tests: 68 new in test_client_dml.py — every challenger vector rejected+audited on all 3 source ops, legit literal/qualified-ident acceptance, 0.5s timeout bounds sum(range(5e9)) snapshot (FAILED+audited, no table lands). Gates: pytest 1451/1451, check_loops exit 0 (17 files), README twins byte-identical (89842B), git status clean. F5-F8 remain documented LOWs.
+Evidence map:
+[
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

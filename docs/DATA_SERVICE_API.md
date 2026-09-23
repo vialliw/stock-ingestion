@@ -304,7 +304,7 @@ results — and both are written to `client_dml_audit`.
 |---|---|---|
 | `register_namespace` | `namespace` | Create/confirm the schema; REJECTED unless allowlisted. |
 | `create_table` | `table`, `columns` | Structured spec → `CREATE TABLE` with a real `PRIMARY KEY`. `columns` is a list of `{name, type, not_null?, pk?}`; `type` must be one of `DATE`, `INTEGER`, `BIGINT`, `DOUBLE`, `VARCHAR`, `BOOLEAN`, `TIMESTAMP`, `UTINYINT`, `SMALLINT`. Duplicate-key inserts fail loudly. REJECTED if the object already exists. |
-| `create_as` | `table`, `sql` | `SELECT`-only source → snapshot to Arrow → `CREATE OR REPLACE TABLE` under the write lock (the source read runs *outside* the lock). REJECTED on PK-bearing targets (CTAS cannot preserve constraints — use `insert_select`). |
+| `create_as` | `table`, `sql` | `SELECT`-only source → snapshot to Arrow → `CREATE OR REPLACE TABLE` under the write lock (the source read runs *outside* the lock but inside `dml_timeout_seconds` — an over-budget scan is interrupted and fails the op). REJECTED on PK-bearing targets (CTAS cannot preserve constraints — use `insert_select`). |
 | `create_view` | `table`, `sql` | `SELECT`-only source → `CREATE OR REPLACE VIEW`. |
 | `insert_select` | `table`, `mode`, `sql` | `mode: append` inserts; `mode: replace` runs `DELETE FROM` + `INSERT INTO ... SELECT` in **one transaction** — a failed source leaves the old rows intact. PK constraints stay active. |
 | `drop_table` | `table` | Drops a registered table or view (`DROP TABLE`/`DROP VIEW` chosen by catalog kind). REJECTED for unregistered objects. |
@@ -315,15 +315,46 @@ results — and both are written to `client_dml_audit`.
 Optional `client_tag` on any op is recorded in the audit row.
 
 **Source-SQL rules** (`create_as`, `create_view`, `insert_select`):
-must begin with `SELECT` or `WITH`; must survive a keyword denylist —
-`read_parquet`, `read_csv`, `parquet_scan`, `sqlite_scan`, `COPY`,
-`ATTACH`, `DETACH`, `LOAD`, `INSTALL`, `PRAGMA`, `SET`, `CALL`,
-`PREPARE`, `EXECUTE`, `SECRET`, `CREATE`, `INSERT`, `UPDATE`, `DELETE`,
-`DROP`, `ALTER`, `MERGE`; and must classify via
-`duckdb.extract_statements` as exactly one SELECT-type statement
-(so `WITH x AS (DELETE ...) SELECT` and multi-statement payloads are
-rejected too). A client transaction verb can never cross the wire —
-`replace` is the atomic-rebuild primitive.
+must begin with `SELECT` or `WITH`; must survive a regex denylist
+covering four families —
+
+- **mutation / session / catalog verbs:** `COPY`, `ATTACH`, `DETACH`,
+  `LOAD`, `INSTALL`, `SET`, `CALL`, `PREPARE`, `EXECUTE`, `SECRET`,
+  `CREATE`, `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `MERGE`;
+- **file / remote readers:** every `read_*`, `parquet_*`, `sqlite_*`,
+  `st_read*`, `postgres_*`, `mysql_*`, `odbc_*` name, plus `glob`,
+  `sniff_csv`/`csv_sniffer`, `delta_scan`, `iceberg_scan`,
+  `query`/`query_table` and the `json_*serialize*_sql` plan-execution
+  helpers;
+- **introspection / side effects:** every `pragma*` and `duckdb_*`
+  name, `current_setting`, `which_secret`, `setvariable`/`getvariable`,
+  `checkpoint`/`force_checkpoint`, `nextval`/`setval`/`currval`,
+  `setseed`, `copy_database`, `pg_sleep`/`sleep_ms`;
+- **file/URL literals:** a quoted token in table position
+  (`FROM '<path>'`, `JOIN 'https://…'`, `FROM t, "a/b.csv"`), any
+  `'scheme://…'` literal, absolute/relative/UNC/home path literals, and
+  literals ending in a known data-file extension (`'.csv'`,
+  `'.parquet'`, `'.duckdb'`, …) are rejected wherever they appear —
+  this kills the DuckDB replacement-scan shorthand that reads files or
+  autoloads httpfs for remote URLs.
+
+The statement must also classify via `duckdb.extract_statements` as
+exactly one SELECT-type statement (so `WITH x AS (DELETE ...) SELECT`
+and multi-statement payloads are rejected too). A client transaction
+verb can never cross the wire — `replace` is the atomic-rebuild
+primitive.
+
+Two honest caveats. First, the denylist is deliberately
+over-broad: a string *value* that merely resembles a file
+(`WHERE note = 'report.csv'`) or an identifier that collides with a
+denied family (a column named `query`) is rejected — quote values
+accordingly. Second, it cannot *prove* total closure: file readers
+introduced by future DuckDB versions/extensions outside these
+families could slip through (verified on 1.5.5 that platform settings
+cannot be scoped per-cursor — `enable_external_access` is GLOBAL-only
+and a one-way switch — so the denylist is the enforcement layer).
+It is defense-in-depth on a **trusted-client** write surface, not a
+sandbox for hostile SQL.
 
 **Lifecycle & housekeeping.** `main.table_registry` records every
 client object (`full_name`, `owner`, `has_pk`, `pinned`, `created_at`,
