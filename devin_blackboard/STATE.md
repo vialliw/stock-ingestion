@@ -1,6 +1,13 @@
 # Project State — Canonical Source
-Last Updated: 2026-09-23T15:07:47+00:00
+Last Updated: 2026-10-06
 Current Branch: main
+
+## Reusable assets extracted (2026-10-06)
+
+Global skills (all projects): `multi-agent-blackboard`, `duckdb-flight-service`,
+`windows-agent-env` in `%APPDATA%\devin\skills\`. Project skill:
+`.devin/skills/stock-ingestion-ops/` (restart/backfill/health/DML/export runbook).
+Canonical workflow doc remains `docs/MULTI_AGENT_WORKFLOW_PLAYBOOK.md`.
 
 ## Active Blocker
 
