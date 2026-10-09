@@ -10,6 +10,12 @@ coordinates three role subagents — Executor (B), Challenger (C), Critic (D) �
 through a file-based blackboard committed to git. Sequential B → C → D per
 task: implement → adversarial review → independent acceptance verification.
 
+**Condensed operational version:** a global Devin skill at
+`%APPDATA%\devin\skills\multi-agent-blackboard\SKILL.md` carries the
+compressed subset an agent needs mid-cycle. This file is canonical — when
+lessons here change, update the skill to match (direction of truth:
+playbook → skill).
+
 ---
 
 ## 1. Roles
@@ -226,6 +232,32 @@ see nothing of your session):
   `{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe`
   — wrapped in `scripts/notify_done.ps1`, which the orchestrator calls at
   cycle close (rule in `AGENTS.md`).
+- **AC-hash provenance** — when the orchestrator legitimately repairs an
+  AC mid-chain (false-positive glob, missing output_file), the AC-set hash
+  changes. Have B record BOTH hashes in `--done` evidence and STATE.md so
+  C/D recompute against the correct set instead of hitting a spurious
+  mismatch. Disclose every AC change in EVENTS.log.
+- **ACs can green-pass a real defect** — elsewhere, C/D found a
+  misattribution defect (dict key collision) that all registered ACs
+  missed. Reopen pattern: set the whole chain (B/C/D tasks) back to
+  `todo`, add a targeted AC codifying the defect + a regression test,
+  respawn B→C→D — the delta review is fast. If the fix must re-emit
+  artifacts into an existing output dir, the orchestrator must explicitly
+  rule that in-place re-emission is allowed and require a manifest record
+  (e.g. `CORRECTIVE_RE_EMISSION` with before/after sha256s).
+- **Scope AC globs to task-emitted artifacts** — a `tables/*.csv` basename
+  glob false-positived on a frozen pre-existing diagnostic and blocked B.
+  Name the artifact set or exempt known frozen diagnostics explicitly.
+- **Weak ACs are recurring debt** — existence/non-None asserts on
+  idempotent-replay entry points and token-greps keep getting flagged by
+  C. Write ACs that assert the property (values, counts, labels), not the
+  file.
+- **Crash recovery is cheap** — stale `locks/*.lock` orphan `in_progress`
+  tasks; `--clean-stale` resets them. Every mutation is git-committed, so
+  nothing else is lost.
+- **No concurrent heavy data probes** — subagents running parallel
+  pandas/pyarrow probes OOM'd a C review (~10 GB resident). Tell
+  reviewers: probes in %TEMP%, one heavy job at a time.
 
 ## 8. Optional quality gate — loop checker
 
