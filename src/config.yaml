@@ -1225,6 +1225,7 @@ ingestion:
   - ^TNX
   - CL=F
   - ^IRX
+  - ^VIX
   exclude_tickers:
   - AVB
   - CCRN
