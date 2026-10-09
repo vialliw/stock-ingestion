@@ -3367,3 +3367,5 @@ VERDICT: PASS — F27-T1 accepted; --verify run to mark the gate.
 [2026-10-08T22:18:06] [orchestrator] OPS-EXTRACTION (no task registration - knowledge tooling, not src/tests): reviewed project for reusable assets; created 3 global Devin skills at %APPDATA%/devin/skills/ (multi-agent-blackboard, duckdb-flight-service, windows-agent-env) + 1 project skill .devin/skills/stock-ingestion-ops/. All registered in skill discovery layer immediately. No code changed; AGENTS.md/rules layer left as-is (already comprehensive).
 
 [2026-10-09T09:48:19] [orchestrator] committed user-authored config.yaml change (+=^VIX to macro tickers). Was already live on restarted server (2538 rows stored); commit documents deployed reality.
+
+[2026-10-09T10:06:13] [orchestrator] backported 6 cross-project lessons from global multi-agent-blackboard skill into docs/MULTI_AGENT_WORKFLOW_PLAYBOOK.md s7 + added canonical-direction pointer (playbook -> skill). Consolidation model: playbook = long-form canonical, skill = operational compression.
