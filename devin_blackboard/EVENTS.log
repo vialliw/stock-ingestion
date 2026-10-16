@@ -3376,3 +3376,79 @@ VERDICT: PASS — F27-T1 accepted; --verify run to mark the gate.
 [2026-10-16] [ORCHESTRATOR] INC cycle started. Registered INC-T1 (executor B: scripts/incident_watch.py + tests/test_incident_watch.py — data_health classifier, SEV1-4 rules per doc §2.1, folder materialization per §7, dedup/escalation/auto-resolve, heartbeat, toast on new SEV1/2, --self-test) and INC-T2 (executor B, dep INC-T1: scripts/register_incident_watch.ps1 — HealthWatch task 18:30 ET + provision C:\Intel\incidents\stock-ingestion + junction + README twins). User-confirmed decisions: root=C:\Intel\incidents (Option A), handler=on-demand agent, timing=fixed ~18:30 ET, auto-resolve=yes.
 
 [2026-10-16T18:55:17.152941+00:00] [EXECUTOR] claimed INC-T1
+[2026-10-16T19:18:47.000756+00:00] [EXECUTOR] completed INC-T1 -> scripts/incident_watch.py (new, ~1160 lines): cwd-safe header + _ensure_stdio_fallbacks; Flight data_health fetch mirrors data_health_report (10s probe/120s action); doc 2.1 classifier — SEV1 probe-fail/CHECK_FAILED, SEV2 stale>=25/coverage-with-prior-data/dups>0/in-window integrity post-suppression/gaps>=30 total or >=10 per ticker, SEV3 small stale+per-ticker gaps+section WARN+suspected-delisting (>=5 sessions, 'verify ticker status'), SEV4 suppressed (CL=F/^IRX builtin + _config/suppressions.json merge, ack-delisted downgrade, pending_session/metadata/DISABLED); 7.3 store: identity-dedup folders YYYYMMDD_sevN_check_detail <=80 chars with incident.json/report.json/TICKET.md, unacked%3==0 escalation w/ rename+severity_history (SEV2/1 re-page), auto-resolve open+ack->resolved, events.jsonl per transition, _last_check.json heartbeat always (incl. probe failure), _reports snapshot per run; toast via notify_done.ps1 only on NEW SEV1/2 + re-pages (best-effort subprocess); exit 0 on all completed runs incl. probe-fail, 1 on internal crash after best-effort heartbeat. tests/test_incident_watch.py: 37 tests, all injected dicts/tmp_path, no Flight/network/C:\Intel; verify: INC-T1 37/37, full suite 1821/1821, check_loops exit 0, --self-test exit 0 reproducing doc 6 example (1xSEV2 WBD integrity + 4 gap + 1 stale tickets, 3 suppressed, 1 toast)
+Evidence map:
+[
+  {
+    "id": "INC-T1-AC1",
+    "check": "incident_watch tests pass",
+    "command": "python -m pytest tests/test_incident_watch.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ".....................................                                    [100%]\n37 passed in 3.22s\n"
+  },
+  {
+    "id": "INC-T1-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1821 passed, 477 warnings in 187.29s (0:03:07)\n"
+  },
+  {
+    "id": "INC-T1-AC3",
+    "check": "loop checker clean",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "INC-T1-AC4",
+    "check": "watcher offline self-test",
+    "command": "python scripts/incident_watch.py --self-test",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "incident_watch: health_status=WARN probe=ok root=C:\\Users\\user\\AppData\\Local\\Temp\\incident_watch_selftest_q7_gh_1n\n  new=6 updated=0 resolved=0 suppressed=3\n  + NEW 20261012_sev2_integrity_WBD_2026-10-05\n  + NEW 20261012_sev3_stale_DBRG\n  + NEW 20261012_sev3_gap_QRVO\n  + NEW 20261012_sev3_gap_WBD\n  + NEW 20261012_sev3_gap_LESL\n  + NEW 20261012_sev3_gap_TCBI\n  toasts sent: 1\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]
