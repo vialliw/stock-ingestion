@@ -15,6 +15,7 @@ A quantitative stock-data ingestion service that centralizes daily equity data f
   - [Running the Flight Server as a Windows Scheduled Task](#running-the-flight-server-as-a-windows-scheduled-task)
   - [Running the Scheduler (Standalone)](#running-the-scheduler-standalone)
   - [Scheduling the Daily Load on Windows](#scheduling-the-daily-load-on-windows)
+  - [Incident health watch](#incident-health-watch)
   - [Querying via Arrow Flight (do_get)](#querying-via-arrow-flight-do_get)
   - [Triggering Ingestion Actions (do_action)](#triggering-ingestion-actions-do_action)
   - [Uploading Data via Arrow Flight (do_put)](#uploading-data-via-arrow-flight-do_put)
@@ -588,6 +589,29 @@ The registration script converts `scheduler.schedule_time` from `scheduler.timez
 - Logs to `logging.log_file` in the configured text/JSON format.
 
 This differs from the GitHub Actions path (`scripts/ci_daily_load.py`), which still skips on market-closed days — CI runs on a weekday cron schedule, so catching up is unnecessary there.
+
+### Incident health watch
+
+The `StockIngestion-HealthWatch` scheduled task runs `scripts/incident_watch.py` once a day (default **18:30 America/New_York** — after the 16:14 ET daily load plus grace — converted to machine-local at registration). Each run pulls the `data_health` report from the Flight service, classifies findings into SEV1–SEV4 incident folders, dedups/escalates recurring findings, auto-resolves cleared ones, and writes an `events.jsonl` feed plus a `_last_check.json` heartbeat. New SEV1/SEV2 folders also fire a Windows toast. Full contract: `docs/incident_management_requirements.md`.
+
+```powershell
+# Provision the store + junction AND register the task (idempotent; elevated)
+powershell -ExecutionPolicy Bypass -File scripts\register_incident_watch.ps1
+
+# Provision only — create the store tree + junction, don't touch the task
+powershell -ExecutionPolicy Bypass -File scripts\register_incident_watch.ps1 -ProvisionOnly
+
+# Remove the task (store + junction are left in place)
+powershell -ExecutionPolicy Bypass -File scripts\register_incident_watch.ps1 -Unregister
+```
+
+The watcher writes into a **centralized cross-project incident store** — `C:\Intel\incidents\stock-ingestion\` with `open\` / `acknowledged\` / `resolved\` trees, `_reports\` raw health snapshots, and `_config\suppressions.json` — reached from the repo through the `incidents\` junction (`mklink /J`) created by the registration script (layout: `docs/incident_management_requirements.md` §7). An **empty `open\` plus a fresh `_last_check.json` = healthy**; a stale heartbeat means the watcher itself is down.
+
+Offline check — no Flight server, config, or store needed; runs a bundled synthetic WARN fixture into a fresh temp dir:
+
+```bash
+python scripts/incident_watch.py --self-test
+```
 
 ### Migrating from the legacy Pipe01 job
 
