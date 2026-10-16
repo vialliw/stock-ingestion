@@ -3452,3 +3452,4 @@ Evidence map:
     "output": ""
   }
 ]
+[2026-10-16T20:20:32] [EXECUTOR-B] INC-T1 done (commit a0efe8b): scripts/incident_watch.py + tests/test_incident_watch.py. data_health classifier per docs/incident_management_requirements.md 2.1 (SEV1 probe/CHECK_FAILED; SEV2 stale>=25/coverage-prior-data/dups/in-window integrity/gaps>=30 or >=10-ticker; SEV3 small stale+delisting wording+warn; SEV4 suppressed benign CL=F/^IRX + suppressions.json + pending/disabled/null_fields). Store per 7.3: key-named folders, dedup by identity, unacked%3 escalation + rename + severity_history, auto-resolve open+ack->resolved, events.jsonl, _last_check.json heartbeat (incl. probe failure), _reports snapshots, toast only on new SEV1/2 via notify_done.ps1. Gates: 37/37 new tests, 1821/1821 full suite, check_loops exit 0, --self-test exit 0 (doc-6 fixture reproduced). --verify INC-T1 ALL PASS.
