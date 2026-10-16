@@ -36,6 +36,23 @@ severity on every update (unconditional `_rename_severity` tail call,
 no-op when already correct) — pre-B1 drifted folders self-heal. Gates:
 66/66 + 1850/1850 pytest, check_loops exit 0, --self-test exit 0
 (6 folders/3 suppressed/1 toast), --verify INC-T1c ALL PASS (5/5).
+CRITIC-D final gate 2026-10-16 (HEAD 2724bc3): **PASS** — all 8
+INC-T1 ACs + INC-T1b B1-B3/N1-N4 + INC-T1c NB1-NB4 independently
+verified with own %TEMP% probes (incl. live probe-failure SEV1 through
+real main()+_fetch_health on a dead port, dedup/escalation/auto-resolve
+lifecycle re-run, benign suppression, pending_session, inf/bool
+count anomalies). Gates re-run: 66/66 + 1850/1850 pytest,
+check_loops exit 0, --self-test exit 0, scope clean, README twins
+byte-identical. Full evidence in EVENTS.log [CRITIC-D] entry.
+CHALLENGER-C round-3 delta review 2026-10-16 (HEAD 2724bc3):
+**APPROVED** — all 4 fixes independently re-probed in %TEMP%
+(71/71 own checks): non-finite/bool/dict/list/Decimal/complex counts
+→ SEV2 `unparseable_*` anomalies, zero crashes; same-run
+reclassify+cadence → exactly 1 toast + 1 history entry (plain cadence
+escalation + SEV1 re-page preserved); drifted folders self-heal both
+directions incl. acknowledged/. Round-1/2 regressions re-verified
+(non-dict payloads, 24/25 boundary, same-identity dedup). 66/66 pytest
++ --self-test exit 0 re-run by challenger. Details in EVENTS.log.
 
 
 
