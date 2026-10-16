@@ -1,0 +1,9 @@
+{
+ "ts": "2026-10-16T21:20:32+01:00",
+ "probe": "ok",
+ "health_status": "WARN",
+ "new": 5,
+ "updated": 0,
+ "resolved": 0,
+ "suppressed": 12
+}

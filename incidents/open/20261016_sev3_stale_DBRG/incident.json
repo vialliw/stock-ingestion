@@ -1,0 +1,13 @@
+{
+ "incident_key": "20261016_sev3_stale_DBRG",
+ "identity": "stale_DBRG",
+ "severity": "SEV3",
+ "check": "stale",
+ "first_seen": "2026-10-16T21:20:32+01:00",
+ "last_seen": "2026-10-16T21:20:32+01:00",
+ "unacked_checks": 1,
+ "severity_history": [],
+ "state": "open",
+ "suggested_action": "Suspected delisting/corporate action: verify ticker status (stale >=5 sessions with no integrity error).  If confirmed delisted, add the ticker to acknowledged_delisted in _config/suppressions.json to downgrade to SEV4.",
+ "evidence_summary": "DBRG stale 12 sessions vs latest session 2026-10-15 (last data 2026-09-29) \u2014 suspected delisting/halt"
+}

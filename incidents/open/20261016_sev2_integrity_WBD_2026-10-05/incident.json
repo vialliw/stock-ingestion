@@ -1,0 +1,13 @@
+{
+ "incident_key": "20261016_sev2_integrity_WBD_2026-10-05",
+ "identity": "integrity_WBD_2026-10-05",
+ "severity": "SEV2",
+ "check": "integrity",
+ "first_seen": "2026-10-16T21:20:32+01:00",
+ "last_seen": "2026-10-16T21:20:32+01:00",
+ "unacked_checks": 1,
+ "severity_history": [],
+ "state": "open",
+ "suggested_action": "Targeted re-fetch for that ticker/date via on_request_load \u2014 the loader accepted a bad row.",
+ "evidence_summary": "WBD 2026-10-05: null_or_nonpositive_ohlc \u2014 recent corrupt row accepted by the loader"
+}
