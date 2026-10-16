@@ -3545,3 +3545,52 @@ Evidence map:
 [2026-10-16] [ORCHESTRATOR] Challenger C round-2 on INC-T1b: NEEDS-WORK — all 7 original findings verified FIXED via own probes, but residual NB1: _count_field/_safe_int miss OverflowError on ±inf JSON counts (exit 1, zero folders). Registered INC-T1c (NB1 + cheap non-blockers NB2 double-toast, NB3 bool counts, NB4 optional legacy self-heal).
 
 [2026-10-16T19:53:05.967319+00:00] [EXECUTOR] claimed INC-T1c
+[2026-10-16T20:04:17.442120+00:00] [EXECUTOR] completed INC-T1c -> NB1: new _parse_count helper — bools/non-finite floats (json.loads Infinity/-Infinity/1e999) return None instead of crashing on OverflowError; _count_field emits SEV2 unparseable_* anomaly, _safe_int degrades to default. NB2: same-run reclassification reaching unacked cadence no longer double-toasts — re-page block gated by 'elif not escalated'. NB3: bool counts -> anomaly. NB4: folder sevN token reconciled to authoritative incident.json severity on every update (_rename_severity unconditional at tail, no-op when already correct). Tests: 11 new regression tests; tests/test_incident_watch.py 66/66 pass; full suite 1850/1850; --self-test exit 0 (6 folders/3 suppressed/1 toast); --verify INC-T1c ALL PASS (5/5).
+Evidence map:
+[
+  {
+    "id": "INC-T1c-AC1",
+    "check": "incident_watch tests pass",
+    "command": "python -m pytest tests/test_incident_watch.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "..................................................................       [100%]\n66 passed in 3.50s\n"
+  },
+  {
+    "id": "INC-T1c-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1850 passed, 477 warnings in 173.92s (0:02:53)\n"
+  },
+  {
+    "id": "INC-T1c-AC3",
+    "check": "watcher offline self-test",
+    "command": "python scripts/incident_watch.py --self-test",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "incident_watch: health_status=WARN probe=ok root=C:\\Users\\user\\AppData\\Local\\Temp\\incident_watch_selftest_e8wzkhfm\n  new=6 updated=0 resolved=0 suppressed=3\n  + NEW 20261012_sev2_integrity_WBD_2026-10-05\n  + NEW 20261012_sev3_stale_DBRG\n  + NEW 20261012_sev3_gap_QRVO\n  + NEW 20261012_sev3_gap_WBD\n  + NEW 20261012_sev3_gap_LESL\n  + NEW 20261012_sev3_gap_TCBI\n  toasts sent: 1\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

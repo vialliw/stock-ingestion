@@ -914,3 +914,221 @@ class TestViolationDatesN4:
         names = _open_names(tmp_path)
         assert any("_sev3_integrity_WBD_2026-10-05" in n
                    for n in names)
+
+
+# ---------------------------------------------------------------------
+# INC-T1c regression tests — NB1 (non-finite counts -> anomaly, never
+# OverflowError), NB2 (same-run re-classification + escalation cadence
+# must not double-toast), NB3 (bool counts -> anomaly), NB4 (legacy
+# folder/json severity drift self-heals on update).
+# ---------------------------------------------------------------------
+
+class TestNonFiniteCountsNB1:
+    """NB1: json.loads natively accepts Infinity/-Infinity/1e999 — a
+    non-finite count reaching classify must become a SEV2 'unparseable'
+    anomaly, not an OverflowError that exits 1 with zero folders."""
+
+    def test_inf_stale_count_anomaly_no_crash(self, tmp_path):
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["staleness"] = {
+            "stale_count": float("inf"),
+            "stale_tickers": [{"ticker": "AAA",
+                               "last_date": "2026-10-08"}]}
+        stats = _run(tmp_path, h)   # would exit 1 before NB1 fix
+        names = _open_names(tmp_path)
+        assert any("unparseable_stale_count" in n for n in names)
+        # the listed ticker still classifies on its own merits
+        assert any("_stale_AAA" in n for n in names)
+        assert stats["new"]
+
+    def test_negative_inf_total_missing_days(self, tmp_path):
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["gaps"] = {
+            "tickers_with_gaps": 1, "total_missing_days": float("-inf"),
+            "expected_sessions": 30,
+            "window_start": _WS, "window_end": _WE,
+            "per_ticker": [{"ticker": "ABCD", "missing_count": 2,
+                            "missing_days": ["2026-10-08",
+                                             "2026-10-09"]}]}
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("unparseable_total_missing_days" in n
+                   for n in names)
+        # the per-ticker entry still produces its own ticket
+        assert any("_gap_ABCD" in n for n in names)
+        assert stats["new"]
+
+    def test_1e999_reaches_classify_as_inf(self, tmp_path):
+        """json.loads('1e999') overflows to float inf — the exact
+        malformed-payload path the challenger probed."""
+        parsed = json.loads(
+            '{"stale_count": 1e999, "stale_tickers": []}')
+        assert parsed["stale_count"] == float("inf")
+        h = _health()
+        h["daily_close"]["checks"]["staleness"] = parsed
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("unparseable_stale_count" in n for n in names)
+        assert stats["new"]
+
+    def test_safe_int_never_raises_on_edge_values(self):
+        """_safe_int is used on operator-touchable incident.json fields
+        — ±inf/nan/bool must all degrade to the default."""
+        for v in (float("inf"), float("-inf"), float("nan"),
+                  True, False, "Infinity", "-Infinity", "1e999",
+                  "nan", None):
+            assert incident_watch._safe_int(v, 7) == 7
+        # real counts still parse
+        assert incident_watch._safe_int(42, 7) == 42
+        assert incident_watch._safe_int("42", 7) == 42
+        assert incident_watch._safe_int(4.9, 7) == 4
+
+
+class TestBoolCountsNB3:
+    """NB3: bool is an int subclass — JSON true/false must NOT silently
+    parse as 1/0; treat as the unparseable anomaly it is."""
+
+    def test_bool_stale_count_is_anomaly(self, tmp_path):
+        h = _health()
+        h["daily_close"]["checks"]["staleness"] = {
+            "stale_count": True, "stale_tickers": []}
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("unparseable_stale_count" in n for n in names)
+        assert stats["new"]
+
+    def test_bool_coverage_missing_count_is_anomaly(self, tmp_path):
+        h = _health()
+        h["daily_close"]["checks"]["coverage"] = {
+            "missing_count": False, "configured_count": 1214,
+            "missing_tickers": []}
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("unparseable_missing_count" in n for n in names)
+        assert stats["new"]
+
+    def test_bool_per_ticker_gap_count_is_anomaly(self, tmp_path):
+        h = _health()
+        h["daily_close"]["checks"]["gaps"]["per_ticker"] = [
+            {"ticker": "ABCD", "missing_count": False,
+             "missing_days": []}]
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("unparseable_missing_count" in n for n in names)
+        # the bogus per-ticker count must not mint a gap ticket
+        assert not any("_gap_ABCD" in n for n in names)
+        assert stats["new"]
+
+
+class TestSameRunEscalationDedupNB2:
+    """NB2: a re-classification that lands on an unacked-cadence run
+    produced 2 toasts + 2 history entries (re-classified + re-page)
+    for ONE severity change — now deduped to exactly one of each."""
+
+    def _gap_health(self, days):
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["gaps"]["per_ticker"] = [
+            _gap("QRVO", list(days))]
+        h["daily_close"]["checks"]["gaps"]["tickers_with_gaps"] = 1
+        h["daily_close"]["checks"]["gaps"]["total_missing_days"] = \
+            len(days)
+        return h
+
+    def test_reclassify_on_cadence_run_single_toast(self, tmp_path):
+        calls = []
+        nine = [f"2026-10-0{d}" for d in range(1, 10)]
+        ten = [f"2026-09-{d:02d}" for d in range(20, 30)]
+        _run(tmp_path, self._gap_health(nine),
+             notify=lambda *a: calls.append(a))
+        _run(tmp_path, self._gap_health(nine),
+             notify=lambda *a: calls.append(a))
+        assert calls == []
+        # 3rd unacked check (escalation cadence) AND re-classified
+        # 9 -> 10 sessions (SEV3 -> SEV2) in the same run.
+        stats = _run(tmp_path, self._gap_health(ten),
+                     notify=lambda *a: calls.append(a))
+        names = _open_names(tmp_path)
+        assert len(names) == 1
+        assert "_sev2_gap_QRVO" in names[0]
+        inc = _incident(tmp_path, "open", names[0])
+        assert inc["severity"] == "SEV2"
+        assert inc["unacked_checks"] == 3
+        # exactly ONE history entry and ONE toast for the whole run
+        assert len(inc["severity_history"]) == 1
+        assert "re-classified" in inc["severity_history"][0]["reason"]
+        assert len(calls) == 1 and calls[0][0] == 2
+        assert len(stats["toasts"]) == 1
+
+    def test_plain_cadence_escalation_still_pages(self, tmp_path):
+        """Guard against over-dedup: escalation WITHOUT re-classification
+        (same severity, unacked hits 3) still escalates + toasts."""
+        calls = []
+        four = ["2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09"]
+        _run(tmp_path, self._gap_health(four),
+             notify=lambda *a: calls.append(a))
+        _run(tmp_path, self._gap_health(four),
+             notify=lambda *a: calls.append(a))
+        stats = _run(tmp_path, self._gap_health(four),
+                     notify=lambda *a: calls.append(a))
+        names = _open_names(tmp_path)
+        assert len(names) == 1
+        assert "_sev2_gap_QRVO" in names[0]
+        inc = _incident(tmp_path, "open", names[0])
+        assert inc["severity_history"][-1]["reason"].startswith(
+            "unacknowledged")
+        assert len(calls) == 1 and calls[0][0] == 2
+        assert len(stats["toasts"]) == 1
+
+    def test_sev1_repager_still_fires_when_not_reclassified(self,
+                                                          tmp_path):
+        """SEV1 stays SEV1 at cadence -> the re-page path must remain
+        (escalated=False, so `not escalated` still lets it through)."""
+        calls = []
+        for _ in range(3):
+            _run(tmp_path, None, probe_error="down",
+                 notify=lambda *a: calls.append(a))
+        names = _open_names(tmp_path)
+        assert len(names) == 1
+        inc = _incident(tmp_path, "open", names[0])
+        repages = [h for h in inc["severity_history"]
+                   if "re-page" in h["reason"]]
+        assert len(repages) == 1
+        # new SEV1 toast + cadence re-page toast
+        assert len(calls) == 2
+
+
+class TestLegacySeverityDriftNB4:
+    """NB4: folders damaged by the pre-B1 silent merge (incident.json
+    severity drifted from the folder's sevN token) self-heal on the
+    next update — the stored json value is authoritative."""
+
+    def test_drifted_folder_renamed_to_json_severity(self, tmp_path):
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["gaps"]["per_ticker"] = [
+            _gap("QRVO", ["2026-10-06", "2026-10-07", "2026-10-08",
+                          "2026-10-09"])]
+        h["daily_close"]["checks"]["gaps"]["tickers_with_gaps"] = 1
+        h["daily_close"]["checks"]["gaps"]["total_missing_days"] = 4
+        _run(tmp_path, h)
+        name = _open_names(tmp_path)[0]
+        assert "_sev3_gap_QRVO" in name
+        # simulate pre-B1 damage: json silently says SEV2, folder sev3
+        p = tmp_path / "open" / name / "incident.json"
+        data = json.loads(p.read_text(encoding="utf-8"))
+        data["severity"] = "SEV2"
+        p.write_text(json.dumps(data), encoding="utf-8")
+        # next run: finding classifies SEV3 again — the 'better' path
+        # never downgrades, and no rename trigger fired before NB4;
+        # the reconcile step must still fix the folder name.
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert len(names) == 1
+        assert "_sev2_gap_QRVO" in names[0]
+        inc = _incident(tmp_path, "open", names[0])
+        assert inc["severity"] == "SEV2"
+        assert inc["incident_key"] == names[0]
+        assert stats["updated"] == names

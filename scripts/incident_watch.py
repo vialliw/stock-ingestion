@@ -52,6 +52,7 @@ import datetime as _dt
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -298,39 +299,56 @@ def _check_dict(checks: dict, name: str, findings: list) -> dict:
     return {}
 
 
+def _parse_count(value) -> "int | None":
+    """Coerce a count-like value to ``int`` — ``None`` when unusable,
+    never raises (INC-T1c NB1/NB3).
+
+    ``None`` covers everything that is not a usable count: non-numeric
+    strings, bools (``int`` subclasses — JSON ``true``/``false`` is not
+    a count, INC-T1c NB3), and non-finite floats/strings.  ``json.loads``
+    natively accepts ``Infinity``/``-Infinity``/``1e999``, which arrive
+    as ``float('inf')``; ``int(inf)`` raises ``OverflowError`` — outside
+    the ``TypeError``/``ValueError`` net that crashed classify (NB1).
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(f):
+        return None
+    return int(f)
+
+
 def _safe_int(value, default: int = 0) -> int:
     """``int()`` that never raises — helper for counters whose failure
-    is already covered elsewhere (unacked_checks, informational rows)."""
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        pass
-    try:
-        return int(float(value))
-    except (TypeError, ValueError):
-        return default
+    is already covered elsewhere (unacked_checks, informational rows).
+    Bools and non-finite values degrade to ``default`` (INC-T1c NB1)."""
+    n = _parse_count(value)
+    return default if n is None else n
 
 
 def _count_field(payload: dict, field: str, check: str,
                  findings: list, default: int = 0) -> int:
-    """Parse a numeric count field without ever raising (INC-T1b B3).
+    """Parse a numeric count field without ever raising (INC-T1b B3,
+    INC-T1c NB1/NB3).
 
-    An unparseable-but-present count emits a SEV2 anomaly finding —
-    can't count = can't trust — and falls back to ``default`` (the
-    caller passes ``len()`` of whatever detail list did arrive)."""
+    An unparseable-but-present count — non-numeric strings, bools, or
+    non-finite ``inf``/``nan``/``1e999`` values — emits a SEV2 anomaly
+    finding (can't count = can't trust) and falls back to ``default``
+    (the caller passes ``len()`` of whatever detail list did arrive)."""
     raw = payload.get(field)
     if raw is None:
         return default
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        pass
-    try:
-        return int(float(raw))
-    except (TypeError, ValueError):
+    n = _parse_count(raw)
+    if n is None:
         findings.append(_malformed_finding(
             check, f"unparseable_{field}", raw))
         return default
+    return n
 
 
 def _severity_num(value, default: int = 4) -> int:
@@ -1016,7 +1034,6 @@ def _apply_findings(root: Path, findings, yyyymmdd: str,
                 "reason": "finding re-classified at higher severity"})
             sev_num = f.severity
             inc_dir = _rename_severity(inc_dir, sev_num)
-            data["incident_key"] = inc_dir.name
             escalated = True
             if sev_num <= 2:
                 stats["toasts"].append(
@@ -1035,11 +1052,14 @@ def _apply_findings(root: Path, findings, yyyymmdd: str,
                     # Folder rename: keep the first-seen date prefix,
                     # swap the severity token (doc §7.3).
                     inc_dir = _rename_severity(inc_dir, sev_num)
-                    data["incident_key"] = inc_dir.name
                     escalated = True
                     stats["toasts"].append(
                         (sev_num, f.summary + " (escalated)"))
-                else:
+                elif not escalated:
+                    # INC-T1c NB2 — when the re-classification block
+                    # above already recorded severity_history and paged
+                    # THIS run, a same-run "re-page" would emit a second
+                    # toast + history entry for one severity change.
                     data.setdefault("severity_history", []).append({
                         "ts": now_iso, "from": f"SEV{sev_num}",
                         "to": f"SEV{sev_num}",
@@ -1048,6 +1068,13 @@ def _apply_findings(root: Path, findings, yyyymmdd: str,
                     stats["toasts"].append(
                         (sev_num, f.summary + " (re-page)"))
         data["severity"] = f"SEV{sev_num}"
+        # INC-T1c NB4 — self-heal pre-B1 damage: folders whose sevN
+        # token drifted from incident.json's severity (the old silent
+        # min() merge) are renamed to the now-authoritative severity on
+        # the next update.  _rename_severity no-ops when the token is
+        # already correct (or the name lacks the standard prefix).
+        inc_dir = _rename_severity(inc_dir, sev_num)
+        data["incident_key"] = inc_dir.name
         _write_incident(inc_dir, data, f.evidence)
         stats["updated"].append(inc_dir.name)
         _append_event(root, {
