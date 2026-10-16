@@ -9,3 +9,7 @@ dist/
 *.duckdb
 *.duckdb.wal
 .pytest_cache/
+
+# Live incident store — repo `incidents` junction -> C:\Intel\incidents\stock-ingestion
+# (operational state, written by incident_watch.py; never commit it)
+incidents/

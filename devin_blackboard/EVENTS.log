@@ -3674,3 +3674,43 @@ Concurs with challenger's 4 non-blockers (N1 DST-mismatch +1h drift fires-late-n
 [2026-10-16] [ORCHESTRATOR] DEPLOY: -ProvisionOnly ran clean — C:\Intel\incidents\stock-ingestion tree + suppressions.json/_project.json seeds + repo junction created. Live watcher run vs real Flight server: WARN -> 5 incident folders (1xSEV2 integrity WBD 2026-10-05, 4xSEV3 stale/gap DBRG/QRVO/WBD/LESL), 12 suppressed, 1 toast, heartbeat written. Full registration FAILED: Access is denied (SYSTEM principal needs elevation) — user must run scripts/register_incident_watch.ps1 elevated. DEPLOY HAZARD FOUND: git add -A traverses the junction and would sweep live incident state — registered INC-T3 (.gitignore).
 
 [2026-10-16T20:21:38.905612+00:00] [EXECUTOR] claimed INC-T3
+[2026-10-16T20:22:50.905851+00:00] [EXECUTOR] completed INC-T3 -> .gitignore:15 adds 'incidents/' (junction -> C:\Intel\incidents\stock-ingestion live store). git check-ignore -v -> .gitignore:15 match, exit 0. git add -A --dry-run: zero incidents/* paths. git status --porcelain: no '?? incidents/'. Also ran 'git rm -r --cached incidents/' to untrack the 20 files the claim commit had already swept in (junction contents remain on disk). Gates: check_loops exit 0 (17 files), pytest tests/test_incident_watch.py 66/66 passed, --verify INC-T3 ALL PASS.
+Evidence map:
+[
+  {
+    "id": "INC-T3-AC1",
+    "check": "incidents/ ignored",
+    "command": "git check-ignore incidents/",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "incidents/\n"
+  },
+  {
+    "id": "INC-T3-AC2",
+    "check": "loop checker clean",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "INC-T3-AC3",
+    "check": "incident tests unaffected",
+    "command": "python -m pytest tests/test_incident_watch.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "..................................................................       [100%]\n66 passed in 3.13s\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]
