@@ -4,6 +4,18 @@ Current Branch: main
 
 ## Incident management (2026-10-12)
 
+INC-T3 done 2026-10-16 (executor B): `.gitignore:15` now ignores `incidents/`
+(repo junction -> `C:\Intel\incidents\stock-ingestion` live store; comment
+says never commit). Also ran `git rm -r --cached incidents/` to untrack the
+20 files the INC-T3 claim commit had already swept into git — junction
+contents untouched on disk. `git check-ignore -v` -> `.gitignore:15` match;
+`git add -A --dry-run` lists zero incidents/* paths; `git status --porcelain`
+shows no `?? incidents/`. Gates: check_loops exit 0 (17 files),
+`pytest tests/test_incident_watch.py -q` 66/66, `--verify INC-T3` ALL PASS
+(4/4). NOTE: one commit of live incident state (28c0073) was pushed to
+GitHub before the ignore landed — history only, no secrets, but purging it
+would require a force-push (orchestrator decision).
+
 INC-T2 done 2026-10-16 (executor B): NEW `scripts/register_incident_watch.ps1`
 registers `StockIngestion-HealthWatch` (daily 18:30 America/New_York →
 machine-local via `TimeZoneInfo.ConvertTime` + IANA→Windows fallback,
