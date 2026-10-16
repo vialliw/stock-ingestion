@@ -20,6 +20,23 @@ N4 — unparseable/missing violation dates uniformly SEV3 (was None->SEV3
 vs garbage->SEV2). Gates: 55/55 + 1839/1839 pytest, check_loops exit 0,
 --self-test exit 0, --verify INC-T1b ALL PASS.
 
+INC-T1c done 2026-10-16 (executor B): challenger round-2 residual fixed
+in `scripts/incident_watch.py` + 11 regression tests in
+`tests/test_incident_watch.py` (55 -> 66). NB1 (blocker) — new
+`_parse_count` helper: bools and non-finite floats return None instead
+of reaching `int(inf)` OverflowError (json.loads accepts
+Infinity/-Infinity/1e999 natively); `_count_field` emits SEV2
+`unparseable_*` anomaly + fallback, `_safe_int` degrades to default —
+no more exit-1/zero-folders. NB2 — a same-run re-classification landing
+on the unacked-cadence check no longer emits 2 toasts + 2 history
+entries; the re-page block is gated by `elif not escalated`. NB3 —
+bool counts (True/False) treated as unparseable anomalies, not 1/0.
+NB4 — folder sevN token reconciled to the authoritative incident.json
+severity on every update (unconditional `_rename_severity` tail call,
+no-op when already correct) — pre-B1 drifted folders self-heal. Gates:
+66/66 + 1850/1850 pytest, check_loops exit 0, --self-test exit 0
+(6 folders/3 suppressed/1 toast), --verify INC-T1c ALL PASS (5/5).
+
 
 
 `docs/incident_management_requirements.md` drafted for the external incident
