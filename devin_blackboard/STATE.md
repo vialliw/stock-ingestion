@@ -4,6 +4,21 @@ Current Branch: main
 
 ## Incident management (2026-10-12)
 
+INC-T2 done 2026-10-16 (executor B): NEW `scripts/register_incident_watch.ps1`
+registers `StockIngestion-HealthWatch` (daily 18:30 America/New_York →
+machine-local via `TimeZoneInfo.ConvertTime` + IANA→Windows fallback,
+F7-T13 pattern; SYSTEM/ServiceAccount/Highest; ExecutionTimeLimit 30m;
+MultipleInstances IgnoreNew; idempotent; `-Unregister`). Idempotent
+provisioning — also standalone via `-ProvisionOnly` — creates
+`C:\Intel\incidents\stock-ingestion\{open,acknowledged,resolved,_reports,_config}`,
+seeds `_config\suppressions.json` + `_project.json` only when absent,
+creates repo `incidents\` junction via `mklink /J`, refuses to clobber a
+real dir. **Not executed** — registration/provisioning is the
+orchestrator's deploy step. README twins gained an "Incident health
+watch" section (task, junction → central store, doc §7 pointer,
+`--self-test`); `fc /b` byte-identical. Gates: `--verify INC-T2` ALL
+PASS (5/5 — PSParser clean, twins identical, check_loops exit 0).
+
 INC-T1b done 2026-10-16 (executor B): all 7 challenger NEEDS-WORK
 findings fixed in `scripts/incident_watch.py` + 18 regression tests in
 `tests/test_incident_watch.py` (37 -> 55). B1 — severity upgrades on
