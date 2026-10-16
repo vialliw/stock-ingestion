@@ -3457,3 +3457,88 @@ Evidence map:
 [2026-10-16] [ORCHESTRATOR] Challenger C verdict on INC-T1: NEEDS-WORK — 3 blockers (B1 silent severity upgrade w/o rename/toast; B2 non-dict checks payload crashes before CHECK_FAILED scan; B3 unguarded int() on counts) + 4 non-blockers (N1 count-only signals dropped; N2 phantom _2 folder on same-run dup identity; N3 top-level CHECK_FAILED missed; N4 inconsistent violation-date severity). Registered INC-T1b fix task for executor B.
 
 [2026-10-16T19:28:04.378846+00:00] [EXECUTOR] claimed INC-T1b
+[2026-10-16T19:47:32.923153+00:00] [EXECUTOR] completed INC-T1b -> INC-T1b: all B1-B3 + N1-N4 fixed in scripts/incident_watch.py. B1: recurring findings re-classified worse now route through severity_history+folder-rename+SEV1/2-toast (new _rename_severity helper; no silent min merge; better findings never auto-downgrade). B2: _as_dict/_as_list/_check_dict coercion + SEV2 malformed_payload anomalies for non-dict checks/sub-checks/sections; CHECK_FAILED scan crash-safe. B3: _count_field/_safe_int on every count field; unparseable -> SEV2 unparseable_* anomaly + fallback. N1: count-only fallback keys (stale_count<N>, coverage_count<N>, duplicates count<N>) when lists truncated/empty. N2: same-run identity dedup via seen-set kills _2 phantom folders. N3: top-level CHECK_FAILED -> SEV1 composite_check_failed. N4: _in_window rewritten — unparseable/missing dates AND bounds uniformly conservative SEV3. tests/test_incident_watch.py: +18 regression tests (37->55) pinning each fix. Gates: incident_watch 55/55, full suite 1839/1839, check_loops exit 0 (17 files), --self-test exit 0 (doc-6 fixture: 6 folders, 3 suppressed, 1 toast), --verify INC-T1b ALL PASS (9/9).
+Evidence map:
+[
+  {
+    "id": "INC-T1b-AC1",
+    "check": "incident_watch tests pass",
+    "command": "python -m pytest tests/test_incident_watch.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ".......................................................                  [100%]\n55 passed in 2.79s\n"
+  },
+  {
+    "id": "INC-T1b-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1839 passed, 477 warnings in 158.17s (0:02:38)\n"
+  },
+  {
+    "id": "INC-T1b-AC3",
+    "check": "loop checker clean",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "INC-T1b-AC4",
+    "check": "watcher offline self-test",
+    "command": "python scripts/incident_watch.py --self-test",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "incident_watch: health_status=WARN probe=ok root=C:\\Users\\user\\AppData\\Local\\Temp\\incident_watch_selftest_dunwhzeu\n  new=6 updated=0 resolved=0 suppressed=3\n  + NEW 20261012_sev2_integrity_WBD_2026-10-05\n  + NEW 20261012_sev3_stale_DBRG\n  + NEW 20261012_sev3_gap_QRVO\n  + NEW 20261012_sev3_gap_WBD\n  + NEW 20261012_sev3_gap_LESL\n  + NEW 20261012_sev3_gap_TCBI\n  toasts sent: 1\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

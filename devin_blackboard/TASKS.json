@@ -3982,7 +3982,7 @@
       "/scripts/incident_watch.py",
       "/tests/test_incident_watch.py"
     ],
-    "status": "in_progress",
+    "status": "done",
     "created_at": "2026-10-16T20:27:56.084063",
     "claimed_by": null,
     "claimed_at": null,

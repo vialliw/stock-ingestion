@@ -19,7 +19,9 @@ folder.  Findings absent from the latest report auto-resolve (folder
 moves ``open/`` -> ``resolved/``).  An incident unacknowledged for
 ``_ESCALATE_EVERY_N_CHECKS`` checks bumps one severity level (SEV3 ->
 SEV2, folder renamed, ``severity_history`` appended); SEV1/SEV2 at the
-same cadence re-page via toast.  Every create/update/escalate/resolve/
+same cadence re-page via toast.  A recurring finding re-classified at
+a WORSE severity takes the same rename/history/toast path — severity
+never flips silently (INC-T1b).  Every create/update/escalate/resolve/
 suppress appends one JSON line to ``<root>/events.jsonl``.
 
 Toast notification (doc §5): NEW SEV1/SEV2 folders (and SEV1/SEV2
@@ -207,30 +209,141 @@ def _sessions_between(last_date, latest) -> "int | None":
 
 
 def _in_window(date, window_start, window_end, latest) -> bool:
-    """True when a violation date is 'recent' per doc §2.1 — inside the
-    gaps window when bounds exist, else within ~60 days of
-    ``latest_trading_day``; unparseable/absent bounds fail loud (True).
-    """
-    if not date:
-        return False
+    """SEV2 gate for integrity violations (doc §2.1 'recent corrupt
+    row').  True only when the violation's date parses AND is provably
+    recent — inside the gaps window when both bounds parse, else within
+    ``_INTEGRITY_RECENT_DAYS`` of a parseable ``latest_trading_day``.
+
+    INC-T1b N4 — consistent conservative policy: a violation with an
+    unknown/unparseable/missing date, or a window/latest bound that
+    cannot be parsed, fails -> SEV3 ('historical / cannot prove
+    recent').  A corrupt row we cannot date is a localized data-quality
+    issue, not proof that the loader just accepted bad data, so it
+    tickets without paging.  Previously a garbage date failed loud
+    (SEV2) while ``None`` failed quiet (SEV3)."""
     try:
         d = _dt.date.fromisoformat(str(date)[:10])
-    except ValueError:
-        return True
+    except (TypeError, ValueError):
+        return False
     if window_start and window_end:
         try:
             ws = _dt.date.fromisoformat(str(window_start)[:10])
             we = _dt.date.fromisoformat(str(window_end)[:10])
-            return ws <= d <= we
-        except ValueError:
-            pass
+        except (TypeError, ValueError):
+            return False
+        return ws <= d <= we
     if latest:
         try:
             lt = _dt.date.fromisoformat(str(latest)[:10])
-            return d >= lt - _dt.timedelta(days=_INTEGRITY_RECENT_DAYS)
-        except ValueError:
-            pass
-    return True
+        except (TypeError, ValueError):
+            return False
+        return d >= lt - _dt.timedelta(days=_INTEGRITY_RECENT_DAYS)
+    return False
+
+
+# ---------------------------------------------------------------------
+# Payload coercion helpers (INC-T1b B2/B3) — the health report is
+# machine-generated but its shape is a contract, not a guarantee: any
+# field may arrive as an error string or other non-conforming type.
+# Every coercion below degrades to a safe empty value AND, where the
+# payload was actually present-but-wrong, emits a SEV2 anomaly finding
+# ('can't count = can't trust -> escalate as finding, not silence').
+# ---------------------------------------------------------------------
+
+def _as_dict(value) -> dict:
+    """Coerce a payload to ``dict`` — anything else degrades to ``{}``
+    so a malformed check can never crash classification."""
+    return value if isinstance(value, dict) else {}
+
+
+def _as_list(value) -> list:
+    """Coerce a report list field to ``list`` — a bare string becomes a
+    one-item list (probably a single ticker), dicts/other scalars
+    degrade to ``[]`` rather than iterating garbage."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    if isinstance(value, str):
+        return [value] if value else []
+    return []
+
+
+def _malformed_finding(check: str, detail: str, raw) -> "_Finding":
+    """SEV2 anomaly when a report payload has an unusable shape —
+    'can't count = can't trust -> escalate as finding, not silence'
+    (INC-T1b B2/B3).  SEV2 pages because a check we cannot evaluate is
+    a hole in monitoring coverage."""
+    return _Finding(
+        check=check, detail=detail, severity=2,
+        summary=(f"{check}: {detail} arrived as "
+                 f"{type(raw).__name__} ({str(raw)[:80]!r}) — the "
+                 "check cannot be evaluated reliably"),
+        evidence={check: {detail: raw}},
+        suggested_action=(
+            "Inspect scripts/data_health_report.py --json output — a "
+            "check returned a malformed/non-numeric payload (usually "
+            "an error string); fix the check and re-run."))
+
+
+def _check_dict(checks: dict, name: str, findings: list) -> dict:
+    """``checks[name]`` as a dict; a non-``None`` non-dict payload emits
+    a SEV2 anomaly finding instead of crashing classify (INC-T1b B2)."""
+    raw = checks.get(name)
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    findings.append(_malformed_finding(name, "malformed_payload", raw))
+    return {}
+
+
+def _safe_int(value, default: int = 0) -> int:
+    """``int()`` that never raises — helper for counters whose failure
+    is already covered elsewhere (unacked_checks, informational rows)."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _count_field(payload: dict, field: str, check: str,
+                 findings: list, default: int = 0) -> int:
+    """Parse a numeric count field without ever raising (INC-T1b B3).
+
+    An unparseable-but-present count emits a SEV2 anomaly finding —
+    can't count = can't trust — and falls back to ``default`` (the
+    caller passes ``len()`` of whatever detail list did arrive)."""
+    raw = payload.get(field)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(float(raw))
+    except (TypeError, ValueError):
+        findings.append(_malformed_finding(
+            check, f"unparseable_{field}", raw))
+        return default
+
+
+def _severity_num(value, default: int = 4) -> int:
+    """Parse ``'SEV2'`` / ``2`` / ``'2'`` -> int in 1..4; junk ->
+    ``default`` (stored incident.json is operator-touchable)."""
+    s = str(value).strip()
+    if s.upper().startswith("SEV"):
+        s = s[3:]
+    try:
+        n = int(s)
+    except (TypeError, ValueError):
+        return default
+    return n if 1 <= n <= 4 else default
 
 
 def _refetch_action(tickers: str) -> str:
@@ -316,17 +429,17 @@ def _prior_evidence_tickers(root: Path) -> set:
         daily = h.get("daily_close")
         if not isinstance(daily, dict):
             daily = h
-        checks = (daily or {}).get("checks") or {}
+        checks = _as_dict((daily or {}).get("checks"))
         lists = (
-            (checks.get("staleness") or {}).get("stale_tickers"),
-            (checks.get("gaps") or {}).get("per_ticker"),
-            (checks.get("integrity") or {}).get("violations"),
-            (checks.get("duplicates") or {}).get("duplicates"),
+            _as_dict(checks.get("staleness")).get("stale_tickers"),
+            _as_dict(checks.get("gaps")).get("per_ticker"),
+            _as_dict(checks.get("integrity")).get("violations"),
+            _as_dict(checks.get("duplicates")).get("duplicates"),
         )
         # justified: fixed 4-element tuple of evidence lists.
         for lst in lists:
             # justified: per-entry dict validation of report JSON.
-            for e in lst or []:
+            for e in _as_list(lst):
                 if isinstance(e, dict) and e.get("ticker"):
                     seen.add(str(e["ticker"]))
                 elif isinstance(e, str):
@@ -365,22 +478,55 @@ def classify_health(health, *, probe_error=None, benign=None,
 
     daily = health.get("daily_close")
     if not isinstance(daily, dict):
+        if daily is not None:
+            # non-dict daily_close section — blind payload, anomaly
+            findings.append(_malformed_finding(
+                "daily_close", "malformed_payload", daily))
         daily = health  # pre-F17 servers: single-level report schema
-    checks = daily.get("checks") or {}
+    raw_checks = daily.get("checks")
+    if raw_checks is None:
+        checks = {}
+    elif isinstance(raw_checks, dict):
+        checks = raw_checks
+    else:
+        findings.append(_malformed_finding(
+            "daily_close", "malformed_checks", raw_checks))
+        checks = {}
     latest = daily.get("latest_trading_day")
-    gaps = checks.get("gaps") or {}
+    gaps = _check_dict(checks, "gaps", findings)
     ws, we = gaps.get("window_start"), gaps.get("window_end")
     gap_entries = {
-        e["ticker"]: e for e in gaps.get("per_ticker", []) or []
+        e["ticker"]: e for e in _as_list(gaps.get("per_ticker"))
         if isinstance(e, dict) and e.get("ticker")
     }
 
     # ---- SEV1: any section whose check itself failed ----
+    # INC-T1b N3 — a top-level CHECK_FAILED blinds monitoring even when
+    # every section still reports OK (doc §2.1 'monitoring is blind').
+    if health.get("health_status") == "CHECK_FAILED":
+        findings.append(_Finding(
+            check="composite", detail="check_failed", severity=1,
+            summary=("composite health_status == CHECK_FAILED: "
+                     f"{health.get('error', 'unknown error')}"),
+            evidence={"health_status": health.get("health_status"),
+                      "error": health.get("error")},
+            suggested_action=(
+                "The health check crashed — investigate the evidence "
+                "error (DuckDB file/Flight server), then re-run "
+                "scripts/data_health_report.py --json."),
+        ))
     sections = {"daily_close": daily}
     for name in _SECTION_NAMES:  # justified: constant 3-tuple, exempt
         sec = health.get(name)
+        if sec is None:
+            continue
         if isinstance(sec, dict):
             sections[name] = sec
+        else:
+            # non-dict section — cannot read its health_status;
+            # finding-worthy anomaly, never a crash (INC-T1b B2).
+            findings.append(_malformed_finding(
+                name, "malformed_payload", sec))
     for name, sec in sections.items():  # .items() — exempt iterator
         if sec.get("health_status") == "CHECK_FAILED":
             findings.append(_Finding(
@@ -399,12 +545,14 @@ def classify_health(health, *, probe_error=None, benign=None,
     # (SEV3 'verify ticker status'); fewer sessions are ticketed by the
     # gaps check when present there, else as a small-stale SEV3.
     delisting = set()
-    st = checks.get("staleness") or {}
+    st = _check_dict(checks, "staleness", findings)
     stale_entries = [
-        e for e in st.get("stale_tickers", []) or []
+        e for e in _as_list(st.get("stale_tickers"))
         if isinstance(e, dict) and e.get("ticker")
     ]
-    stale_count = max(int(st.get("stale_count") or 0), len(stale_entries))
+    stale_count = max(
+        _count_field(st, "stale_count", "staleness", findings),
+        len(stale_entries))
     active = []
     # justified: per-ticker classification — each entry maps to its own
     # incident decision (ack-suppress / delisting / gap deferral).
@@ -417,10 +565,17 @@ def classify_health(health, *, probe_error=None, benign=None,
                 evidence=e, suggested_action="none", suppressed=True))
         else:
             active.append(e)
-    if stale_count >= _STALE_SEV2_THRESHOLD and active:
+    # INC-T1b N1 — page on the COUNT even when the ticker list is
+    # empty/truncated (`..._stale_count<N>` fallback key).  The guard
+    # only drops the SEV2 when every LISTED ticker was ack-suppressed
+    # AND the count adds nothing beyond them.
+    if stale_count >= _STALE_SEV2_THRESHOLD and (
+            active or stale_count > len(stale_entries)):
         tickers = [e["ticker"] for e in active]
+        detail = (_multi_detail("multi", tickers) if tickers
+                  else f"count{stale_count}")
         findings.append(_Finding(
-            check="stale", detail=_multi_detail("multi", tickers),
+            check="stale", detail=detail,
             severity=2,
             summary=(f"{stale_count} tickers stale vs latest session "
                      f"{latest} — broad ingestion failure"),
@@ -459,13 +614,18 @@ def classify_health(health, *, probe_error=None, benign=None,
     # missing_count > 0 for tickers that previously had data -> SEV2
     # (silent loss); never-seen absences -> SEV3 per ticker; a broad
     # absence (>10) is SEV2 regardless — it cannot be all-new tickers.
-    cov = checks.get("coverage") or {}
-    missing = [str(t) for t in cov.get("missing_tickers", []) or [] if t]
-    missing_count = max(int(cov.get("missing_count") or 0), len(missing))
+    cov = _check_dict(checks, "coverage", findings)
+    missing = [str(t) for t in _as_list(cov.get("missing_tickers")) if t]
+    missing_count = max(
+        _count_field(cov, "missing_count", "coverage", findings),
+        len(missing))
     if missing_count > _COVERAGE_SEV3_MAX:
         findings.append(_Finding(
             check="coverage",
-            detail=_multi_detail("multi", missing or [f"x{missing_count}"]),
+            # INC-T1b N1 — count-only fallback when the list is
+            # truncated/empty (`..._coverage_count<N>` key).
+            detail=(_multi_detail("multi", missing) if missing
+                    else f"count{missing_count}"),
             severity=2,
             summary=(f"{missing_count} of "
                      f"{cov.get('configured_count', '?')} configured "
@@ -475,6 +635,21 @@ def classify_health(health, *, probe_error=None, benign=None,
                 '", "'.join(missing[:10])),
         ))
     else:
+        # INC-T1b N1 — the count exceeds the tickers actually listed
+        # (truncated report): a count-only absence we cannot attribute
+        # to prior data -> SEV3, same as a never-seen absence.
+        if missing_count > len(missing):
+            findings.append(_Finding(
+                check="coverage", detail=f"count{missing_count}",
+                severity=3,
+                summary=(f"{missing_count} configured ticker(s) absent "
+                         "from daily_close — ticker list truncated/"
+                         "unavailable in the report"),
+                evidence=cov,
+                suggested_action=(
+                    "Re-run scripts/data_health_report.py --json for "
+                    "the ticker list, then daily_load/on_request_load "
+                    "for the missing window.")))
         # justified: per-ticker incident decision — see staleness.
         for t in missing:
             if t in ack:
@@ -503,10 +678,10 @@ def classify_health(health, *, probe_error=None, benign=None,
                 ))
 
     # ---- integrity (after known-benign suppression, doc §3) ----
-    integ = checks.get("integrity") or {}
+    integ = _check_dict(checks, "integrity", findings)
     # justified: per-violation suppression+window classification — each
     # row is an independent incident candidate.
-    for v in integ.get("violations", []) or []:
+    for v in _as_list(integ.get("violations")):
         if not isinstance(v, dict):
             continue
         t, d, reason = v.get("ticker"), v.get("date"), v.get("reason")
@@ -538,14 +713,18 @@ def classify_health(health, *, probe_error=None, benign=None,
             ))
 
     # ---- duplicates ----
-    dup = checks.get("duplicates") or {}
-    dup_count = int(dup.get("duplicate_count") or 0)
+    dup = _check_dict(checks, "duplicates", findings)
+    dup_count = _count_field(
+        dup, "duplicate_count", "duplicates", findings)
     if dup_count > 0:
-        items = dup.get("duplicates") or []
+        items = _as_list(dup.get("duplicates"))
         if len(items) == 1 and isinstance(items[0], dict):
             detail = str(items[0].get("ticker") or items[0])
+        elif items:
+            detail = _multi_detail("multi", items)
         else:
-            detail = _multi_detail("multi", items or [f"x{dup_count}"])
+            # INC-T1b N1 — count-only fallback (truncated list).
+            detail = f"count{dup_count}"
         findings.append(_Finding(
             check="duplicates", detail=detail, severity=2,
             summary=(f"{dup_count} duplicate (Ticker, Date) key(s) — "
@@ -559,7 +738,8 @@ def classify_health(health, *, probe_error=None, benign=None,
     # ---- gaps ----
     # total_missing_days >= 30 -> one group SEV2 covering the run; else
     # per-ticker tickets (>=10 sessions -> SEV2, smaller -> SEV3).
-    total_missing = int(gaps.get("total_missing_days") or 0)
+    total_missing = _count_field(
+        gaps, "total_missing_days", "gaps", findings)
     if total_missing >= _GAP_TOTAL_SEV2_DAYS:
         findings.append(_Finding(
             check="gaps",
@@ -588,7 +768,8 @@ def classify_health(health, *, probe_error=None, benign=None,
                 continue
             if str(t) in delisting:
                 continue  # already ticketed as suspected delisting
-            mc = int(e.get("missing_count") or 0)
+            mc = _count_field(
+                e, "missing_count", "gaps", findings)
             if mc <= 0:
                 continue
             sev = 2 if mc >= _GAP_TICKER_SEV2_DAYS else 3
@@ -624,8 +805,8 @@ def classify_health(health, *, probe_error=None, benign=None,
                 suppressed=True))
     md = health.get("company_metadata")
     if isinstance(md, dict):
-        nf = ((md.get("checks") or {}).get("null_fields") or {})
-        if int(nf.get("null_field_rows") or 0) > 0:
+        nf = _as_dict(_as_dict(md.get("checks")).get("null_fields"))
+        if _safe_int(nf.get("null_field_rows"), 0) > 0:
             findings.append(_Finding(
                 check="company_metadata", detail="null_fields", severity=4,
                 summary=(f"company_metadata: {nf.get('null_field_rows')} "
@@ -705,6 +886,20 @@ def _unique_dir(path: Path) -> Path:
     return path.with_name(f"{path.name}_{n}")
 
 
+def _rename_severity(inc_dir: Path, sev_num: int) -> Path:
+    """Rename an incident folder after a severity change: keep the
+    first-seen date prefix, swap the ``sevN`` token (doc §7.3).  No-op
+    when the folder name lacks the standard prefix or the severity
+    token is already correct (guards against a phantom ``_2`` dir)."""
+    new_name = _FOLDER_PREFIX_RE.sub(
+        lambda m: f"{m.group(1)}_sev{sev_num}_", inc_dir.name)
+    if new_name == inc_dir.name:
+        return inc_dir
+    new_dir = _unique_dir(inc_dir.with_name(new_name))
+    inc_dir.rename(new_dir)
+    return new_dir
+
+
 def _ticket_md(data: dict) -> str:
     """Render TICKET.md — human summary + copy-paste remediation (doc §4)."""
     hist = "".join(
@@ -762,6 +957,15 @@ def _apply_findings(root: Path, findings, yyyymmdd: str,
                 "severity": f"SEV{f.severity}", "check": f.check,
                 "summary": f.summary})
             continue
+        # INC-T1b N2 — same-identity findings in ONE run must not mint
+        # a `_2` phantom folder: `existing` is a pre-run snapshot, so
+        # `seen` (kept severity-sorted, worst first) is the dedup key
+        # for anything already materialized this run.
+        if f.identity in seen:
+            logger.info(
+                "duplicate finding identity %s in one run — keeping "
+                "the first (worst-severity) instance", f.identity)
+            continue
         seen.add(f.identity)
         rec = existing.get(f.identity)
         if rec is None:
@@ -795,12 +999,31 @@ def _apply_findings(root: Path, findings, yyyymmdd: str,
         data["last_seen"] = now_iso
         data["suggested_action"] = f.suggested_action
         data["evidence_summary"] = f.summary
-        sev_num = min(int(str(data.get("severity", "SEV4"))[-1]),
-                      f.severity)
+        stored_sev = _severity_num(data.get("severity"))
+        sev_num = stored_sev
         escalated = False
+        # INC-T1b B1 — a recurring finding re-classified WORSE than the
+        # stored severity is a real severity change: route it through
+        # the same severity_history + folder-rename + SEV1/2-toast path
+        # as time-based escalation instead of silently editing
+        # incident.json (doc §5 toast + §7.3 rename contract).  A
+        # finding re-classified *better* never auto-downgrades an
+        # open/acknowledged ticket — the operator still owns the ack.
+        if f.severity < stored_sev:
+            data.setdefault("severity_history", []).append({
+                "ts": now_iso, "from": f"SEV{stored_sev}",
+                "to": f"SEV{f.severity}",
+                "reason": "finding re-classified at higher severity"})
+            sev_num = f.severity
+            inc_dir = _rename_severity(inc_dir, sev_num)
+            data["incident_key"] = inc_dir.name
+            escalated = True
+            if sev_num <= 2:
+                stats["toasts"].append(
+                    (sev_num, f.summary + " (escalated)"))
         if rec["state"] == "open":
-            data["unacked_checks"] = int(
-                data.get("unacked_checks") or 0) + 1
+            data["unacked_checks"] = _safe_int(
+                data.get("unacked_checks"), 0) + 1
             if (data["unacked_checks"] % _ESCALATE_EVERY_N_CHECKS == 0):
                 if sev_num > 2:
                     old = f"SEV{sev_num}"
@@ -809,15 +1032,9 @@ def _apply_findings(root: Path, findings, yyyymmdd: str,
                         "ts": now_iso, "from": old, "to": f"SEV{sev_num}",
                         "reason": "unacknowledged "
                                   f"{data['unacked_checks']} checks"})
-                    data["severity"] = f"SEV{sev_num}"
                     # Folder rename: keep the first-seen date prefix,
                     # swap the severity token (doc §7.3).
-                    new_name = _FOLDER_PREFIX_RE.sub(
-                        lambda m: f"{m.group(1)}_sev{sev_num}_",
-                        inc_dir.name)
-                    new_dir = _unique_dir(inc_dir.with_name(new_name))
-                    inc_dir.rename(new_dir)
-                    inc_dir = new_dir
+                    inc_dir = _rename_severity(inc_dir, sev_num)
                     data["incident_key"] = inc_dir.name
                     escalated = True
                     stats["toasts"].append(
@@ -830,8 +1047,7 @@ def _apply_findings(root: Path, findings, yyyymmdd: str,
                                   f"{data['unacked_checks']} checks"})
                     stats["toasts"].append(
                         (sev_num, f.summary + " (re-page)"))
-            else:
-                data["severity"] = f"SEV{sev_num}"
+        data["severity"] = f"SEV{sev_num}"
         _write_incident(inc_dir, data, f.evidence)
         stats["updated"].append(inc_dir.name)
         _append_event(root, {

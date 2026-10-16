@@ -613,3 +613,304 @@ class TestClassifyDirect:
         assert len(findings) == 1
         assert findings[0].severity == 1
         assert findings[0].check == "probe"
+
+
+# ---------------------------------------------------------------------
+# INC-T1b regression tests — one test per challenger finding B1/B2/B3
+# and N1/N2/N3/N4 (see devin_blackboard/EVENTS.log [CHALLENGER] entry).
+# ---------------------------------------------------------------------
+
+class TestSeverityUpgradeB1:
+    """B1: a recurring finding re-classified WORSE must route through
+    the rename + severity_history + toast path — no silent min() merge.
+    Challenger probe: gap 9 -> 10 sessions on check 2."""
+
+    def _gap_health(self, days):
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["gaps"]["per_ticker"] = [
+            _gap("QRVO", list(days))]
+        h["daily_close"]["checks"]["gaps"]["tickers_with_gaps"] = 1
+        h["daily_close"]["checks"]["gaps"]["total_missing_days"] = \
+            len(days)
+        return h
+
+    def test_upgrade_renames_folder_and_pages(self, tmp_path):
+        calls = []
+        # check 1: 9 missing sessions -> SEV3 gap ticket
+        _run(tmp_path, self._gap_health(
+            [f"2026-10-0{d}" for d in range(1, 10)]),
+            notify=lambda *a: calls.append(a))
+        names = _open_names(tmp_path)
+        assert any("_sev3_gap_QRVO" in n for n in names)
+        assert calls == []  # SEV3 does not page
+
+        # check 2: worsens to 10 sessions -> SEV2 on recurrence
+        stats = _run(tmp_path, self._gap_health(
+            [f"2026-09-{d:02d}" for d in range(20, 30)]),
+            notify=lambda *a: calls.append(a))
+        names = _open_names(tmp_path)
+        # same incident, renamed — never a second folder
+        assert len(names) == 1
+        assert "_sev2_gap_QRVO" in names[0]
+        assert not any("_sev3_" in n for n in names)
+        inc = _incident(tmp_path, "open", names[0])
+        assert inc["severity"] == "SEV2"
+        assert inc["incident_key"] == names[0]
+        assert inc["unacked_checks"] == 2
+        hist = inc["severity_history"]
+        assert hist[-1]["from"] == "SEV3"
+        assert hist[-1]["to"] == "SEV2"
+        assert "re-classified" in hist[-1]["reason"]
+        # doc §5: a NEW SEV2 condition pages
+        assert any(c[0] == 2 for c in calls)
+        ev = _events(tmp_path)
+        # 'escalated' audit record written (suppressed SEV4 events may
+        # trail it — pending_session is logged after SEV-sorted findings)
+        assert "escalated" in [e["event"] for e in ev]
+        assert len(stats["new"]) == 0
+        assert stats["updated"] == names
+
+    def test_downgrade_never_silently_lowers_severity(self, tmp_path):
+        """A SEV2 gap healing to SEV3 size stays SEV2 while open —
+        the operator owns the ack/downgrade decision."""
+        _run(tmp_path, self._gap_health(
+            [f"2026-09-{d:02d}" for d in range(20, 30)]))
+        stats = _run(tmp_path, self._gap_health(["2026-10-09"]))
+        names = _open_names(tmp_path)
+        assert len(names) == 1
+        assert "_sev2_gap_QRVO" in names[0]
+        inc = _incident(tmp_path, "open", names[0])
+        assert inc["severity"] == "SEV2"
+        assert stats["toasts"] == []
+
+
+class TestMalformedPayloadsB2:
+    """B2: non-dict check/section payloads must never crash classify —
+    they emit SEV2 anomaly findings and the SEV1 CHECK_FAILED scan
+    still runs over whatever shape arrived."""
+
+    def test_non_dict_subcheck_and_check_failed(self, tmp_path):
+        """Challenger probe: {'staleness': 'query failed'} under a
+        CHECK_FAILED section — previously exit 1 + zero folders."""
+        h = _health()
+        h["health_status"] = "CHECK_FAILED"
+        h["daily_close"]["health_status"] = "CHECK_FAILED"
+        h["daily_close"]["error"] = "duckdb explode"
+        h["daily_close"]["checks"]["staleness"] = "query failed"
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev1_daily_close_check_failed" in n
+                   for n in names)
+        assert any("_sev2_staleness_malformed_payload" in n
+                   for n in names)
+        assert stats["new"]
+
+    def test_non_dict_checks_container_no_crash(self, tmp_path):
+        h = _health()
+        h["daily_close"]["checks"] = "query exploded"
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_daily_close_malformed_checks" in n
+                   for n in names)
+        assert stats["new"]
+
+    def test_non_dict_section_payload_no_crash(self, tmp_path):
+        h = _health()
+        h["weekly"] = "boom"
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_weekly_malformed_payload" in n
+                   for n in names)
+        assert stats["new"]
+
+    def test_non_dict_daily_close_section_no_crash(self, tmp_path):
+        h = _health()
+        h["daily_close"] = "the whole section is a string"
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_daily_close_malformed_payload" in n
+                   for n in names)
+        assert stats["new"]
+
+
+class TestNonNumericCountsB3:
+    """B3: unparseable count fields -> SEV2 anomaly finding + safe
+    fallback, never ValueError/exit 1."""
+
+    def test_non_numeric_stale_count_still_classifies(self, tmp_path):
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["staleness"] = {
+            "stale_count": "many",
+            "stale_tickers": [{"ticker": "AAA",
+                               "last_date": "2026-10-08"}]}
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_staleness_unparseable_stale_count" in n
+                   for n in names)
+        # the listed ticker is still classified on its own merits
+        assert any("_stale_AAA" in n for n in names)
+        assert stats["new"]
+
+    def test_non_numeric_gap_counts_no_crash(self, tmp_path):
+        h = _health()
+        h["daily_close"]["checks"]["gaps"] = {
+            "tickers_with_gaps": 1, "total_missing_days": "bogus",
+            "expected_sessions": 30,
+            "window_start": _WS, "window_end": _WE,
+            "per_ticker": [{"ticker": "ABCD", "missing_count": "lots",
+                            "missing_days": []}]}
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("unparseable" in n for n in names)
+        assert stats["new"]
+
+    def test_non_numeric_duplicate_count(self, tmp_path):
+        h = _health()
+        h["daily_close"]["checks"]["duplicates"] = {
+            "duplicate_count": "NaN-ish", "duplicates": []}
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_duplicates_unparseable_duplicate_count" in n
+                   for n in names)
+        assert stats["new"]
+
+
+class TestCountOnlySignalsN1:
+    """N1: counts that exceed the listed tickers (truncated report)
+    still produce findings instead of being dropped."""
+
+    def test_stale_count_only_sev2(self, tmp_path):
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["staleness"] = {
+            "stale_count": 25, "stale_tickers": []}
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_stale_count25" in n for n in names)
+        assert stats["new"]
+
+    def test_stale_count_beyond_listed_tickers(self, tmp_path):
+        """stale_count 30 with only 3 listed entries still pages — the
+        unlisted 27 cannot be trusted away."""
+        h = _health()
+        h["daily_close"]["checks"]["staleness"] = {
+            "stale_count": 30,
+            "stale_tickers": [{"ticker": "AAA",
+                               "last_date": "2026-10-08"}]}
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_stale_" in n for n in names)
+
+    def test_coverage_count_only_sev3(self, tmp_path):
+        """missing_count 1-10 with an empty ticker list -> SEV3
+        count-only finding (prior data unprovable)."""
+        h = _health()
+        h["daily_close"]["checks"]["coverage"] = {
+            "missing_count": 5, "configured_count": 1214,
+            "missing_tickers": []}
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev3_coverage_count5" in n for n in names)
+
+    def test_coverage_count_only_sev2_broad(self, tmp_path):
+        h = _health()
+        h["daily_close"]["checks"]["coverage"] = {
+            "missing_count": 15, "configured_count": 1214,
+            "missing_tickers": []}
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_coverage_count15" in n for n in names)
+
+
+class TestSameRunDedupN2:
+    """N2: two findings with the same identity in ONE run -> one
+    folder, never a `_2` phantom that can never resolve."""
+
+    def test_identical_violations_one_folder(self, tmp_path):
+        h = _health()
+        v = {"ticker": "WBD", "date": "2026-10-05",
+             "reason": "null_or_nonpositive_ohlc"}
+        h["daily_close"]["checks"]["integrity"] = {
+            "violation_count": 2,
+            "reason_counts": {"null_or_nonpositive_ohlc": 2},
+            "violations": [dict(v), dict(v)]}
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert len(names) == 1
+        assert not any(n.endswith("_2") for n in names)
+        # and the single folder still resolves normally
+        stats = _run(tmp_path, _health())
+        assert len(stats["resolved"]) == 1
+
+    def test_duplicate_findings_direct(self, tmp_path):
+        """_apply_findings dedups by identity even off the happy
+        classify path (two constructed _Finding objects)."""
+        f = lambda sev: incident_watch._Finding(  # noqa: E731
+            check="gap", detail="QRVO", severity=sev, summary="dup",
+            evidence={}, suggested_action="x")
+        stats = incident_watch._apply_findings(
+            tmp_path, [f(3), f(2)], "20261012", "2026-10-12T18:30:00")
+        assert len(stats["new"]) == 1
+        # worst severity wins (findings arrive sorted SEV1-first)
+        assert "_sev3_gap_QRVO" in stats["new"][0]
+
+
+class TestTopLevelCheckFailedN3:
+    """N3: top-level health_status == CHECK_FAILED -> SEV1 even when
+    every section reports OK."""
+
+    def test_composite_check_failed_sev1(self, tmp_path):
+        h = _health()
+        h["health_status"] = "CHECK_FAILED"
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev1_composite_check_failed" in n for n in names)
+        inc = _incident(
+            tmp_path, "open",
+            next(n for n in names if "composite" in n))
+        assert inc["severity"] == "SEV1"
+        assert stats["toasts"]  # SEV1 pages
+
+
+class TestViolationDatesN4:
+    """N4: unknown/unparseable/missing violation dates are uniformly
+    SEV3 (conservative); only a provably-in-window date is SEV2."""
+
+    def test_none_and_garbage_dates_both_sev3(self, tmp_path):
+        h = _health()
+        h["daily_close"]["checks"]["integrity"] = {
+            "violation_count": 3, "reason_counts": {},
+            "violations": [
+                {"ticker": "NNN", "date": None,
+                 "reason": "high_lt_low"},
+                {"ticker": "GGG", "date": "not-a-date",
+                 "reason": "high_lt_low"},
+                {"ticker": "OKK", "date": "2026-10-05",
+                 "reason": "high_lt_low"}]}
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev3_integrity_NNN_None" in n for n in names)
+        # 'not-a-date' — _sanitize keeps hyphens
+        assert any("_sev3_integrity_GGG_not-a-date" in n
+                   for n in names)
+        assert any("_sev2_integrity_OKK_2026-10-05" in n
+                   for n in names)
+        assert not any("_sev2_integrity_NNN" in n for n in names)
+        assert not any("_sev2_integrity_GGG" in n for n in names)
+
+    def test_unparseable_window_bounds_fail_conservative(self, tmp_path):
+        """Garbage window bounds can no longer be used to prove a
+        violation is 'recent' -> SEV3."""
+        h = _health()
+        h["daily_close"]["checks"]["gaps"]["window_start"] = "junk"
+        h["daily_close"]["checks"]["gaps"]["window_end"] = "junk"
+        h["daily_close"]["checks"]["integrity"] = {
+            "violation_count": 1, "reason_counts": {},
+            "violations": [{"ticker": "WBD", "date": "2026-10-05",
+                            "reason": "high_lt_low"}]}
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev3_integrity_WBD_2026-10-05" in n
+                   for n in names)

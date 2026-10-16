@@ -1,8 +1,26 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-12
+Last Updated: 2026-10-16
 Current Branch: main
 
 ## Incident management (2026-10-12)
+
+INC-T1b done 2026-10-16 (executor B): all 7 challenger NEEDS-WORK
+findings fixed in `scripts/incident_watch.py` + 18 regression tests in
+`tests/test_incident_watch.py` (37 -> 55). B1 — severity upgrades on
+recurrence now route through rename+severity_history+toast (no silent
+min() merge); better re-classifications never auto-downgrade. B2 —
+non-dict checks/sub-check/section payloads coerce to {} + emit SEV2
+`malformed_payload` anomalies; CHECK_FAILED scan is crash-safe. B3 —
+`_count_field` safe-int on all count fields; unparseable -> SEV2
+`unparseable_*` anomaly + fallback. N1 — count-only fallbacks
+(`stale_count<N>`, `coverage_count<N>`, dup `count<N>`) when lists are
+truncated/empty. N2 — same-run identity dedup kills phantom `_2`
+folders. N3 — top-level CHECK_FAILED -> SEV1 (`composite_check_failed`).
+N4 — unparseable/missing violation dates uniformly SEV3 (was None->SEV3
+vs garbage->SEV2). Gates: 55/55 + 1839/1839 pytest, check_loops exit 0,
+--self-test exit 0, --verify INC-T1b ALL PASS.
+
+
 
 `docs/incident_management_requirements.md` drafted for the external incident
 system (first in-scope job: daily download). Defines SEV1-SEV4 classification
