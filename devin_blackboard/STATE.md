@@ -1,6 +1,23 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-06
+Last Updated: 2026-10-12
 Current Branch: main
+
+## Incident management (2026-10-12)
+
+`docs/incident_management_requirements.md` drafted for the external incident
+system (first in-scope job: daily download). Defines SEV1-SEV4 classification
+over the `data_health --json` schema, known-benign suppressions (CL=F/^IRX),
+dedup/escalation, ticket fields, toast channel. Baseline run 2026-10-12:
+WARN — see EVENTS.log and doc §6 (worked example).
+
+Watcher design advised 2026-10-16 (not yet built): scheduled
+`incident_watch.py` → incident folders via project-local `incidents\`
+symlink into a CENTRALIZED cross-project store (doc §7). Root DECIDED
+2026-10-16: `C:\Intel\incidents\` via junction `mklink /J`; NAS option
+deferred. Tree: open/acknowledged/resolved + `_last_check.json`
+heartbeat + `events.jsonl`; empty `open/` = healthy. Still pending:
+handler mode, watcher timing, auto-resolve confirmations.
+Build later as INC-* DAG.
 
 ## Reusable assets extracted (2026-10-06)
 
