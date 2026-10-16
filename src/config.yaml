@@ -320,6 +320,7 @@ ingestion:
   - DX
   - DXC
   - DXCM
+  - DXY
   - DY
   - DYN
   - EA
@@ -631,6 +632,7 @@ ingestion:
   - LOAR
   - LOGI
   - LOW
+  - LQD
   - LRCX
   - LRN
   - LSCC
