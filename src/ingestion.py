@@ -468,10 +468,12 @@ class IngestionEngine:
                     )
                     with np.errstate(divide="ignore", invalid="ignore"):
                         ratio = adj_close / raw_close
-                    # A zero raw close cannot yield a ratio. For valid
-                    # finite zero/zero market bars (^IRX), ratio 1 keeps
-                    # raw OHLC while Close remains the supplied Adj Close.
-                    ratio = ratio.mask(raw_close == 0, 1.0)
+                    # A zero raw close cannot yield a ratio. Only a
+                    # finite zero/zero market bar (^IRX) has a defined
+                    # identity adjustment; zero raw with nonzero adjusted
+                    # Close is contradictory and must be dropped.
+                    zero_pair = (raw_close == 0) & (adj_close == 0)
+                    ratio = ratio.mask(zero_pair, 1.0)
                     valid = (
                         np.isfinite(raw_close) & np.isfinite(adj_close)
                         & np.isfinite(ratio)

@@ -409,6 +409,29 @@ def test_finite_nonpositive_raw_close_is_retained(engine, db):
     assert stored["RawClose"].tolist() == [0.0, -37.0]
 
 
+def test_zero_raw_close_requires_zero_adjusted_close(engine):
+    """Zero raw Close is valid only when adjusted Close is also zero."""
+    rows = [
+        # Valid ^IRX-style zero/zero row retained with identity ratio.
+        ("2024-01-02", 0.0, 0.01, -0.01, 0.0, 0.0, 100.0),
+        # Contradictory zero raw / positive adjusted row must be dropped.
+        ("2024-01-03", 1.0, 2.0, 0.0, 0.0, 1.0, 100.0),
+        # Contradictory zero raw / negative adjusted row must be dropped.
+        ("2024-01-04", -1.0, 0.0, -2.0, 0.0, -1.0, 100.0),
+    ]
+    normalized, ok, failed, _ = engine._normalize_batch_df(
+        _download_frame(["^IRX"], rows, layout="flat"), ["^IRX"]
+    )
+    assert ok == ["^IRX"] and not failed
+    assert len(normalized) == 1
+    assert str(normalized.iloc[0]["Date"]) == "2024-01-02"
+    assert normalized.iloc[0]["RawClose"] == 0.0
+    assert normalized.iloc[0]["Close"] == 0.0
+    assert normalized.iloc[0]["Open"] == 0.0
+    assert normalized.iloc[0]["High"] == 0.01
+    assert normalized.iloc[0]["Low"] == -0.01
+
+
 def test_normalize_all_invalid_rows_marks_ticker_failed(engine):
     rows = [("2024-01-02", 10.0, 11.0, 9.0, np.inf, 10.0, 100.0)]
     df, ok, failed, errors = engine._normalize_batch_df(
