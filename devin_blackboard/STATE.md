@@ -173,6 +173,16 @@ INC-T6 registered 2026-10-17 (ready): external review found vendor 'delisting-te
 
 INC-T7 registered 2026-10-17 (done 2026-10-17, commit f4bac93): weekly rollup rebuilds are upsert-only — deleting daily rows leaves orphan weekly_close/weekly_indicators rows (verified live: phantom QRVO 2026-10-09 weekly bar survived weekly_refresh after the daily row was deleted). Fix: anti-join cleanup inside the existing rebuild write-lock.
 
+INC-T6/T7 done + deployed 2026-10-17 (external review driven): enforced
+quarantine for vendor delisting-terminal placeholder bars. INC-T6: 
+`ingestion.exclude_rows` ({ticker,date}) filter at _normalize_batch_df
+(choke point: all load paths + retry + split redownload; do_put filtered
+too) + `delete_daily_rows` Flight action + 46 tests. INC-T7: weekly
+rebuilds were upsert-only (orphan weekly rows survived daily deletes) ->
+anti-join cleanup; verified live: artifact rows deleted, phantom QRVO
+2026-10-09 weekly bar + WBD Open=0 weekly + indicator rows purged
+(896,750 rebuilt). Suites: 1907/1907, check_loops --strict clean.
+chatgpt_review: APPROVED (4 rounds). Pending user: DXY bad symbol.
 ## Reusable assets extracted (2026-10-06)
 
 Global skills (all projects): `multi-agent-blackboard`, `duckdb-flight-service`,

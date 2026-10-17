@@ -24,7 +24,7 @@ Store: `C:\Intel\incidents\stock-ingestion\` · Spec:
 ## Step 0 — heartbeat first, always
 
 Read `_last_check.json` before anything else. Stale `ts` = the watcher itself
-is down → check `StockInestion-HealthWatch` (runs as user, Interactive — only
+is down → check `StockIngestion-HealthWatch` (runs as user, Interactive — only
 while logged on) before trusting "open/ is empty".
 
 ## Step 1 — triage each folder
@@ -49,9 +49,14 @@ tbl = c.do_get(fl.Ticket(json.dumps({"sql": "<SQL>"}).encode())).read_all()
 | stale/gap | data exists for missing days | **Fetch miss** | Re-fetch (below) |
 | integrity row | same "bad" values upstream | **Real weird bar** (halted final day, negative WTI) | `benign_integrity` entry |
 | integrity row | different values upstream | **Corrupt row** | Re-fetch ticker/date |
+| flat O=H=L=C, Vol=0 at a delisted ticker's end | upstream stopped earlier | **Vendor terminal placeholder** | Quarantine (below) — NOT benign |
+| zero/neg Open with tiny Vol at delist end | upstream still serves it | **Suspect terminal bar — cause unresolved** | Quarantine (below) |
 
-Real 2026-10-17 precedent: DBRG/QRVO/WBD were all confirmed delisted this way;
-WBD 2026-10-05 `Open=0, Vol=40` was the real final bar → benign, not corrupt.
+Real 2026-10-17 precedent: DBRG/QRVO/WBD confirmed delisted this way.
+**Correction to earlier handling:** WBD 2026-10-05 `Open=0, Vol=40` is NOT
+established benign — vendor-consistent ≠ valid. Both it and the phantom
+QRVO 2026-10-05 flat bar were quarantined (deleted + exclude_rows) after an
+external review found they'd propagated to weekly_close/weekly_indicators.
 Three confirmations per ticker is normal (no upstream rows, `daily_load`
 "Empty dataset" error, hard stop in DB).
 
@@ -81,6 +86,25 @@ for scoping and ran a full 1214-ticker catch-up (~6 min, 4842 rows) on
 `acknowledged_delisted` suppresses stale/gap findings at EVERY level incl.
 aggregates (INC-T5). `benign_integrity` suppresses specific (ticker, date)
 integrity rows — CL=F 2020-04-20/21 and ^IRX 2020-03-18..30 are built-in.
+`quarantined_rows` is audit-only (documents rows removed via
+`delete_daily_rows`); the enforcement lives in `src/config.yaml`.
+
+**Quarantine artifact/placeholder rows** (INC-T6/T7, enforced):
+
+```python
+# remove the stored row(s)
+c.do_action(fl.Action("delete_daily_rows", json.dumps(
+    {"rows": [{"ticker": "QRVO", "date": "2026-10-05"}]}).encode()))
+# then rebuild rollups — weekly rebuilds delete orphan weeks (INC-T7)
+c.do_action(fl.Action("weekly_refresh", b"{}"))
+```
+
+Then add the pair to `ingestion.exclude_rows` in `src/config.yaml` (loader
+drops matching (Ticker,Date) rows from every load path + legacy do_put) —
+REQUIRED when upstream still serves the bad bar, else it returns on the next
+backfill. Deletion alone is durable only for withdrawn upstream bars.
+Requires a Flight server running code ≥ INC-T6 (restart `Flight Server` task
+if the action is unknown).
 
 **Never** "fix" a delisted ticker by re-fetching — upstream returns empty
 forever; suppression is the resolution.
