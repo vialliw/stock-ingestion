@@ -108,9 +108,12 @@ Watcher design advised 2026-10-16 (not yet built): scheduled
 symlink into a CENTRALIZED cross-project store (doc §7). Root DECIDED
 2026-10-16: `C:\Intel\incidents\` via junction `mklink /J`; NAS option
 deferred. Tree: open/acknowledged/resolved + `_last_check.json`
-heartbeat + `events.jsonl`; empty `open/` = healthy. Still pending:
-handler mode, watcher timing, auto-resolve confirmations.
-Build later as INC-* DAG.
+heartbeat + `events.jsonl`; empty `open/` = healthy.
+
+DEPLOYED 2026-10-16: `scripts/incident_watch.py` (INC-T1 chain, CRITIC-D
+PASS, 66 tests), `scripts/register_incident_watch.ps1` (INC-T2, INC-T4
+`-UserPrincipal`), `StockIngestion-HealthWatch` task registered as
+user/Interactive 23:30 local (18:30 ET). Ops guide: docs/INCIDENT_WATCH.md.
 
 ## Reusable assets extracted (2026-10-06)
 
