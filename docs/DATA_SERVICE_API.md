@@ -127,8 +127,9 @@ PK `(Date, Ticker)`. ~10-year history (config `initial_load_years`).
 > `RawClose` (schema v9+) for share counts, commissions and market-cap
 > work that needs raw executable prices. Rows loaded before the
 > migration carry `RawClose = NULL` until the owner runs the
-> 2010→present repair backfill; new ingestion always writes a finite
-> positive `RawClose`.
+> 2010→present repair backfill; new ingestion always writes a finite,
+> non-NULL `RawClose`. Zero (`^IRX`) and negative (`CL=F` Apr-2020)
+> values are legitimate market observations and are retained.
 
 > **Non-equity series:** `daily_close` also holds non-equity series —
 > `^TNX`, `CL=F` and `^IRX` (macro series added for the Correlation

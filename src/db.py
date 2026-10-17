@@ -439,7 +439,8 @@ class DatabaseManager:
         # R1A-T1: RawClose is part of the daily_close contract since
         # schema v9.  Legacy callers that omit the column on a matched
         # update must not erase an existing populated RawClose; only a
-        # finite positive source RawClose can replace a stored value.
+        # finite, non-NULL source RawClose can replace a stored value.
+        # Zero (^IRX) and negative (WTI Apr-2020) are valid market data.
         if "RawClose" not in work.columns:
             work["RawClose"] = None
         with self._write_lock:
@@ -457,7 +458,6 @@ class DatabaseManager:
                     RawClose = CASE
                         WHEN source.RawClose IS NOT NULL
                              AND isfinite(source.RawClose)
-                             AND source.RawClose > 0
                         THEN source.RawClose
                         ELSE target.RawClose
                     END

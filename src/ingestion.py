@@ -391,8 +391,9 @@ class IngestionEngine:
         field is present the per-row ``Adj Close / Close`` ratio
         scales OHLC and ``Close`` back to the historical
         ``auto_adjust=True`` contract, and rows that cannot produce
-        both an adjusted Close and a finite positive RawClose are
-        dropped rather than stored with NULL.  An empty
+        both an adjusted Close and a finite RawClose are dropped rather
+        than stored with NULL. Zero and negative raw market values are
+        valid (for example ^IRX and WTI).  An empty
         ticker that is in ``exclude_tickers`` is purged from the DB
         only after ``_confirm_delisted`` independently verifies the
         delisting (a rate-limit throttle must never wipe real history);
@@ -457,9 +458,9 @@ class IngestionEngine:
                 # adjustment ratio ``Adj Close / Close`` and scale OHLC
                 # so Close/Open/High/Low keep the existing adjusted
                 # (total-return) contract while ``RawClose`` carries
-                # the unadjusted close.  Rows lacking a finite positive
-                # raw close or a usable adjustment are dropped — never
-                # stored with a NULL RawClose.
+                # the unadjusted close.  Rows lacking a finite raw close
+                # or usable adjustment are dropped — never stored with a
+                # NULL RawClose. Zero/negative market values remain valid.
                 raw_close = pd.to_numeric(ticker_df["Close"], errors="coerce")
                 if "Adj Close" in ticker_df.columns:
                     adj_close = pd.to_numeric(
@@ -467,21 +468,25 @@ class IngestionEngine:
                     )
                     with np.errstate(divide="ignore", invalid="ignore"):
                         ratio = adj_close / raw_close
+                    # A zero raw close cannot yield a ratio. For valid
+                    # finite zero/zero market bars (^IRX), ratio 1 keeps
+                    # raw OHLC while Close remains the supplied Adj Close.
+                    ratio = ratio.mask(raw_close == 0, 1.0)
                     valid = (
-                        np.isfinite(raw_close) & (raw_close > 0)
-                        & np.isfinite(ratio) & (ratio > 0)
+                        np.isfinite(raw_close) & np.isfinite(adj_close)
+                        & np.isfinite(ratio)
                     )
                 else:
                     # No Adj Close field in the frame (pre-adjusted or
                     # foreign-sourced pull): implicit ratio of 1.
                     adj_close = None
                     ratio = pd.Series(1.0, index=ticker_df.index)
-                    valid = np.isfinite(raw_close) & (raw_close > 0)
+                    valid = np.isfinite(raw_close)
                 ticker_df = ticker_df.loc[valid].copy()
                 if ticker_df.empty:
                     logger.warning(
                         "RUNTIME EVENT: Ticker '%s' produced no rows with a "
-                        "finite positive raw close and valid adjustment — "
+                        "finite raw close and valid adjustment — "
                         "skipped (nothing stored).",
                         t,
                     )

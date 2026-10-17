@@ -9,8 +9,8 @@ Covers:
   - ``_normalize_batch_df`` produces ``RawClose`` + adjusted OHLC for
     single-ticker flat frames and both multi-ticker MultiIndex level
     orders, including synthetic corporate-action ratio arithmetic;
-  - rows that cannot yield an adjusted Close and a finite positive
-    ``RawClose`` are dropped (never stored NULL);
+  - rows that cannot yield an adjusted Close and a finite non-NULL
+    ``RawClose`` are dropped (zero/negative market values are retained);
   - all load choke points (on_request, retry, split re-download) emit
     ``RawClose``;
   - legacy ``do_put`` schema is exactly 8 columns — the old 7-column
@@ -256,7 +256,7 @@ def test_mixed_frame_preserves_missing_raw_close(db):
 
 
 def test_mixed_frame_invalid_raw_close_values_preserve_target(db):
-    """Only finite positive RawClose values may replace stored ones."""
+    """NULL and non-finite RawClose values preserve stored ones."""
     key = {"Date": "2024-01-02", "Ticker": "AAPL"}
     db.upsert_dataframe(_df([{
         **key, "Open": 90.0, "High": 91.0, "Low": 89.0,
@@ -282,15 +282,11 @@ def test_mixed_frame_invalid_raw_close_values_preserve_target(db):
     assert rows.iloc[1]["Close"] == 92.5
     assert pd.isna(rows.iloc[1]["RawClose"])
 
-    # Non-positive / non-finite source values also preserve an existing
-    # populated RawClose on a matched update.
-    db.upsert_dataframe(_df([
-        {**key, "Open": 95.0, "High": 96.0, "Low": 94.0,
-         "Close": 95.5, "Volume": 15.0, "RawClose": 0.0},
-    ]))
+    # Infinite source values also preserve an existing populated
+    # RawClose on a matched update.
     db.upsert_dataframe(_df([
         {**key, "Open": 96.0, "High": 97.0, "Low": 95.0,
-         "Close": 96.5, "Volume": 16.0, "RawClose": -5.0},
+         "Close": 96.5, "Volume": 16.0, "RawClose": np.inf},
     ]))
     val = db.execute_query(
         "SELECT Close, RawClose FROM daily_close WHERE Ticker='AAPL' "
@@ -372,10 +368,9 @@ def test_normalize_frame_without_adj_close_defaults_ratio_one(engine):
 def test_normalize_drops_invalid_rawclose_rows(engine):
     rows = [
         ("2024-01-02", 10.0, 11.0, 9.0, 10.5, 10.0, 100.0),   # valid
-        ("2024-01-03", 10.0, 11.0, 9.0, 0.0, 10.0, 100.0),    # raw 0
-        ("2024-01-04", 10.0, 11.0, 9.0, -5.0, 10.0, 100.0),   # raw < 0
         ("2024-01-05", 10.0, 11.0, 9.0, 10.5, np.nan, 100.0),  # NaN adj
         ("2024-01-08", 10.0, 11.0, 9.0, np.nan, 10.0, 100.0),  # NaN raw
+        ("2024-01-09", 10.0, 11.0, 9.0, np.inf, 10.0, 100.0),  # inf raw
     ]
     df, ok, failed, _ = engine._normalize_batch_df(
         _download_frame(["AAPL"], rows, layout="flat"), ["AAPL"]
@@ -386,8 +381,36 @@ def test_normalize_drops_invalid_rawclose_rows(engine):
     assert df["RawClose"].notna().all()
 
 
+def test_finite_nonpositive_raw_close_is_retained(engine, db):
+    """Zero and negative market values normalize and update durably."""
+    rows = [
+        # ^IRX-style zero bar: undefined adjustment ratio uses identity.
+        ("2024-01-02", 0.0, 0.01, -0.01, 0.0, 0.0, 100.0),
+        # WTI-style negative bar: finite Adj/Raw ratio remains valid.
+        ("2024-01-03", -20.0, -18.0, -40.0, -37.0, -37.0, 200.0),
+    ]
+    normalized, ok, failed, _ = engine._normalize_batch_df(
+        _download_frame(["CL=F"], rows, layout="flat"), ["CL=F"]
+    )
+    assert ok == ["CL=F"] and not failed
+    assert normalized["RawClose"].tolist() == [0.0, -37.0]
+    assert normalized["Close"].tolist() == [0.0, -37.0]
+    assert np.isfinite(normalized[["Open", "High", "Low", "Close"]]).all().all()
+
+    # Matched updates with finite zero/negative RawClose replace populated
+    # targets rather than being mistaken for missing values.
+    seeded = normalized.copy()
+    seeded["RawClose"] = [1.0, 1.0]
+    db.upsert_dataframe(seeded)
+    db.upsert_dataframe(normalized)
+    stored = db.execute_query(
+        "SELECT Date, RawClose FROM daily_close WHERE Ticker='CL=F' ORDER BY Date"
+    ).to_pandas()
+    assert stored["RawClose"].tolist() == [0.0, -37.0]
+
+
 def test_normalize_all_invalid_rows_marks_ticker_failed(engine):
-    rows = [("2024-01-02", 10.0, 11.0, 9.0, 0.0, 10.0, 100.0)]
+    rows = [("2024-01-02", 10.0, 11.0, 9.0, np.inf, 10.0, 100.0)]
     df, ok, failed, errors = engine._normalize_batch_df(
         _download_frame(["AAPL"], rows, layout="flat"), ["AAPL"]
     )
