@@ -4290,7 +4290,7 @@
     "title": "Request 1 Option A: add raw_close to daily_close and populate it on every price load",
     "role": "executor",
     "model": "swe",
-    "status": "todo",
+    "status": "blocked",
     "assigned_to": "B",
     "depends_on": [],
     "input_files": [
