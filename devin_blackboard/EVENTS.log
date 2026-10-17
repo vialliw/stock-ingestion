@@ -4060,3 +4060,88 @@ five prose criteria as vacuous unknown PASS, so manual adjudication controls);
 README parity exit 0; git scope was clean before blackboard edits. Deployment and
 repair backfill remain Orchestrator-only and MUST wait for remediation/re-gate.
 [2026-10-17T15:09:10.989377+00:00] [EXECUTOR] claimed R1A-T1
+[2026-10-17T15:20:12.012864+00:00] [EXECUTOR] completed R1A-T1 -> D-R1A-1 remediation commit 796f41e. DISCLOSURE: Critic D found after the prior done gate that a legacy seven-field matched internal upsert synthesized RawClose=None and erased a populated value; Orchestrator accepted the blocker and added structured R1A-AC4 after that finding (no other requirement changed). Pre-fix independent probe: RawClose 181 -> NULL after legacy matched update. Fix: staging  marker distinguishes omitted RawClose from supplied values; matched MERGE preserves target.RawClose when omitted, while legacy inserts remain NULL and explicitly supplied valid RawClose still updates. Non-vacuous test  seeds 181, performs legacy update proving Close/Volume change while RawClose stays 181, then explicitly updates RawClose to 189 and verifies it changes. Gates: focused tests/test_raw_close.py 19 passed; AC4 targeted 1 passed/18 deselected; full suite 1926 passed; strict loop checker exit 0 (17 files); poll_tasks --verify all 9 criteria PASS. No deploy/restart/backfill performed.
+Evidence map:
+[
+  {
+    "id": "R1A-AC1",
+    "check": "raw-close focused tests",
+    "command": "python -m pytest tests/test_raw_close.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "                                              [100%]\n============================== warnings summary ===============================\ntests/test_raw_close.py: 10 warnings\n  C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\\src\\db.py:417: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n19 passed, 10 warnings in 4.78s\n"
+  },
+  {
+    "id": "R1A-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1926 passed, 503 warnings in 177.20s (0:02:57)\n"
+  },
+  {
+    "id": "R1A-AC3",
+    "check": "loop checker strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "R1A-AC4",
+    "check": "legacy upsert cannot erase populated RawClose",
+    "command": "python -m pytest tests/test_raw_close.py -q -k legacy_upsert_preserves_existing_raw_close",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "==========\ntests/test_raw_close.py::test_legacy_upsert_preserves_existing_raw_close\ntests/test_raw_close.py::test_legacy_upsert_preserves_existing_raw_close\n  C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\\src\\db.py:417: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 18 deselected, 2 warnings in 2.07s\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

@@ -2,9 +2,19 @@
 Last Updated: 2026-10-17
 Current Branch: main
 
-## R1A-T1 — RawClose (schema v9) — reopened for D-R1A-1 remediation
+## R1A-T1 — RawClose (schema v9) — D-R1A-1 remediated by executor B
 
-The Orchestrator accepted Critic D's blocker, reset R1A-T1 to `todo`, and
+Fix commit 796f41e adds an internal `_has_raw_close` staging marker: legacy
+seven-field inserts still receive NULL, but matched legacy updates preserve
+`target.RawClose`; explicitly supplied valid RawClose values still update.
+The non-vacuous `test_legacy_upsert_preserves_existing_raw_close` proves both
+branches while also proving other fields update. Focused: 19 passed; AC4:
+1 passed; full suite: 1926 passed; strict loop checker: exit 0 (17 files);
+`poll_tasks.py --verify R1A-T1`: ALL PASS. No deployment performed.
+
+Disclosure/history: the Orchestrator added structured R1A-AC4 after Critic D's
+D-R1A-1 finding. The Orchestrator accepted Critic D's blocker, reset R1A-T1 to
+`todo`, and
 added targeted structured criterion R1A-AC4 proving a legacy seven-field
 upsert cannot erase an existing populated RawClose. This AC-set change is
 intentional and disclosed; Executor B must record both the pre-fix and
