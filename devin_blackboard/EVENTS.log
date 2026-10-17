@@ -4335,3 +4335,65 @@ Gates independently run:
 - Strict loop checker: clean, 17 files.
 
 Scope audit `git diff --name-status 289ca99..HEAD`: only devin_blackboard/EVENTS.log, STATE.md, TASKS.json; src/db.py; tests/test_raw_close.py. Implementation commit b973b3c itself changes only src/db.py and tests/test_raw_close.py. No deployment performed.
+
+[2026-10-17] [CRITIC-D] R1A-T1 composite final re-gate **PASS** (HEAD 205dc9e).
+D-R1A-1 and D-R1A-2 are resolved by commit b973b3c.
+
+Independent verification matrix (real temp DuckDB, `src/db.py:444-462`):
+- Seeded AAPL/MSFT/SPY/META/GOOG across 2024-01-02 and 2024-01-03 with distinct
+  populated RawClose values.
+- One mixed multi-row frame performed matched updates with: omitted RawClose,
+  explicit None, np.nan, np.inf, -np.inf, 0.0, and -5.0. All preserved the
+  existing target.RawClose while Close/Volume updated.
+- Finite positive values (777.25, 800.0, 1003.5) updated only their own rows.
+- New unmatched legacy rows inserted NULL; new rows with NaN inserted NULL (as
+  asserted by tests/test_raw_close.py:271-283).
+- Malformed VARCHAR RawClose (`'not-a-number'`) failed loudly at DuckDB bind
+  (`BinderException: isfinite(VARCHAR)`), and the transaction left all prior
+  rows unchanged (atomicity verified).
+- Boolean True also fails loudly (`isfinite(BOOLEAN)`), which is acceptable
+  because production ingestion and the 8-column Flight schema supply DOUBLE; it is
+  a malformed-type fail-loud path, not a silent invariant breach.
+
+Structured ACs independently executed:
+- R1A-AC1 `pytest tests/test_raw_close.py -q`: 21 passed, 13 warnings.
+- R1A-AC2 `pytest tests/ -q`: 1928 passed, 506 warnings, 196.19s.
+- R1A-AC3 `python scripts/check_loops.py --src-dir src --strict`: clean, 17 files.
+- R1A-AC4 `pytest tests/test_raw_close.py -q -k legacy_upsert_preserves_existing_raw_close`: 1 passed, 20 deselected.
+- R1A-AC5 `pytest tests/test_raw_close.py -q -k mixed_frame_preserves_missing_raw_close`: 1 passed, 20 deselected.
+- `python scripts/poll_tasks.py --verify R1A-T1`: ALL PASS (10/10); five prose
+  criteria are still reported as vacuous `unknown` PASS and were manually
+  reviewed below.
+
+Original feature criteria manually re-verified:
+- Schema: hand-built v8 DB migrated to v9, retained 2 rows, left pre-migration
+  RawClose NULL, advanced schema_version to 9, and second open was idempotent.
+- Fresh DB has exact `RawClose DOUBLE`, SCHEMA_VERSION/MAX(version) == 9.
+- Ingestion uses one `auto_adjust=False` yfinance batch pull
+  (src/ingestion.py:329-339); normalization handles flat, (ticker,field), and
+  (field,ticker) layouts and uses `Adj Close / Close` ratio to scale OHLC while
+  storing raw Close as RawClose (src/ingestion.py:455-501).
+- Invalid rows (zero/negative/NaN/non-finite Close or unusable adjustment) are
+  dropped rather than stored with NULL RawClose.
+- All load paths (initial, daily, on-request, retry, split redownload) share the
+  `_normalize_batch_df` choke point and emit RawClose.
+- `upsert_dataframe` writes explicit valid RawClose on insert and update; legacy
+  inserts remain NULL; legacy/invalid matched updates preserve target.RawClose.
+- Flight `do_put` schema is exactly 8 FLOAT64 columns; 7-column payload rejected
+  with FlightServerError; real ephemeral Flight server probe confirmed both.
+- `do_get` remains single-SELECT validated; no R1A changes.
+- `docs/DATA_SERVICE_API.md` accurately documents adjusted OHLC, unadjusted
+  RawClose, v9 NULL-until-backfill, breaking 8-column do_put, and unchanged
+  do_get; README.md and docs/README.md are byte-identical.
+- Scope audit `git diff --name-status ef3fcb6..HEAD` is limited to blackboard,
+  src/db.py, and tests/test_raw_close.py; working tree clean after removing temp
+  probe file.
+
+Non-vacuity: new regression tests fail against pre-fix commits (verified by
+challenger mutation check and own mixed-frame probe on 796f41e). AC4 and AC5
+are not tautological.
+
+Composite verdict: **PASS**. R1A-T1 is approved for Orchestrator deployment gate:
+restart FlightServer, run 2010-present repair backfill, verify zero
+NULL/non-positive RawClose rows, and spot-check sampled values. No deployment or
+backfill was performed by Critic D.

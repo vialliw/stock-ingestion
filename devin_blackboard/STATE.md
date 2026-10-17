@@ -2,7 +2,25 @@
 Last Updated: 2026-10-17 (delta re-review)
 Current Branch: main
 
-## R1A-T1 — RawClose (schema v9) — mixed-frame D-R1A-2 remediated by executor B
+## R1A-T1 — RawClose (schema v9) — CRITIC-D composite re-gate PASS
+
+CRITIC-D final independent composite re-gate (2026-10-17, HEAD 205dc9e):
+**PASS**. Commit b973b3c removes the frame-level `_has_raw_close` marker and
+makes the `MERGE` row-sensitive: `RawClose` is updated only when the source value
+is finite and positive; missing/NULL/NaN/non-positive/non-finite values preserve
+`target.RawClose` on matched updates. New unmatched legacy inserts still store
+NULL, preserving migration compatibility. All structured ACs pass: focused
+`tests/test_raw_close.py` 21 passed; AC4 legacy preservation 1 passed; AC5 mixed
+frame 1 passed; full suite 1928 passed; strict loop checker clean (17 files);
+`poll_tasks.py --verify R1A-T1` 10/10 PASS. README parity verified. Scope audit
+limited to blackboard, `src/db.py`, and `tests/test_raw_close.py`. No deployment
+performed.
+
+D-R1A-1 and D-R1A-2 are resolved. Independent mixed-frame matrix confirmed:
+omitted, explicit NULL, NaN, +inf, -inf, 0, and negative RawClose values all
+preserve existing populated RawClose on matched rows while other fields update;
+finite positive values update correctly. Malformed non-numeric types (e.g.
+VARCHAR) fail loudly at DuckDB bind and leave existing rows unchanged.
 
 CHALLENGER-C D-R1A-2 delta review (HEAD fb31b0b): **APPROVED**. Independent
 real temp DuckDB mixed-frame probes proved omitted/NULL/NaN/+inf/-inf/zero/
