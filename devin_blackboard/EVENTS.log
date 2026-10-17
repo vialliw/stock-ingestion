@@ -4523,3 +4523,56 @@ Gates independently run:
 - README.md/docs/README.md byte-identical (`fc /b` no differences).
 
 Scope audit `git diff --name-status 205dc9e..HEAD`: devin_blackboard/{EVENTS.log,STATE.md,TASKS.json}, docs/DATA_SERVICE_API.md, src/db.py, src/ingestion.py, tests/test_raw_close.py. All within R1A-T1 scope; implementation commit 6ec566f changes only docs/DATA_SERVICE_API.md, src/db.py, src/ingestion.py, tests/test_raw_close.py. No deployment performed.
+
+[2026-10-17] [CRITIC-D] R1A-T1 live-data correction delta/composite gate
+**FAIL** (HEAD 4d79655).
+
+Blocking finding D-R1A-3 — zero/nonzero adjustment is silently fabricated:
+`src/ingestion.py:469-474` computes `ratio = adj_close / raw_close`, then masks
+`ratio` to 1.0 for every `raw_close == 0`, regardless of Adj Close. The comment
+and accepted live-data correction authorize identity only for finite zero/zero
+market bars (^IRX), where raw and adjusted close are both zero. Independent real
+normalization probe supplied four flat-layout bars:
+- raw=0, Adj Close=0: correctly retained with identity ratio and RawClose=0;
+- raw=-37, Adj Close=-37: correctly retained with ratio=1 and RawClose=-37;
+- raw=0, Adj Close=+5: incorrectly retained with ratio=1, Close=5, RawClose=0;
+- raw=0, Adj Close=-5: incorrectly retained with ratio=1, Close=-5, RawClose=0.
+The last two have undefined `Adj Close / Close`; no usable adjustment ratio
+exists. Accepting them violates the current prose AC at TASKS.json:4361 and can
+silently manufacture adjusted OHLC. Required remediation: identity-mask only
+when `raw_close == 0` AND `adj_close == 0`; zero/nonzero combinations must be
+rejected/dropped. Add a regression covering zero/zero acceptance and both
+zero/nonzero rejection directions. AC6 currently covers only the valid zero/zero
+case and is non-vacuous but insufficient.
+
+Independent DB MERGE matrix PASS: seeded six targets at RawClose=10; matched
+updates with 0 and -37 replaced targets exactly, while None, NaN, +inf and -inf
+all preserved 10. This confirms `src/db.py:458-463` finite-non-NULL semantics.
+Prior D-R1A-1/D-R1A-2 durability remains resolved: omitted/NULL/non-finite
+matched values preserve targets; mixed valid values update only their rows;
+malformed VARCHAR/bool values fail loudly at bind and atomically leave rows
+unchanged.
+
+Current structured gates independently executed:
+- AC1 focused: 22 passed, 14 warnings.
+- AC2 full suite: 1929 passed, 507 warnings, 232.51s.
+- AC3 strict loop checker: clean, 17 files.
+- AC4/AC5/AC6 combined targeted run: 3 passed, 19 deselected.
+- `poll_tasks.py --verify R1A-T1`: ALL PASS 11/11 (five prose entries remain
+  vacuous `unknown` PASS; this manual gate found the prose violation).
+- README.md/docs/README.md byte parity: exit 0.
+
+Original criteria recheck: v8->v9 and fresh migration, row preservation and
+idempotence, exact RawClose DOUBLE/name, all load choke points, all yfinance
+column layouts, corporate-action arithmetic for nonzero ratios, invalid
+non-finite handling, Flight exact 8-column acceptance/7-column rejection,
+unchanged single-SELECT do_get, API docs, and test non-vacuity remain PASS.
+Scope `git diff --name-status e937242..HEAD` is limited to blackboard,
+docs/DATA_SERVICE_API.md, src/db.py, src/ingestion.py, and
+tests/test_raw_close.py; working tree was clean before blackboard edits.
+
+Additional requirements defect: deployment prose at TASKS.json:4370 still says
+verify zero `NULL/non-positive RawClose` rows, contradicting the newly approved
+finite-non-NULL requirement and legitimate ^IRX/WTI values. Orchestrator must
+amend this to zero NULL/non-finite (with the agreed legacy-history handling)
+before any deployment gate. No deployment/backfill performed or approved.

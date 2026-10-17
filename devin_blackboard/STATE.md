@@ -2,7 +2,27 @@
 Last Updated: 2026-10-17 (delta re-review)
 Current Branch: main
 
-## R1A-T1 — RawClose (schema v9) — finite-non-NULL correction completed by executor B
+## R1A-T1 — RawClose (schema v9) — CRITIC-D FAIL on zero-ratio handling
+
+CRITIC-D final delta/composite gate (2026-10-17, HEAD 4d79655): **FAIL**.
+Commit 6ec566f correctly retains finite zero/negative market values and updates
+MERGE targets with finite zero/negative RawClose, but ingestion masks the ratio
+to 1.0 for *every* `raw_close == 0` row (`src/ingestion.py:469-478`), not only
+the documented legitimate zero/zero case. Independent normalization probe:
+raw Close=0 with Adj Close=+5 and raw Close=0 with Adj Close=-5 were both
+accepted, assigned identity ratio, and emitted finite OHLC plus RawClose=0 even
+though `Adj Close / Close` is undefined and no usable adjustment ratio exists.
+This violates the prose AC requiring a finite RawClose **and an adjustment
+ratio**; only finite zero raw **and adjusted** bars such as ^IRX zero/zero may
+use identity. Required fix: apply identity only when raw_close==0 AND
+adj_close==0; reject/drop zero/nonzero combinations, and add a non-vacuous
+regression. Task blocked; no deployment approved.
+
+All executable gates passed (22 focused, AC4/5/6, 1929 full, strict loops,
+poll verify, README parity) and all prior durability/migration/Flight criteria
+remain PASS. The deployment prose AC is also stale: it still demands zero
+non-positive RawClose after backfill despite the approved finite-non-NULL
+correction; Orchestrator must amend it before deployment verification.
 
 CHALLENGER-C live-gate correction delta review (HEAD 6a26093): **APPROVED**.
 Independent real temp DuckDB probes confirmed ^IRX zero bars normalize with
