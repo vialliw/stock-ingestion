@@ -2,6 +2,24 @@
 Last Updated: 2026-10-17
 Current Branch: main
 
+## R1A-T1 — RawClose (schema v9) — BLOCKED pending scope amendment (executor B, commit c969a43)
+
+Implementation is complete and committed; all in-scope gates pass.
+BLOCKER: gate `pytest tests/ -q` exits 1 because the task's declared
+output_files exclude the pre-existing test files that pin the OLD
+contract (auto_adjust=True, 7-column do_put, schema v8). 13 failures,
+all old-contract pins, none in scope: tests/test_ingestion.py:180
+(auto_adjust is True), tests/test_do_put.py x5 (helper builds rows
+without RawClose key), tests/test_flight_server.py::TestDoPutDescriptor
+x2, tests/test_integration.py:284 (num_columns==7),
+tests/test_phase2_integration.py:225, tests/test_db.py x2 (positional
+7-value INSERTs), tests/test_client_dml.py::TestMigrationV8
+(version==8). RESOLUTION (same as the earlier F26 precedent where the
+orchestrator amended output_files): add those 7 test files to R1A-T1
+output_files and re-assign to B, or register a separate test-update
+task. Implementation detail in EVENTS.log entry [EXECUTOR] blocked
+R1A-T1.
+
 ## Incident management (2026-10-12)
 
 INC-T7 done 2026-10-17 (executor B, commit f4bac93): weekly rollup
