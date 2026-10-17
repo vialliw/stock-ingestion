@@ -4145,3 +4145,26 @@ Evidence map:
     "output": ""
   }
 ]
+
+[2026-10-17T16:30:00Z] [CHALLENGER-C] R1A-T1 delta re-review after D-R1A-1 remediation (HEAD fb366f3): **APPROVED**.
+
+Independent real temp DuckDB probes (all PASS):
+- Legacy seven-field insert stores RawClose=NULL for new rows (migration-compatible).
+- Legacy seven-field matched update preserves existing populated RawClose=181 while updating Close and Volume.
+- Explicit valid RawClose matched update replaces the durable value (181 -> 189).
+- Multi-row explicit frames correctly apply RawClose to each row; legacy frames preserve RawClose across all matched rows (frame-level marker is uniform).
+- Explicit NULL RawClose in a frame carrying the RawClose column overwrites existing values: this is deliberate because the marker distinguishes "omitted column" (legacy) from "explicitly supplied value" (including NULL). Production ingestion paths drop rows that cannot produce a finite positive RawClose and never emit NULL, and do_put schema validation enforces the exact 8-column layout, so the post-backfill invariant cannot be broken through production paths.
+- Non-production edge-case note: a wrong-case column such as "rawClose" is treated as legacy by the marker, but DuckDB's case-insensitive column resolution can match it to RawClose on INSERT. This is not reachable through production paths (ingestion uses exact "RawClose"; do_put schema validation rejects wrong names).
+
+Mutation check: checked out pre-fix src/db.py from d0d38c6 and ran `python -m pytest tests/test_raw_close.py::test_legacy_upsert_preserves_existing_raw_close -v`; test FAILED with `assert np.float64(nan) == 181.0`, confirming the regression is real and the fix is non-vacuous. Restored fixed src/db.py from HEAD.
+
+Gates re-run by challenger:
+- `python -m pytest tests/test_raw_close.py -q` -> 19 passed, 10 warnings
+- `python -m pytest tests/test_raw_close.py -q -k legacy_upsert_preserves_existing_raw_close` -> 1 passed, 18 deselected
+- `python scripts/check_loops.py --src-dir src --strict` -> No unjustified loops found. (17 files checked)
+- `python scripts/poll_tasks.py --verify R1A-T1` -> ALL PASS (9/9 criteria)
+- `python -m pytest tests/ -q` -> 1926 passed, 503 warnings in 184.48s
+
+Scope audit: `git diff --stat a0263b8..HEAD` shows only devin_blackboard/{EVENTS.log,STATE.md,TASKS.json} (orchestrator AC disclosure + blackboard updates), src/db.py (executor fix), and tests/test_raw_close.py (regression test). No out-of-scope source or test changes. Working tree clean after verification.
+
+Verdict: APPROVED. No deployment performed.

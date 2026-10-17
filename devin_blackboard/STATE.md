@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-17
+Last Updated: 2026-10-17 (delta re-review)
 Current Branch: main
 
 ## R1A-T1 — RawClose (schema v9) — D-R1A-1 remediated by executor B
@@ -11,6 +11,16 @@ The non-vacuous `test_legacy_upsert_preserves_existing_raw_close` proves both
 branches while also proving other fields update. Focused: 19 passed; AC4:
 1 passed; full suite: 1926 passed; strict loop checker: exit 0 (17 files);
 `poll_tasks.py --verify R1A-T1`: ALL PASS. No deployment performed.
+
+CHALLENGER-C delta re-review after D-R1A-1 remediation (HEAD fb366f3):
+**APPROVED**. Independent real temp DuckDB probes confirm legacy inserts stay
+NULL, legacy matched updates preserve populated RawClose, explicit valid
+RawClose still replaces it, multi-row frames apply the frame-level marker
+uniformly, and explicit NULL is honored as an explicit value (not reachable
+from ingestion, which drops invalid rows). Mutation check on pre-fix
+src/db.py (d0d38c6) fails the new regression test. Scope audit since prior
+APPROVED a0263b8 shows only devin_blackboard/{EVENTS.log,STATE.md,TASKS.json},
+src/db.py, and tests/test_raw_close.py changed. No deployment.
 
 Disclosure/history: the Orchestrator added structured R1A-AC4 after Critic D's
 D-R1A-1 finding. The Orchestrator accepted Critic D's blocker, reset R1A-T1 to
