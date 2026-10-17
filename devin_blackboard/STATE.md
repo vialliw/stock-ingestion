@@ -2,7 +2,13 @@
 Last Updated: 2026-10-17
 Current Branch: main
 
-## R1A-T1 — RawClose (schema v9) — CRITIC-D FAIL; remediation required
+## R1A-T1 — RawClose (schema v9) — reopened for D-R1A-1 remediation
+
+The Orchestrator accepted Critic D's blocker, reset R1A-T1 to `todo`, and
+added targeted structured criterion R1A-AC4 proving a legacy seven-field
+upsert cannot erase an existing populated RawClose. This AC-set change is
+intentional and disclosed; Executor B must record both the pre-fix and
+post-fix AC context in evidence. No other requirement changed.
 
 CRITIC-D final independent gate (2026-10-17, HEAD a0263b8): **FAIL** on
 blocking invariant defect D-R1A-1. `DatabaseManager.upsert_dataframe` accepts
