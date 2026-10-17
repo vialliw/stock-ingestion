@@ -3718,3 +3718,5 @@ Evidence map:
 [2026-10-16] [ORCHESTRATOR] DEPLOY COMPLETE: user ran register_incident_watch.ps1 elevated (LocalMachine AllSigned required -ExecutionPolicy Bypass). StockIngestion-HealthWatch registered, State=Ready, daily 23:30 local (18:30 ET), SYSTEM principal, 30min limit, IgnoreNew. INC cycle fully closed: watcher script + registration + store + junction all live. 5 open incidents pending follow-up.
 [2026-10-16] [ORCHESTRATOR] User could not see HealthWatch in Task Scheduler GUI — SYSTEM-registered tasks are hidden from non-elevated mmc. Advised: -Unregister via ps1 (elevated), then re-register under user account with LogonType Interactive + RunLevel Limited (commands provided in chat). Caveats told: runs only while logged on; ps1 still hardcodes SYSTEM — optional follow-up to add -UserPrincipal switch.
 [2026-10-16] [ORCHESTRATOR] Registered INC-T4: -UserPrincipal switch for register_incident_watch.ps1 (Interactive/Limited under current account vs SYSTEM/Highest default) + README note. Then orchestrator will unregister SYSTEM task and re-register as user.
+
+[2026-10-17T08:32:43.034602+00:00] [EXECUTOR] claimed INC-T4
