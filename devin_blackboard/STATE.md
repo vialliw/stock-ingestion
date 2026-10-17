@@ -2,16 +2,25 @@
 Last Updated: 2026-10-17 (delta re-review)
 Current Branch: main
 
-## R1A-T1 — RawClose (schema v9) — reopened after live deployment probe
+## R1A-T1 — RawClose (schema v9) — finite-non-NULL correction completed by executor B
 
-Live repair backfill completed for 1,222 configured tickers (4,319,073 rows,
-SUCCESS), but verification found 6,515 invalid/missing RawClose values. Eight
-are legitimate finite non-positive market values (^IRX zero, negative WTI,
-plus current USAC/DDS values) incorrectly rejected by the implementation;
-the project health contract already recognizes those values as valid. The
-Orchestrator corrected the over-strict positive-only interpretation to finite
-non-NULL, added R1A-AC6, reset the task to `todo`, and requires another B-C-D
-cycle. The remaining 6,507 NULLs belong to delisted WBD/QRVO/LESL history no
+Fix commit 6ec566f accepts all finite RawClose values. Ingestion retains zero
+(^IRX) and negative (WTI) bars, using ratio 1 for a finite zero raw/adjusted
+close where division is undefined; DB matched updates replace RawClose with
+any finite non-NULL source value including zero/negative, while NULL/NaN/inf
+preserve target. AC6 non-vacuously normalizes zero and negative bars and proves
+both values replace populated targets. Focused: 22 passed; AC4/AC5/AC6 each
+passed; full suite: 1929 passed; strict loops clean (17 files); poll verify:
+11/11 PASS. No deployment performed.
+
+Disclosure/history: live repair backfill completed for 1,222 configured
+tickers (4,319,073 rows, SUCCESS), but verification found 6,515
+invalid/missing RawClose values. Eight are legitimate finite non-positive
+market values (^IRX zero, negative WTI, plus current USAC/DDS values)
+incorrectly rejected by the former positive-only implementation; the project
+health contract already recognizes those values as valid. The Orchestrator
+corrected the requirement to finite non-NULL, added R1A-AC6 after this live
+gate finding, reset the task to `todo`, and required another B-C-D cycle. The remaining 6,507 NULLs belong to delisted WBD/QRVO/LESL history no
 longer served by Yahoo and require the user-disclosed interim raw-close store
 for completion after code approval.
 

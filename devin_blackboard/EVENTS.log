@@ -4398,3 +4398,106 @@ restart FlightServer, run 2010-present repair backfill, verify zero
 NULL/non-positive RawClose rows, and spot-check sampled values. No deployment or
 backfill was performed by Critic D.
 [2026-10-17T16:22:14.167480+00:00] [EXECUTOR] claimed R1A-T1
+[2026-10-17T16:35:12.061038+00:00] [EXECUTOR] completed R1A-T1 -> Live-gate requirement correction commit 6ec566f. DISCLOSURE: after a successful 4,319,073-row live repair backfill, verification exposed legitimate finite zero/negative RawClose values (^IRX and WTI) rejected by the former positive-only interpretation. Orchestrator corrected prose to finite-non-NULL and added R1A-AC6 after this live finding; no other requirement changed. Ingestion now accepts every finite RawClose, drops only NULL/NaN/infinite as appropriate, and uses identity adjustment ratio for finite zero raw/adjusted bars where division is undefined; negative values retain finite AdjClose/RawClose arithmetic. DB MERGE updates target with every finite non-NULL source RawClose including zero/negative; NULL/NaN/infinite preserve target on matches. Non-vacuous test finite_nonpositive_raw_close_is_retained normalizes ^IRX-style zero and WTI-style negative bars, verifies finite adjusted OHLC, seeds target values of 1, and proves matched updates persist 0 and -37. Prior AC4/AC5 durability tests remain green. Gates: tests/test_raw_close.py 22 passed; AC4/AC5/AC6 targeted 1 each; full suite 1929 passed; strict loops exit 0 (17 files); poll_tasks --verify 11/11 PASS. DATA_SERVICE_API corrected to finite non-NULL and explicitly documents legitimate zero/negative values. No deploy/restart/backfill performed by B.
+Evidence map:
+[
+  {
+    "id": "R1A-AC1",
+    "check": "raw-close focused tests",
+    "command": "python -m pytest tests/test_raw_close.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "                                              [100%]\n============================== warnings summary ===============================\ntests/test_raw_close.py: 14 warnings\n  C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\\src\\db.py:417: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n22 passed, 14 warnings in 5.86s\n"
+  },
+  {
+    "id": "R1A-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1929 passed, 507 warnings in 194.18s (0:03:14)\n"
+  },
+  {
+    "id": "R1A-AC3",
+    "check": "loop checker strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "R1A-AC4",
+    "check": "legacy upsert cannot erase populated RawClose",
+    "command": "python -m pytest tests/test_raw_close.py -q -k legacy_upsert_preserves_existing_raw_close",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "==========\ntests/test_raw_close.py::test_legacy_upsert_preserves_existing_raw_close\ntests/test_raw_close.py::test_legacy_upsert_preserves_existing_raw_close\n  C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\\src\\db.py:417: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 21 deselected, 2 warnings in 1.69s\n"
+  },
+  {
+    "id": "R1A-AC5",
+    "check": "mixed or null RawClose rows cannot erase populated values",
+    "command": "python -m pytest tests/test_raw_close.py -q -k mixed_frame_preserves_missing_raw_close",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": " [100%]\n============================== warnings summary ===============================\ntests/test_raw_close.py::test_mixed_frame_preserves_missing_raw_close\n  C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\\src\\db.py:417: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 21 deselected, 1 warning in 1.64s\n"
+  },
+  {
+    "id": "R1A-AC6",
+    "check": "finite zero and negative raw market values are retained",
+    "command": "python -m pytest tests/test_raw_close.py -q -k finite_nonpositive_raw_close_is_retained",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "[100%]\n============================== warnings summary ===============================\ntests/test_raw_close.py::test_finite_nonpositive_raw_close_is_retained\n  C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\\src\\db.py:417: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 21 deselected, 1 warning in 1.66s\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]
