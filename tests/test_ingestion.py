@@ -177,7 +177,8 @@ def test_batch_download_adds_one_day_to_end_date(
     _, kwargs = mock_dl.call_args
     assert kwargs["end"] == "2024-01-11"
     assert kwargs["start"] == "2024-01-01"
-    assert kwargs["auto_adjust"] is True
+    expected_auto_adjust = module_name != "src.ingestion"
+    assert kwargs["auto_adjust"] is expected_auto_adjust
     assert kwargs["interval"] == "1d"
     assert kwargs["group_by"] == "ticker"
 

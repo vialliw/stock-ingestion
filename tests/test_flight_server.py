@@ -1895,6 +1895,7 @@ class TestDoPutDescriptor:
                 "Low": [0.5],
                 "Close": [1.5],
                 "Volume": [100.0],
+                "RawClose": [1.5],
             },
             schema=_executor_module._DAILY_CLOSE_SCHEMA,
         )

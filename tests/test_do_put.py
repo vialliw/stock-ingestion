@@ -21,7 +21,11 @@ from src.flight_server import MarketDataFlightServer, _DAILY_CLOSE_SCHEMA
 def _daily_close_table(rows):
     """Build an Arrow table with the daily_close schema for do_put tests."""
     arrays = {
-        name: pa.array([row[name] for row in rows], type=field.type)
+        name: pa.array(
+            [row.get(name, row["Close"] if name == "RawClose" else None)
+             for row in rows],
+            type=field.type,
+        )
         for name, field in zip(_DAILY_CLOSE_SCHEMA.names, _DAILY_CLOSE_SCHEMA)
     }
     return pa.table(arrays, schema=_DAILY_CLOSE_SCHEMA)

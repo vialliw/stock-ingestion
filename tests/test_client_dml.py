@@ -4,7 +4,7 @@ Covers the ``pivot``-namespace contract end-to-end with a REAL
 ``DatabaseManager`` (temp-file DuckDB) and a REAL ``IngestionEngine`` —
 no mocks on the execution path:
 
-* SCHEMA_VERSION 8 creates ``table_registry`` + ``client_dml_audit``;
+* SCHEMA_VERSION 9 retains ``table_registry`` + ``client_dml_audit``;
   every op is audited incl. REJECTED.
 * ``dml_admin`` closed-enum ops: register_namespace (allowlist),
   create_table (structured spec, real PK), create_as
@@ -144,17 +144,17 @@ def setup_week_calendar(env):
 
 
 # =====================================================================
-# SCHEMA_VERSION 8 migration
+# SCHEMA_VERSION migration
 # =====================================================================
 
 class TestMigrationV8:
-    def test_schema_version_is_8(self, env):
+    def test_schema_version_recorded(self, env):
         db, _ = env
-        assert SCHEMA_VERSION == 8
+        assert SCHEMA_VERSION == 9
         row = db.execute_query(
             "SELECT MAX(version) FROM schema_version"
         ).to_pandas()
-        assert int(row.iloc[0, 0]) == 8
+        assert int(row.iloc[0, 0]) == SCHEMA_VERSION
 
     def test_registry_and_audit_tables_exist(self, env):
         db, _ = env

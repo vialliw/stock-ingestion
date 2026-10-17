@@ -404,7 +404,8 @@ def test_health_integrity_violations(manager):
     # Each statement seeds a distinct violation on its own date.
     _raw_write(
         manager,
-        "INSERT INTO daily_close VALUES "
+        "INSERT INTO daily_close "
+        "(Date,Ticker,Open,High,Low,Close,Volume) VALUES "
         "('2026-01-09','AAPL',NULL,105,95,102,1000),"   # NULL Open
         "('2026-01-10','AAPL',0,105,95,102,1000),"      # non-positive Open
         "('2026-01-11','AAPL',100,90,95,102,1000),"     # High < Low
@@ -439,16 +440,15 @@ def test_health_duplicate_keys_detected(manager):
     _raw_write(manager, "ALTER TABLE daily_close RENAME TO daily_close_pk")
     _raw_write(
         manager,
-        "CREATE TABLE daily_close (Date DATE, Ticker VARCHAR, "
-        "Open DOUBLE, High DOUBLE, Low DOUBLE, Close DOUBLE, "
-        "Volume DOUBLE)",
+        "CREATE TABLE daily_close AS SELECT * FROM daily_close_pk WHERE false",
     )
     _raw_write(manager, "INSERT INTO daily_close SELECT * FROM daily_close_pk")
     _raw_write(manager, "DROP TABLE daily_close_pk")
     # Same (Ticker, Date) inserted twice — now possible without the PK.
     _raw_write(
         manager,
-        "INSERT INTO daily_close VALUES "
+        "INSERT INTO daily_close "
+        "(Date,Ticker,Open,High,Low,Close,Volume) VALUES "
         "('2026-01-06','AAPL',100,105,95,102,1000),"
         "('2026-01-06','AAPL',101,106,96,103,1001)",
     )

@@ -211,6 +211,7 @@ def test_do_put_do_get_roundtrip(running_server):
             "Low": 95.0,
             "Close": 105.0,
             "Volume": 1000.0,
+            "RawClose": 106.0,
         },
         {
             "Date": date(2026, 9, 8),
@@ -220,6 +221,7 @@ def test_do_put_do_get_roundtrip(running_server):
             "Low": 195.0,
             "Close": 205.0,
             "Volume": 2000.0,
+            "RawClose": 206.0,
         },
     ]
     arrays = {name: pa.array([row[name] for row in rows], type=field.type)

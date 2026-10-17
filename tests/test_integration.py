@@ -281,7 +281,11 @@ def test_do_get_select_returns_arrow_data(components):
     # Verify the underlying data by executing the same query directly
     table = db_manager.execute_query("SELECT * FROM daily_close")
     assert table.num_rows == 5
-    assert table.num_columns == 7  # Date, Ticker, Open, High, Low, Close, Volume
+    assert table.num_columns == 8
+    assert table.column_names == [
+        "Date", "Ticker", "Open", "High", "Low", "Close", "Volume",
+        "RawClose",
+    ]
 
 
 # =====================================================================
