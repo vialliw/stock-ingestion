@@ -2,40 +2,24 @@
 Last Updated: 2026-10-17 (delta re-review)
 Current Branch: main
 
-## R1A-T1 — RawClose (schema v9) — reopened for mixed-frame remediation
+## R1A-T1 — RawClose (schema v9) — mixed-frame D-R1A-2 remediated by executor B
 
-The Orchestrator accepted D-R1A-2, reset R1A-T1 to `todo`, and added
-structured R1A-AC5 for mixed/NULL RawClose row preservation. This second
-AC-set amendment is disclosed and does not alter the feature requirement.
+Fix commit b973b3c removes the frame-level `_has_raw_close` marker and makes
+MERGE row-sensitive: `RawClose` is updated only when the source value is
+finite and positive; missing/NULL/NaN/non-positive values preserve the stored
+`target.RawClose` on matched updates, while unmatched inserts still store the
+provided value (NULL for legacy rows). Added `test_mixed_frame_preserves_missing_raw_close`
+(multi-row mixed batch) and `test_mixed_frame_invalid_raw_close_values_preserve_target`
+(explicit NULL/NaN/0/-5 all preserve existing populated RawClose, plus new
+legacy row with NaN inserts NULL). Focused tests/test_raw_close.py: 21 passed;
+AC4: 1 passed; AC5: 1 passed; full suite: 1928 passed; strict loop checker:
+exit 0 (17 files); `poll_tasks.py --verify R1A-T1`: ALL PASS (10/10). No
+deployment performed.
 
-CRITIC-D re-gate (2026-10-17, HEAD 289ca99): **FAIL**. Commit 796f41e
-fixes the exact wholly-seven-column reproduction, but the frame-level
-`_has_raw_close` marker leaves the durability invariant bypassable by a mixed
-DataFrame. Independent real-DB probe seeded AAPL RawClose=181 and MSFT=381,
-then submitted one two-row frame where AAPL explicitly supplied RawClose=193
-and the MSFT record omitted RawClose. Pandas materialized one RawClose column
-with NaN for MSFT; `_has_raw_close=True` for every row, so MERGE changed AAPL
-to 193 and silently NULL-overwrote MSFT. This is the same prohibited outcome
-for a realistic batched internal caller. Explicit NULL likewise erases a
-populated value, and the exact 8-column Flight schema is nullable, so schema
-shape alone does not protect the invariant. Required remediation: make
-preservation row-sensitive (finite/positive RawClose updates; missing/NULL
-preserves target on matches), and add mixed/multi-row plus explicit-NULL
-regressions. R1A-T1 is blocked; no deployment/backfill approved.
-
-All structured AC commands passed (AC1 19 tests, AC4 targeted test, full suite
-1926 tests, strict loops, poll verify), README parity and scope passed, and all
-original feature criteria remain otherwise verified. The current AC4 test is
-non-vacuous but too narrow because it covers only a wholly legacy frame.
-Detailed evidence is in EVENTS.log.
-
-Fix commit 796f41e adds an internal `_has_raw_close` staging marker: legacy
-seven-field inserts still receive NULL, but matched legacy updates preserve
-`target.RawClose`; explicitly supplied valid RawClose values still update.
-The non-vacuous `test_legacy_upsert_preserves_existing_raw_close` proves both
-branches while also proving other fields update. Focused: 19 passed; AC4:
-1 passed; full suite: 1926 passed; strict loop checker: exit 0 (17 files);
-`poll_tasks.py --verify R1A-T1`: ALL PASS. No deployment performed.
+Disclosure/history: this is the second AC-set amendment — the Orchestrator
+added R1A-AC5 after Critic D's D-R1A-2 finding. Earlier, R1A-AC4 was added after
+D-R1A-1. No feature requirement changed; only the durability test coverage was
+strengthened.
 
 CHALLENGER-C delta re-review after D-R1A-1 remediation (HEAD fb366f3):
 **APPROVED**. Independent real temp DuckDB probes confirm legacy inserts stay

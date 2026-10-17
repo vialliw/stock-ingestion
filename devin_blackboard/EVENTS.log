@@ -4221,3 +4221,97 @@ real-Flight probe. Scope audit `git diff --name-status b237cf6..HEAD` contains
 only blackboard files, src/db.py, and tests/test_raw_close.py; pre-review working
 tree was clean. No deployment, restart, or backfill performed or approved.
 [2026-10-17T15:42:19.888946+00:00] [EXECUTOR] claimed R1A-T1
+[2026-10-17T15:54:24.360546+00:00] [EXECUTOR] completed R1A-T1 -> D-R1A-2 remediation commit b973b3c. DISCLOSURE: AC5 was added after Critic D found the frame-level marker from D-R1A-1 still allowed a mixed DataFrame to NULL-overwrite populated RawClose; this is the second AC-set amendment after D-R1A-1. Fix removes _has_raw_close marker and makes MERGE row-sensitive: target.RawClose updates only when source.RawClose IS NOT NULL AND isfinite(source.RawClose) AND source.RawClose > 0. Missing/NULL/NaN/non-positive values preserve target on matched updates; unmatched inserts still store the provided value (NULL for legacy rows). Added test_mixed_frame_preserves_missing_raw_close: seeded AAPL=181 and MSFT=21, mixed batch with AAPL omitting RawClose and MSFT supplying 22 -> AAPL stays 181 while Close updates, MSFT becomes 22. Added test_mixed_frame_invalid_raw_close_values_preserve_target: explicit NULL, 0, -5 all preserve 181; new row with NaN inserts NULL. Existing test_legacy_upsert_preserves_existing_raw_close still passes. Valid explicit update to 189 still works. Gates: tests/test_raw_close.py 21 passed; AC4 1 passed; AC5 1 passed; full suite 1928 passed; check_loops --src-dir src --strict exit 0 (17 files); poll_tasks --verify R1A-T1 10/10 PASS. No deploy/restart/backfill performed.
+Evidence map:
+[
+  {
+    "id": "R1A-AC1",
+    "check": "raw-close focused tests",
+    "command": "python -m pytest tests/test_raw_close.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "                                              [100%]\n============================== warnings summary ===============================\ntests/test_raw_close.py: 13 warnings\n  C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\\src\\db.py:417: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n21 passed, 13 warnings in 4.84s\n"
+  },
+  {
+    "id": "R1A-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1928 passed, 506 warnings in 178.42s (0:02:58)\n"
+  },
+  {
+    "id": "R1A-AC3",
+    "check": "loop checker strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "R1A-AC4",
+    "check": "legacy upsert cannot erase populated RawClose",
+    "command": "python -m pytest tests/test_raw_close.py -q -k legacy_upsert_preserves_existing_raw_close",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "==========\ntests/test_raw_close.py::test_legacy_upsert_preserves_existing_raw_close\ntests/test_raw_close.py::test_legacy_upsert_preserves_existing_raw_close\n  C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\\src\\db.py:417: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 20 deselected, 2 warnings in 2.22s\n"
+  },
+  {
+    "id": "R1A-AC5",
+    "check": "mixed or null RawClose rows cannot erase populated values",
+    "command": "python -m pytest tests/test_raw_close.py -q -k mixed_frame_preserves_missing_raw_close",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": " [100%]\n============================== warnings summary ===============================\ntests/test_raw_close.py::test_mixed_frame_preserves_missing_raw_close\n  C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\\src\\db.py:417: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 20 deselected, 1 warning in 2.43s\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]
