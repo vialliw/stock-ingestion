@@ -437,11 +437,9 @@ class DatabaseManager:
         if not pd.api.types.is_datetime64_any_dtype(work["Date"]):
             work["Date"] = pd.to_datetime(work["Date"])
         # R1A-T1: RawClose is part of the daily_close contract since
-        # schema v9. Legacy callers that omit it insert NULL for new
-        # rows, but must not erase a populated RawClose on a matched
-        # update. The marker distinguishes omitted from explicitly
-        # supplied values; ingestion always supplies a valid RawClose.
-        work["_has_raw_close"] = "RawClose" in work.columns
+        # schema v9.  Legacy callers that omit the column on a matched
+        # update must not erase an existing populated RawClose; only a
+        # finite positive source RawClose can replace a stored value.
         if "RawClose" not in work.columns:
             work["RawClose"] = None
         with self._write_lock:
@@ -457,7 +455,10 @@ class DatabaseManager:
                     Close = source.Close,
                     Volume = source.Volume,
                     RawClose = CASE
-                        WHEN source._has_raw_close THEN source.RawClose
+                        WHEN source.RawClose IS NOT NULL
+                             AND isfinite(source.RawClose)
+                             AND source.RawClose > 0
+                        THEN source.RawClose
                         ELSE target.RawClose
                     END
                 WHEN NOT MATCHED THEN INSERT

@@ -224,6 +224,82 @@ def test_legacy_upsert_preserves_existing_raw_close(db):
     assert row["RawClose"] == 189.0
 
 
+def test_mixed_frame_preserves_missing_raw_close(db):
+    """In a mixed batch, rows without RawClose do not overwrite stored ones."""
+    # Seed two tickers with populated RawClose values.
+    db.upsert_dataframe(_df([
+        {"Date": "2024-01-02", "Ticker": "AAPL", "Open": 90.0,
+         "High": 91.0, "Low": 89.0, "Close": 90.5, "Volume": 10.0,
+         "RawClose": 181.0},
+        {"Date": "2024-01-02", "Ticker": "MSFT", "Open": 10.0,
+         "High": 11.0, "Low": 9.0, "Close": 10.5, "Volume": 100.0,
+         "RawClose": 21.0},
+    ]))
+
+    # Mixed batch: AAPL omits RawClose (legacy row), MSFT supplies a
+    # valid RawClose update.
+    db.upsert_dataframe(_df([
+        {"Date": "2024-01-02", "Ticker": "AAPL", "Open": 91.0,
+         "High": 92.0, "Low": 90.0, "Close": 91.5, "Volume": 11.0},
+        {"Date": "2024-01-02", "Ticker": "MSFT", "Open": 11.0,
+         "High": 12.0, "Low": 10.0, "Close": 11.5, "Volume": 110.0,
+         "RawClose": 22.0},
+    ]))
+
+    aapl, msft = db.execute_query(
+        "SELECT Ticker, Close, RawClose FROM daily_close ORDER BY Ticker"
+    ).to_pandas().set_index("Ticker").loc[["AAPL", "MSFT"]].itertuples()
+    assert aapl.Close == 91.5
+    assert aapl.RawClose == 181.0  # preserved despite omitted in source
+    assert msft.Close == 11.5
+    assert msft.RawClose == 22.0   # explicitly updated
+
+
+def test_mixed_frame_invalid_raw_close_values_preserve_target(db):
+    """Only finite positive RawClose values may replace stored ones."""
+    key = {"Date": "2024-01-02", "Ticker": "AAPL"}
+    db.upsert_dataframe(_df([{
+        **key, "Open": 90.0, "High": 91.0, "Low": 89.0,
+        "Close": 90.5, "Volume": 10.0, "RawClose": 181.0,
+    }]))
+
+    db.upsert_dataframe(_df([
+        {**key, "Open": 91.0, "High": 92.0, "Low": 90.0,
+         "Close": 91.5, "Volume": 11.0, "RawClose": None},
+        {"Date": "2024-01-03", "Ticker": "AAPL", "Open": 92.0,
+         "High": 93.0, "Low": 91.0, "Close": 92.5, "Volume": 12.0,
+         "RawClose": np.nan},
+    ]))
+
+    rows = db.execute_query(
+        "SELECT Date, Close, RawClose FROM daily_close WHERE Ticker='AAPL' "
+        "ORDER BY Date"
+    ).to_pandas()
+    # Row with explicit NULL RawClose should preserve existing value.
+    assert rows.iloc[0]["Close"] == 91.5
+    assert rows.iloc[0]["RawClose"] == 181.0
+    # New row with NaN RawClose inserts NULL (legacy insert behavior).
+    assert rows.iloc[1]["Close"] == 92.5
+    assert pd.isna(rows.iloc[1]["RawClose"])
+
+    # Non-positive / non-finite source values also preserve an existing
+    # populated RawClose on a matched update.
+    db.upsert_dataframe(_df([
+        {**key, "Open": 95.0, "High": 96.0, "Low": 94.0,
+         "Close": 95.5, "Volume": 15.0, "RawClose": 0.0},
+    ]))
+    db.upsert_dataframe(_df([
+        {**key, "Open": 96.0, "High": 97.0, "Low": 95.0,
+         "Close": 96.5, "Volume": 16.0, "RawClose": -5.0},
+    ]))
+    val = db.execute_query(
+        "SELECT Close, RawClose FROM daily_close WHERE Ticker='AAPL' "
+        "AND Date='2024-01-02'"
+    ).to_pandas().iloc[0]
+    assert val["Close"] == 96.5
+    assert val["RawClose"] == 181.0
+
+
 # ---------------------------------------------------------------------------
 # Normalization: layouts and adjustment arithmetic
 # ---------------------------------------------------------------------------
