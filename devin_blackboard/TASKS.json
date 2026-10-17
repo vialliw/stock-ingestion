@@ -4269,7 +4269,7 @@
     "title": "Weekly rebuilds must delete orphan weeks whose daily rows were removed",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "assigned_to": "B",
     "depends_on": [
       "INC-T6"
