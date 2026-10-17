@@ -3849,3 +3849,79 @@ CHALLENGER nits assessed: n1 CONFIRMED (live: malformed date direct to db.delete
 [2026-10-17T14:32:03.903091+00:00] [EXECUTOR] blocked R1A-T1 -> [2026-10-17T14:32:28.607349+00:00] [EXECUTOR] blocked R1A-T1 -> Implementation complete and committed (c969a43): schema v9 RawClose migration (idempotent, row-preserving ALTER ADD COLUMN guarded by information_schema check), single yf.download auto_adjust=False batch pull; _normalize_batch_df stores raw Close as RawClose and reconstructs the adjusted OHLC/Close contract via the per-row AdjClose/RawClose ratio (rows lacking finite positive RawClose or valid adjustment are dropped, never NULL); robust to both MultiIndex level orders; upsert_dataframe writes RawClose (defaults NULL for legacy callers); legacy daily_close do_put is now exact 8-column schema with RawClose FLOAT64 (7-column payload rejected); tests/test_raw_close.py +18 (migration v8->v9 incl. idempotent reopen, upsert insert+update, single-ticker flat + both multi-ticker layouts, synthetic 2:1 corporate-action ratio arithmetic, invalid-row dropping, on_request/retry/split-redownload choke points, do_put schema + old-payload rejection); docs/DATA_SERVICE_API.md updated (schema v9, RawClose column, 8-col do_put contract + backfill note). GATES: pytest tests/test_raw_close.py 18/18 exit 0; check_loops --src-dir src --strict exit 0 (17 files); poll_tasks --verify R1A-T1: AC1 PASS, AC3 PASS, prose ACs PASS, AC2 FAIL (exit 1). BLOCKER: AC2 unreachable within declared output_files — the intentional contract change breaks 13 pre-existing tests in out-of-scope files pinning the OLD contract: tests/test_ingestion.py:180 asserts auto_adjust is True; tests/test_do_put.py helper KeyError 'RawClose' (7-key rows vs 8-field schema) x5; tests/test_flight_server.py::TestDoPutDescriptor x2 (7-key pa.table dict vs 8-field schema); tests/test_integration.py:284 asserts SELECT * num_columns==7; tests/test_phase2_integration.py:225 KeyError 'RawClose'; tests/test_db.py health tests positional 7-value INSERTs x2; tests/test_client_dml.py::TestMigrationV8 asserts version==8. Suite: 1912 passed / 13 failed — every failure is an old-contract pin. RESOLUTION NEEDED (precedent: identical F26 blocker resolved by amending output_files): add tests/test_ingestion.py, test_do_put.py, test_flight_server.py, test_integration.py, test_phase2_integration.py, test_db.py, test_client_dml.py to R1A-T1 output_files and re-assign to B, or register a test-update task.
 
 [2026-10-17T14:33:53.005374+00:00] [EXECUTOR] claimed R1A-T1
+[2026-10-17T14:46:41.658392+00:00] [EXECUTOR] completed R1A-T1 -> Commits c969a43 (implementation) + fe3921a (mechanical compatibility tests after approved scope amendment). Fresh DDL + idempotent row-preserving v8->v9 migration add RawClose; MERGE insert/update writes it. One yf.download auto_adjust=False pull; robust flat/(ticker,field)/(field,ticker) normalization stores raw Close as finite-positive RawClose and applies Adj Close/RawClose ratio to OHLC, preserving adjusted Close; invalid rows dropped; initial/daily/on-request/retry/split-redownload share choke point. Legacy do_put exact 8-column RawClose FLOAT64 schema and 7-column rejection; do_get unchanged. tests/test_raw_close.py 18 passed; amended-scope focused suite 1039 passed; full suite 1925 passed; strict loop checker exit 0 (17 files); poll_tasks --verify ALL PASS. DATA_SERVICE_API documents schema v9, factor, breaking do_put schema, and repair-backfill requirement. No deployment/restart/backfill performed.
+Evidence map:
+[
+  {
+    "id": "R1A-AC1",
+    "check": "raw-close focused tests",
+    "command": "python -m pytest tests/test_raw_close.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_split_redownload_path_stores_rawclose\ntests/test_raw_close.py::test_do_put_upserts_with_rawclose\ntests/test_raw_close.py::test_do_put_rejects_legacy_seven_column_payload\n  C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\\src\\db.py:417: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n18 passed, 8 warnings in 7.91s\n"
+  },
+  {
+    "id": "R1A-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1925 passed, 501 warnings in 185.43s (0:03:05)\n"
+  },
+  {
+    "id": "R1A-AC3",
+    "check": "loop checker strict",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

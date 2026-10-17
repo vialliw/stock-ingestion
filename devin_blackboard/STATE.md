@@ -2,15 +2,19 @@
 Last Updated: 2026-10-17
 Current Branch: main
 
-## R1A-T1 — RawClose (schema v9) — executor scope amended
+## R1A-T1 — RawClose (schema v9) — done by executor B
 
-Executor B completed the implementation in commit c969a43. The first pass
-correctly blocked because seven pre-existing test files pinned the former
-7-column/auto_adjust=True/schema-v8 contract but were outside output_files.
-The Orchestrator approved that mechanical compatibility-test update,
-expanded output_files to those seven files, and reset R1A-T1 to `todo` for
-B to finish the full-suite gate. No requirement or acceptance criterion
-changed.
+Implementation commit c969a43; mechanical compatibility-test commit
+fe3921a after the Orchestrator-approved scope amendment. `daily_close` schema
+v9 adds RawClose with an idempotent, row-preserving v8 migration; ingestion
+uses one yfinance `auto_adjust=False` batch pull, stores raw Close as RawClose,
+and preserves adjusted OHLC/Close via the per-row Adj Close / RawClose ratio.
+All load choke points flow through the normalization. Legacy daily_close
+do_put is intentionally 8 columns and rejects the old 7-column payload.
+Focused amended-scope tests: 1039 passed; full suite: 1925 passed; strict loop
+checker: exit 0 (17 files); `poll_tasks.py --verify R1A-T1`: ALL PASS. No
+deploy/restart/backfill performed — Orchestrator owns the post-B/C/D deployment
+gate.
 
 ## Incident management (2026-10-12)
 
