@@ -3994,3 +3994,68 @@ overwrites RawClose with source.RawClose including NULL. Post-backfill, a
 direct Python caller could regress RawClose to NULL. Mitigated by do_put
 validation + ingestion choke point. Consider COALESCE(source.RawClose,
 target.RawClose) for defense-in-depth — not blocking.
+
+[2026-10-17] [CRITIC-D] R1A-T1 **FAIL** (HEAD a0263b8) — final independent gate.
+BLOCKER D-R1A-1 / adjudication of Challenger N1: N1 is BLOCKING. At
+src/db.py:439-443 a legacy internal seven-field frame is accepted by adding
+RawClose=None; at src/db.py:450-456 the matched MERGE assigns
+RawClose=source.RawClose unconditionally. Own real temporary-DB probe seeded an
+8-column AAPL row with RawClose=181, then called upsert_dataframe on the same PK
+with a seven-field frame: observed `RawClose=None`. Therefore a successful
+2010-present repair backfill cannot make “raw_close present for every
+daily_close row after backfill” durable: an internal legacy caller/test or
+future write can silently regress a populated row to NULL. The 8-column do_put
+schema gate protects only the Flight legacy endpoint, not DatabaseManager's
+public internal write path. This contradicts the invariant and is not optional
+defense-in-depth. Required remediation: preserve target.RawClose on matched
+legacy/NULL input (e.g. COALESCE) or reject missing/invalid RawClose consistently;
+add a non-vacuous regression that seeds non-NULL, performs legacy matched update,
+and proves RawClose remains populated. Also adjudicate whether new legacy inserts
+may remain NULL; if retained for compatibility, they cannot satisfy the global
+post-backfill invariant and should be rejected after v9 or explicitly scoped by
+PM. No deploy/backfill approved.
+
+Acceptance evidence independently re-run:
+- Schema: fresh temp DB has exact `RawClose DOUBLE`, SCHEMA_VERSION/MAX(version)
+  9. Hand-built v8 DB migration retained both rows, yielded NULL only for legacy
+  rows, advanced to 9, and second open retained count=2 (focused tests lines
+  tests/test_raw_close.py:92-146; implementation src/db.py:372-390).
+- Download/normalization: one batch call uses auto_adjust=False
+  (src/ingestion.py:329-339); flat, (ticker,field), and (field,ticker) layouts
+  passed; synthetic 2:1 action proves ratio Adj Close/Close scales Open/High/Low
+  and adjusted Close while exact raw Close lands in RawClose
+  (src/ingestion.py:455-501; tests/test_raw_close.py:198-260). Invalid zero,
+  negative, NaN and unusable adjustment rows drop; valid rows have no NULL
+  RawClose (tests/test_raw_close.py:263-286).
+- Load paths: source inspection confirms initial/daily/on-request call
+  fetch_and_clean -> shared normalization/upsert, retry re-enters normalization,
+  and split redownload uses _batch_download + _normalize_batch_df. Focused
+  on-request/retry/split probes passed (tests/test_raw_close.py:293-355).
+- Upsert: explicit 8-field insert and matched update both write exact RawClose
+  (tests/test_raw_close.py:157-179). Legacy matched update fails invariant as
+  above; legacy insert is intentionally NULL at tests/test_raw_close.py:182-191,
+  showing compatibility test coverage is non-vacuous but requirements-incomplete.
+- Real Flight (ephemeral real MarketDataFlightServer + FlightClient + temp DB):
+  8-column DATE32/STRING/FLOAT64 stream accepted and SELECT returned
+  Close=90.5/RawClose=181; old 7-column stream raised FlightError. Exact schema
+  is at src/flight_server.py:115-142. Direct unit coverage is
+  tests/test_raw_close.py:372-435.
+- do_get: src/flight_server.py:370 onward remains the single-SELECT validated
+  read path; R1A changes did not alter its contract. Full suite exercises it.
+- Docs accurately describe adjusted OHLC, raw unadjusted close, v9 NULL-until-
+  backfill, one repair backfill, and breaking 8-column do_put at
+  docs/DATA_SERVICE_API.md:9,116-131,491-499. README.md and docs/README.md are
+  byte-identical (cmp exit 0).
+- Non-vacuity: focused assertions pin version/type/name, both migration states,
+  exact arithmetic/layouts, invalid row filtering, each special load branch,
+  insert/update values and schema rejection. However, the existing test at
+  tests/test_raw_close.py:182-191 positively blesses NULL legacy inserts and no
+  test protects populated RawClose from NULL overwrite — exactly the blocker.
+
+Commands/evidence: `pytest tests/test_raw_close.py -q` => 18 passed;
+`pytest tests/ -q` => 1925 passed, 501 warnings, 208.48s;
+`python scripts/check_loops.py --src-dir src --strict` => clean, 17 files;
+`python scripts/poll_tasks.py --verify R1A-T1` => ALL PASS (noted checker treats
+five prose criteria as vacuous unknown PASS, so manual adjudication controls);
+README parity exit 0; git scope was clean before blackboard edits. Deployment and
+repair backfill remain Orchestrator-only and MUST wait for remediation/re-gate.

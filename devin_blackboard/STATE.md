@@ -2,7 +2,30 @@
 Last Updated: 2026-10-17
 Current Branch: main
 
-## R1A-T1 — RawClose (schema v9) — done by executor B, APPROVED by challenger C
+## R1A-T1 — RawClose (schema v9) — CRITIC-D FAIL; remediation required
+
+CRITIC-D final independent gate (2026-10-17, HEAD a0263b8): **FAIL** on
+blocking invariant defect D-R1A-1. `DatabaseManager.upsert_dataframe` accepts
+legacy seven-field internal frames by synthesizing `RawClose=None`, and its
+matched MERGE unconditionally assigns that NULL to an existing populated
+`RawClose` (`src/db.py:439-456`). Independent real-DB probe: seed an 8-column
+row with RawClose=181, then update the same PK with a legacy seven-field frame
+=> RawClose becomes NULL. This makes the post-backfill requirement (“raw_close
+present for every daily_close row”) non-durable for internal legacy callers and
+future writes; the 8-column Flight gate protects only that network path.
+Challenger advisory N1 is therefore **BLOCKING**, not defense-in-depth. Executor
+must preserve target.RawClose on legacy matched updates (or reject missing/
+invalid RawClose consistently) and add non-vacuous insert/update regression
+tests proving a post-backfill populated value cannot be NULL-overwritten.
+No deployment/backfill is approved.
+
+All other independently checked criteria passed: fresh DB and v8->v9 migration
+(row-preserving/idempotent); exact RawClose DOUBLE/name; all three yfinance
+layouts and ratio-adjusted OHLC arithmetic; invalid-row dropping and ingestion
+non-NULL behavior; initial/daily/on-request/retry/split paths; explicit RawClose
+insert/update; real Flight 8-column acceptance and 7-column rejection; unchanged
+do_get single-SELECT path; docs; 18 focused and 1925 full tests; strict loop
+checker; poll_tasks verify; README parity. Full evidence is in EVENTS.log.
 
 Implementation commit c969a43; mechanical compatibility-test commit
 fe3921a after the Orchestrator-approved scope amendment. `daily_close` schema
