@@ -2,7 +2,19 @@
 Last Updated: 2026-10-17 (delta re-review)
 Current Branch: main
 
-## R1A-T1 — RawClose (schema v9) — CRITIC-D FINAL COMPOSITE PASS
+## R1A-T1 — RawClose (schema v9) — code PASS; deployment gate partial
+
+Orchestrator deployment 2026-10-17: restarted `Flight Server`, confirmed
+schema_version=9 and exact 8-column `daily_close`, then ran a full configured
+2010-present `on_request_load` (1,222 tickers, SUCCESS, 4,319,073 rows in
+460,203 ms). A post-fix targeted reload restored legitimate finite
+non-positive rows; live totals are 4,325,588 rows, 8 finite non-positive
+RawClose values, and 6,507 NULLs. Fresh AAPL/MSFT/SPY spot-check: 33/33 exact,
+max absolute error 0.0. The remaining NULLs are WBD 2,535 + QRVO 2,535 + LESL
+1,437 historical rows that Yahoo no longer serves. The user declined use of
+the external interim raw-close store, so the explicit zero-NULL deployment
+criterion is not met and R1A-T1 is marked `blocked` despite code PASS. Daily
+loads now populate RawClose for all values Yahoo serves.
 
 CRITIC-D final composite gate (2026-10-17, HEAD 8e7248e): **PASS**.
 D-R1A-1, D-R1A-2 and D-R1A-3 are resolved. Commit 24a88ba now applies the
