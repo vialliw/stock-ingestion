@@ -50,6 +50,13 @@
     Provision the incident store + junction only; do not touch the
     scheduled task (useful as an orchestrator deploy step).
 
+.PARAMETER UserPrincipal
+    Register the task under the currently-running user account
+    (LogonType Interactive, RunLevel Limited) instead of the default
+    SYSTEM/ServiceAccount/Highest principal.  The task is then visible
+    in Task Scheduler without elevation, but runs only while that user
+    is logged on (StartWhenAvailable still catches missed runs).
+
 .PARAMETER Unregister
     Delete the scheduled task instead of creating it.  The store and
     the junction are left in place.
@@ -61,6 +68,9 @@
     powershell -NoProfile -ExecutionPolicy Bypass -File scripts\register_incident_watch.ps1 -ProvisionOnly
 
 .EXAMPLE
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts\register_incident_watch.ps1 -UserPrincipal
+
+.EXAMPLE
     powershell -NoProfile -ExecutionPolicy Bypass -File scripts\register_incident_watch.ps1 -Unregister
 #>
 [CmdletBinding()]
@@ -69,6 +79,7 @@ param(
     [string]$Time = '',
     [string]$StoreRoot = 'C:\Intel\incidents\stock-ingestion',
     [switch]$ProvisionOnly,
+    [switch]$UserPrincipal,
     [switch]$Unregister
 )
 
@@ -259,10 +270,22 @@ try {
 
     # Run whether or not a user is logged on.  SYSTEM can read the
     # local DuckDB-backed health endpoint and write C:\Intel.
-    $principal = New-ScheduledTaskPrincipal `
-        -UserId 'SYSTEM' `
-        -LogonType ServiceAccount `
-        -RunLevel Highest
+    # -UserPrincipal instead registers under the current account —
+    # visible in Task Scheduler without elevation, but runs only
+    # while that user is logged on.  Limited (not Highest) is enough:
+    # the watcher only reads the Flight gRPC port and writes a
+    # user-owned store; StartWhenAvailable covers missed runs.
+    if ($UserPrincipal) {
+        $principal = New-ScheduledTaskPrincipal `
+            -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) `
+            -LogonType Interactive `
+            -RunLevel Limited
+    } else {
+        $principal = New-ScheduledTaskPrincipal `
+            -UserId 'SYSTEM' `
+            -LogonType ServiceAccount `
+            -RunLevel Highest
+    }
 
     # Idempotent re-registration: drop any existing task first.
     if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
@@ -284,7 +307,12 @@ try {
     }
     Write-Host "  store root: $StoreRoot"
     Write-Host "  junction:   $junction -> $storeRootNorm"
-    Write-Host "  task:       '$TaskName' registered — daily at $Time machine-local (default $watchTimeEt $watchTzId), as SYSTEM."
+    if ($UserPrincipal) {
+        $principalDesc = "as $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) (Interactive/Limited)"
+    } else {
+        $principalDesc = 'as SYSTEM'
+    }
+    Write-Host "  task:       '$TaskName' registered — daily at $Time machine-local (default $watchTimeEt $watchTzId), $principalDesc."
     Write-Host "  action:     `"$pythonExe`" `"$runner`""
     Write-Host "  remove:     powershell -NoProfile -ExecutionPolicy Bypass -File scripts\register_incident_watch.ps1 -Unregister"
     exit 0

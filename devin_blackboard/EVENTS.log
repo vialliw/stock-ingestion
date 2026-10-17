@@ -3720,3 +3720,43 @@ Evidence map:
 [2026-10-16] [ORCHESTRATOR] Registered INC-T4: -UserPrincipal switch for register_incident_watch.ps1 (Interactive/Limited under current account vs SYSTEM/Highest default) + README note. Then orchestrator will unregister SYSTEM task and re-register as user.
 
 [2026-10-17T08:32:43.034602+00:00] [EXECUTOR] claimed INC-T4
+[2026-10-17T08:33:43.859808+00:00] [EXECUTOR] completed INC-T4 -> -UserPrincipal switch added to scripts/register_incident_watch.ps1: registers under current WindowsIdentity with LogonType Interactive + RunLevel Limited; default path unchanged (SYSTEM/ServiceAccount/Highest). New .PARAMETER help block + .EXAMPLE; summary line now shows principal mode ('as SYSTEM' vs 'as DOMAIN\user (Interactive/Limited)'). README.md + docs/README.md 'Incident health watch' section gained one line documenting -UserPrincipal; twins byte-identical (fc /b exit 0). Gates: --verify INC-T4 ALL PASS (4/4 — PSParser tokenize clean, twins identical, check_loops exit 0, 17 files). ps1 NOT executed — deploy is orchestrator's step.
+Evidence map:
+[
+  {
+    "id": "INC-T4-AC1",
+    "check": "ps1 parses clean",
+    "command": "powershell -NoProfile -Command \"$errs=$null; [void][System.Management.Automation.PSParser]::Tokenize((Get-Content -Raw 'scripts/register_incident_watch.ps1'), [ref]$errs); if ($errs) { exit 1 } else { exit 0 }\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "INC-T4-AC2",
+    "check": "README twins byte-identical",
+    "command": "fc /b README.md docs\\README.md",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "Comparing files README.md and DOCS\\README.MD\nFC: no differences encountered\n\n"
+  },
+  {
+    "id": "INC-T4-AC3",
+    "check": "loop checker clean",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]
