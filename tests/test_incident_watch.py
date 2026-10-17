@@ -1132,3 +1132,160 @@ class TestLegacySeverityDriftNB4:
         assert inc["severity"] == "SEV2"
         assert inc["incident_key"] == names[0]
         assert stats["updated"] == names
+
+
+# ---------------------------------------------------------------------
+# INC-T5 regression tests — acknowledged_delisted tickers are suppressed
+# per-ticker; their days must ALSO be excluded from the aggregate SEV2
+# thresholds (gaps total_missing_days >= 30, single-ticker >=10, and
+# staleness stale_count >= 25) while remaining visible in the suppressed
+# accounting.  Live defect 2026-10-17: DBRG+QRVO+WBD (acknowledged
+# delisted) contributed 31 of 33 total_missing_days -> false SEV2 page.
+# ---------------------------------------------------------------------
+
+def _days(start: int, n: int) -> list:
+    """n consecutive '2026-09-DD' date strings for _gap() builders."""
+    return [f"2026-09-{d:02d}" for d in range(start, start + n)]
+
+
+def _write_delisted(root: Path, *tickers) -> None:
+    (root / "_config").mkdir(parents=True, exist_ok=True)
+    (root / "_config" / "suppressions.json").write_text(
+        json.dumps({"acknowledged_delisted": list(tickers)}),
+        encoding="utf-8")
+
+
+class TestDelistedAggregateExclusion:
+    def test_delisted_gap_days_excluded_from_total(self, tmp_path):
+        """Live repro: 31 delisted + 2 live days = 33 reported -> the
+        effective total is 2, below the >=30 group SEV2; live tickers
+        still ticket at SEV3 on their own merits."""
+        _write_delisted(tmp_path, "DBRG", "QRVO", "WBD")
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["gaps"] = {
+            "tickers_with_gaps": 5, "total_missing_days": 33,
+            "expected_sessions": 30,
+            "window_start": _WS, "window_end": _WE,
+            "per_ticker": [
+                _gap("DBRG", _days(10, 15)),
+                _gap("QRVO", _days(10, 12)),
+                _gap("WBD", ["2026-10-06", "2026-10-07",
+                             "2026-10-08", "2026-10-09"]),
+                _gap("ITEQ", ["2026-10-09"]),
+                _gap("LESL", ["2026-10-09"]),
+            ]}
+        calls = []
+        stats = _run(tmp_path, h, notify=lambda *a: calls.append(a))
+        names = _open_names(tmp_path)
+        assert not any("_sev2_gaps_total" in n for n in names)
+        assert calls == []  # no page
+        # live tickers ticket on their own merits
+        assert any("_sev3_gap_ITEQ" in n for n in names)
+        assert any("_sev3_gap_LESL" in n for n in names)
+        # delisted tickers produce no folders at all
+        assert not any("_gap_DBRG" in n for n in names)
+        assert not any("_gap_QRVO" in n for n in names)
+        assert not any("_gap_WBD" in n for n in names)
+        # ...but their days are visible in suppressed accounting
+        assert stats["suppressed_detail"]["gap"]["count"] == 3
+        assert stats["suppressed_detail"]["gap"]["missing_days"] == 31
+        hb = json.loads((tmp_path / "_last_check.json").read_text(
+            encoding="utf-8"))
+        assert hb["suppressed_detail"]["gap"]["count"] == 3
+        assert hb["suppressed_detail"]["gap"]["missing_days"] == 31
+
+    def test_delisted_single_ticker_10plus_stays_suppressed(
+            self, tmp_path):
+        """The single-ticker >=10-sessions SEV2 trigger must not fire
+        for an acknowledged-delisted ticker even when it dominates the
+        report."""
+        _write_delisted(tmp_path, "DBRG")
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["gaps"] = {
+            "tickers_with_gaps": 1, "total_missing_days": 15,
+            "expected_sessions": 30,
+            "window_start": _WS, "window_end": _WE,
+            "per_ticker": [_gap("DBRG", _days(10, 15))]}
+        stats = _run(tmp_path, h)
+        assert _open_names(tmp_path) == []
+        assert stats["suppressed_detail"]["gap"]["count"] == 1
+        assert stats["suppressed_detail"]["gap"]["missing_days"] == 15
+
+    def test_delisted_stale_excluded_from_stale_count(self, tmp_path):
+        """25 stale tickers but 3 acknowledged delisted -> effective
+        count 22 < 25 -> no group SEV2; live tickers still ticket."""
+        _write_delisted(tmp_path, "OLD1", "OLD2", "OLD3")
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["staleness"] = _stale(
+            ("OLD1", "2026-09-29"), ("OLD2", "2026-09-29"),
+            ("OLD3", "2026-09-29"),
+            *[(f"T{i:02d}", "2026-10-08") for i in range(22)])
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert not any("_sev2_stale" in n for n in names)
+        assert stats["suppressed_detail"]["stale"]["count"] == 3
+        # the 22 live stale tickers still classify individually
+        assert any("_sev3_stale_T00" in n for n in names)
+
+    def test_group_sev2_still_fires_on_live_days(self, tmp_path):
+        """Non-delisted totals unchanged: 31 live + 2 delisted days = 33
+        reported -> effective 31 >= 30 -> group SEV2 that lists only
+        live tickers and still pages."""
+        _write_delisted(tmp_path, "DBRG")
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["gaps"] = {
+            "tickers_with_gaps": 3, "total_missing_days": 33,
+            "expected_sessions": 30,
+            "window_start": _WS, "window_end": _WE,
+            "per_ticker": [
+                _gap("DBRG", ["2026-10-08", "2026-10-09"]),
+                _gap("ABCD", _days(5, 16)),
+                _gap("EFGH", _days(5, 15)),
+            ]}
+        calls = []
+        stats = _run(tmp_path, h, notify=lambda *a: calls.append(a))
+        names = _open_names(tmp_path)
+        sev2 = [n for n in names if "_sev2_gaps_total" in n]
+        assert len(sev2) == 1
+        assert not any("_gap_DBRG" in n for n in names)
+        inc = _incident(tmp_path, "open", sev2[0])
+        assert "31 missing day(s)" in inc["evidence_summary"]
+        assert calls and calls[0][0] == 2  # real SEV2 still pages
+        assert stats["suppressed_detail"]["gap"]["missing_days"] == 2
+
+    def test_truncated_per_ticker_still_pages(self, tmp_path):
+        """Conservative fallback: total_missing_days exceeds the days we
+        can attribute to LISTED delisted tickers — the unattributable
+        remainder stays counted and still pages."""
+        _write_delisted(tmp_path, "DBRG")
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["gaps"] = {
+            "tickers_with_gaps": 9, "total_missing_days": 35,
+            "expected_sessions": 30,
+            "window_start": _WS, "window_end": _WE,
+            "per_ticker": [_gap("DBRG", _days(10, 5))]}
+        # effective = 35 - 5 = 30 >= 30 -> group SEV2 (count fallback)
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_gaps_total" in n for n in names)
+        assert stats["suppressed_detail"]["gap"]["missing_days"] == 5
+
+    def test_stale_count_only_unlisted_still_pages(self, tmp_path):
+        """Truncated stale list: unlisted stale tickers cannot be
+        attributed to the delisted set — they stay counted, so 26
+        reported minus the 1 listed delisted = 25 >= 25 -> SEV2."""
+        _write_delisted(tmp_path, "OLD1")
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["staleness"] = {
+            "stale_count": 26,
+            "stale_tickers": [{"ticker": "OLD1",
+                               "last_date": "2026-09-29"}]}
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_stale_count25" in n for n in names)

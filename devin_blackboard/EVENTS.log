@@ -3766,3 +3766,52 @@ Evidence map:
 [2026-10-17] [ORCHESTRATOR] HANDLED live incidents: probed upstream yfinance — DBRG (last 09-29), QRVO (last 10-02), WBD (last bar 10-05 Open=0/Vol=40 real final partial) all CONFIRMED DELISTED; added to acknowledged_delisted + WBD 10-05 row to benign_integrity in _config/suppressions.json. LESL gap self-healed. Re-ran watcher: all 5 prior incidents RESOLVED, 12+3 suppressed. NEW SEV2 gaps_total surfaced: delisted days still counted in gaps aggregate (31 of 33) — registered INC-T5 classifier defect. Also ran daily_load catch-up: ITEQ+LESL 10-16 fetched (4842 rows upserted), delisted 3 confirm Empty dataset again.\n
 
 [2026-10-17T10:15:15.682745+00:00] [EXECUTOR] claimed INC-T5
+[2026-10-17T10:31:10.492932+00:00] [EXECUTOR] completed INC-T5 -> INC-T5 fixed: acknowledged_delisted now excluded from aggregate SEV2 thresholds in scripts/incident_watch.py. (1) Gaps: each per_ticker missing_count parsed once (gap_mc cache, single anomaly per bad count); ack'd tickers always emit SEV4 suppressed findings (previously only when total<30) and their days are subtracted -> eff_missing = max(total_missing - ack_gap_days, 0) gates the >=30 group SEV2; group detail lists only non-ack tickers (count-fallback preserved for truncated lists); per-ticker >=10 trigger unreachable for delisted (suppressed + skip). (2) Staleness: eff_stale_count = stale_count - listed-ack'd gates the >=25 SEV2; unlisted/truncated entries stay counted (conservative, N1 preserved). (3) Suppressed accounting extended additively: stats['suppressed_detail'] = {check: {count, missing_days}} surfaced in _last_check.json heartbeat + stdout digest; suppressed events.jsonl entries gain missing_days when present. Tests: +6 regression in TestDelistedAggregateExclusion (66->72): live repro 31 delisted + 2 live = 33 -> no SEV2/no toast, live tickers SEV3; delisted 15d single-ticker suppressed; 25 stale w/ 3 ack'd -> no SEV2; 31 live + 2 delisted -> SEV2 '31 missing day(s)' + toast + detail missing_days=2; truncated per_ticker (35-5=30) still pages; count-only stale (26-1=25) -> _sev2_stale_count25. Gates: --verify INC-T5 ALL PASS (5/5): 72/72 watcher tests, 1856/1856 full suite, --self-test exit 0 (6 new/3 suppressed/1 toast, suppressed_detail visible); check_loops + --strict exit 0 (17 files); git status clean (2 output files only).
+Evidence map:
+[
+  {
+    "id": "INC-T5-AC1",
+    "check": "incident_watch tests pass",
+    "command": "python -m pytest tests/test_incident_watch.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "........................................................................ [100%]\n72 passed in 5.48s\n"
+  },
+  {
+    "id": "INC-T5-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1856 passed, 477 warnings in 218.39s (0:03:38)\n"
+  },
+  {
+    "id": "INC-T5-AC3",
+    "check": "watcher offline self-test",
+    "command": "python scripts/incident_watch.py --self-test",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "incident_watch: health_status=WARN probe=ok root=C:\\Users\\user\\AppData\\Local\\Temp\\incident_watch_selftest_e3kx_u8m\n  new=6 updated=0 resolved=0 suppressed=3\n  suppressed_detail={\"integrity\": {\"count\": 2}, \"pending_session\": {\"count\": 1}}\n  + NEW 20261012_sev2_integrity_WBD_2026-10-05\n  + NEW 20261012_sev3_stale_DBRG\n  + NEW 20261012_sev3_gap_QRVO\n  + NEW 20261012_sev3_gap_WBD\n  + NEW 20261012_sev3_gap_LESL\n  + NEW 20261012_sev3_gap_TCBI\n  toasts sent: 1\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

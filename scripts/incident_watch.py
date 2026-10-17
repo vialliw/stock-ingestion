@@ -583,20 +583,25 @@ def classify_health(health, *, probe_error=None, benign=None,
                 evidence=e, suggested_action="none", suppressed=True))
         else:
             active.append(e)
+    # INC-T5 — acknowledged-delisted tickers are already suppressed
+    # per-ticker; they must not feed the >=25 aggregate either.  Only
+    # LISTED delisted entries are subtracted: when stale_tickers is
+    # truncated the unlisted remainder stays counted (conservative).
+    eff_stale_count = stale_count - (len(stale_entries) - len(active))
     # INC-T1b N1 — page on the COUNT even when the ticker list is
     # empty/truncated (`..._stale_count<N>` fallback key).  The guard
     # only drops the SEV2 when every LISTED ticker was ack-suppressed
     # AND the count adds nothing beyond them.
-    if stale_count >= _STALE_SEV2_THRESHOLD and (
+    if eff_stale_count >= _STALE_SEV2_THRESHOLD and (
             active or stale_count > len(stale_entries)):
         tickers = [e["ticker"] for e in active]
         detail = (_multi_detail("multi", tickers) if tickers
-                  else f"count{stale_count}")
+                  else f"count{eff_stale_count}")
         findings.append(_Finding(
             check="stale", detail=detail,
             severity=2,
-            summary=(f"{stale_count} tickers stale vs latest session "
-                     f"{latest} — broad ingestion failure"),
+            summary=(f"{eff_stale_count} tickers stale vs latest "
+                     f"session {latest} — broad ingestion failure"),
             evidence=st,
             suggested_action=(
                 "Broad staleness — re-run the daily load "
@@ -756,15 +761,40 @@ def classify_health(health, *, probe_error=None, benign=None,
     # ---- gaps ----
     # total_missing_days >= 30 -> one group SEV2 covering the run; else
     # per-ticker tickets (>=10 sessions -> SEV2, smaller -> SEV3).
+    # INC-T5 — acknowledged-delisted tickers are suppressed per-ticker;
+    # their missing days must not feed the AGGREGATE threshold or the
+    # single-ticker >=10 trigger either (live defect 2026-10-17: 31
+    # delisted days pushed total_missing_days to 33 -> false SEV2 page).
+    # Only LISTED delisted days are subtracted: a truncated per_ticker
+    # list leaves unattributable days counted (conservative).
     total_missing = _count_field(
         gaps, "total_missing_days", "gaps", findings)
-    if total_missing >= _GAP_TOTAL_SEV2_DAYS:
+    gap_mc = {}
+    ack_gap_days = 0
+    # justified: each entry's missing_count is resolved once here (an
+    # unparseable count emits exactly ONE anomaly finding) and reused by
+    # both the aggregate exclusion and the per-ticker loop below.
+    for t, e in gap_entries.items():  # .items() — exempt
+        mc = _count_field(e, "missing_count", "gaps", findings)
+        gap_mc[t] = mc
+        if str(t) in ack:
+            ack_gap_days += max(mc, 0)
+            findings.append(_Finding(
+                check="gap", detail=t, severity=4,
+                summary=(f"{t} missing {e.get('missing_count')} "
+                         "session(s) — acknowledged delisted"),
+                evidence=e, suggested_action="none",
+                suppressed=True))
+    eff_missing = max(total_missing - ack_gap_days, 0)
+    if eff_missing >= _GAP_TOTAL_SEV2_DAYS:
         findings.append(_Finding(
             check="gaps",
-            detail=_multi_detail("total", sorted(gap_entries)
-                                 or [f"{total_missing}d"]),
+            detail=_multi_detail(
+                "total",
+                sorted(t for t in gap_entries if str(t) not in ack)
+                or [f"{eff_missing}d"]),
             severity=2,
-            summary=(f"{total_missing} missing day(s) across "
+            summary=(f"{eff_missing} missing day(s) across "
                      f"{gaps.get('tickers_with_gaps', '?')} tickers in "
                      f"window {ws}..{we}"),
             evidence=gaps,
@@ -777,17 +807,10 @@ def classify_health(health, *, probe_error=None, benign=None,
         # justified: per-ticker incident decision — see staleness.
         for t, e in gap_entries.items():  # .items() — exempt
             if str(t) in ack:
-                findings.append(_Finding(
-                    check="gap", detail=t, severity=4,
-                    summary=(f"{t} missing {e.get('missing_count')} "
-                             "session(s) — acknowledged delisted"),
-                    evidence=e, suggested_action="none",
-                    suppressed=True))
-                continue
+                continue  # suppressed above — delisted days excluded
             if str(t) in delisting:
                 continue  # already ticketed as suspected delisting
-            mc = _count_field(
-                e, "missing_count", "gaps", findings)
+            mc = gap_mc[t]
             if mc <= 0:
                 continue
             sev = 2 if mc >= _GAP_TICKER_SEV2_DAYS else 3
@@ -955,13 +978,15 @@ def _apply_findings(root: Path, findings, yyyymmdd: str,
     """Materialize findings into the store (doc §7.3 lifecycle).
 
     Returns stats: ``new``/``updated``/``resolved`` folder-name lists,
-    ``suppressed`` count, and ``toasts`` — (severity, summary) pairs the
-    caller should page on.
+    ``suppressed`` count, ``suppressed_detail`` — a per-check
+    ``{check: {"count": N, "missing_days": M}}`` breakdown so excluded
+    acknowledged-delisted gap days stay visible (INC-T5) — and
+    ``toasts``: (severity, summary) pairs the caller should page on.
     """
     existing = _scan_active(root)
     seen = set()
     stats = {"new": [], "updated": [], "resolved": [],
-             "suppressed": 0, "toasts": []}
+             "suppressed": 0, "suppressed_detail": {}, "toasts": []}
 
     # justified: each finding maps to a distinct incident folder on disk
     # — per-finding filesystem materialization has no SQL/vectorized
@@ -969,11 +994,19 @@ def _apply_findings(root: Path, findings, yyyymmdd: str,
     for f in findings:
         if f.suppressed or f.severity >= 4:
             stats["suppressed"] += 1
+            det = stats["suppressed_detail"].setdefault(
+                f.check, {"count": 0})
+            det["count"] += 1
+            mdays = _parse_count(f.evidence.get("missing_count")) \
+                if isinstance(f.evidence, dict) else None
+            if mdays:
+                det["missing_days"] = det.get("missing_days", 0) + mdays
             _append_event(root, {
                 "ts": now_iso, "event": "suppressed",
                 "incident_key": None, "identity": f.identity,
                 "severity": f"SEV{f.severity}", "check": f.check,
-                "summary": f.summary})
+                "summary": f.summary,
+                **({"missing_days": mdays} if mdays else {})})
             continue
         # INC-T1b N2 — same-identity findings in ONE run must not mint
         # a `_2` phantom folder: `existing` is a pre-run snapshot, so
@@ -1149,6 +1182,9 @@ def _write_heartbeat(root: Path, probe: str, health_status,
         "updated": len(stats.get("updated", [])),
         "resolved": len(stats.get("resolved", [])),
         "suppressed": stats.get("suppressed", 0),
+        # additive (INC-T5): per-check suppressed breakdown, incl. the
+        # acknowledged-delisted gap days excluded from the aggregate.
+        "suppressed_detail": stats.get("suppressed_detail", {}),
     })
 
 
@@ -1359,6 +1395,10 @@ def _print_summary(root: Path, stats: dict, health,
     print(f"  new={len(stats['new'])} updated={len(stats['updated'])} "
           f"resolved={len(stats['resolved'])} "
           f"suppressed={stats['suppressed']}")
+    if stats.get("suppressed_detail"):
+        print("  suppressed_detail="
+              + json.dumps(stats["suppressed_detail"], sort_keys=True,
+                           default=str))
     # justified: one stdout line per store transition — O(incidents).
     for name in stats["new"]:
         print(f"  + NEW {name}")
