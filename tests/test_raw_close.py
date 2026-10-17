@@ -180,7 +180,7 @@ def test_upsert_writes_rawclose(db):
 
 
 def test_upsert_without_rawclose_column_stores_null(db):
-    """Legacy 7-field frames still upsert; RawClose lands as NULL."""
+    """Legacy 7-field inserts remain supported and initially store NULL."""
     db.upsert_dataframe(_df([
         {"Date": "2024-01-02", "Ticker": "MSFT", "Open": 1.0,
          "High": 2.0, "Low": 0.5, "Close": 1.5, "Volume": 5.0},
@@ -189,6 +189,39 @@ def test_upsert_without_rawclose_column_stores_null(db):
         "SELECT RawClose FROM daily_close WHERE Ticker='MSFT'"
     ).to_pandas().iloc[0, 0]
     assert pd.isna(val)
+
+
+def test_legacy_upsert_preserves_existing_raw_close(db):
+    """A matched seven-field update cannot erase durable RawClose data."""
+    key = {"Date": "2024-01-02", "Ticker": "AAPL"}
+    db.upsert_dataframe(_df([{
+        **key, "Open": 90.0, "High": 91.0, "Low": 89.0,
+        "Close": 90.5, "Volume": 10.0, "RawClose": 181.0,
+    }]))
+
+    # Legacy internal caller: same key, deliberately no RawClose field.
+    db.upsert_dataframe(_df([{
+        **key, "Open": 92.0, "High": 93.0, "Low": 91.0,
+        "Close": 92.5, "Volume": 20.0,
+    }]))
+    row = db.execute_query(
+        "SELECT Close, Volume, RawClose FROM daily_close WHERE Ticker='AAPL'"
+    ).to_pandas().iloc[0]
+    assert row["Close"] == 92.5
+    assert row["Volume"] == 20.0
+    assert row["RawClose"] == 181.0
+
+    # The preservation guard is not over-broad: an explicit valid
+    # RawClose still updates the durable value on the matched path.
+    db.upsert_dataframe(_df([{
+        **key, "Open": 94.0, "High": 95.0, "Low": 93.0,
+        "Close": 94.5, "Volume": 30.0, "RawClose": 189.0,
+    }]))
+    row = db.execute_query(
+        "SELECT Close, RawClose FROM daily_close WHERE Ticker='AAPL'"
+    ).to_pandas().iloc[0]
+    assert row["Close"] == 94.5
+    assert row["RawClose"] == 189.0
 
 
 # ---------------------------------------------------------------------------
