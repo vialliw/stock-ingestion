@@ -4290,7 +4290,7 @@
     "title": "Request 1 Option A: add raw_close to daily_close and populate it on every price load",
     "role": "executor",
     "model": "swe",
-    "status": "blocked",
+    "status": "todo",
     "assigned_to": "B",
     "depends_on": [],
     "input_files": [
@@ -4340,6 +4340,12 @@
         "id": "R1A-AC4",
         "check": "legacy upsert cannot erase populated RawClose",
         "command": "python -m pytest tests/test_raw_close.py -q -k legacy_upsert_preserves_existing_raw_close",
+        "expected_exit": 0
+      },
+      {
+        "id": "R1A-AC5",
+        "check": "mixed or null RawClose rows cannot erase populated values",
+        "command": "python -m pytest tests/test_raw_close.py -q -k mixed_frame_preserves_missing_raw_close",
         "expected_exit": 0
       },
       {

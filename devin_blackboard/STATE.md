@@ -2,7 +2,11 @@
 Last Updated: 2026-10-17 (delta re-review)
 Current Branch: main
 
-## R1A-T1 — RawClose (schema v9) — CRITIC-D RE-GATE FAIL; mixed-frame blocker
+## R1A-T1 — RawClose (schema v9) — reopened for mixed-frame remediation
+
+The Orchestrator accepted D-R1A-2, reset R1A-T1 to `todo`, and added
+structured R1A-AC5 for mixed/NULL RawClose row preservation. This second
+AC-set amendment is disclosed and does not alter the feature requirement.
 
 CRITIC-D re-gate (2026-10-17, HEAD 289ca99): **FAIL**. Commit 796f41e
 fixes the exact wholly-seven-column reproduction, but the frame-level
