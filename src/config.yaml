@@ -866,7 +866,6 @@ ingestion:
   - QCOM
   - QLYS
   - QQQ
-  - QRVO
   - QTWO
   - QUBT
   - QXO
@@ -1135,7 +1134,6 @@ ingestion:
   - VZ
   - WAB
   - WAT
-  - WBD
   - WBI
   - WBS
   - WCC
@@ -1232,12 +1230,15 @@ ingestion:
   - AVB
   - CCRN
   - CRNX
+  - DBRG
   - EA
   - EQR
   - HLX
   - NFBK
   - NCSM
+  - QRVO
   - TWO
+  - WBD
   - WBS
   daily_lookback_days: 4
   initial_load_years: 10

@@ -4233,5 +4233,35 @@
     "depends_on": [
       "INC-T1c"
     ]
+  },
+  {
+    "id": "INC-T6",
+    "title": "Enforce exclusion of delisting-artifact rows: ingestion exclude_rows filter + delete_daily_rows Flight action",
+    "role": "executor",
+    "model": "swe",
+    "status": "in_progress",
+    "depends_on": [],
+    "input_files": [
+      "/src/config.py",
+      "/src/config.yaml",
+      "/src/ingestion.py",
+      "/src/db.py",
+      "/src/flight_server.py",
+      "/tests/test_config.py",
+      "/tests/test_ingestion.py",
+      "/tests/test_db.py",
+      "/tests/test_flight_server.py",
+      "/docs/INCIDENT_WATCH.md"
+    ],
+    "output_files": [
+      "/src/config.py",
+      "/src/config.yaml",
+      "/src/ingestion.py",
+      "/src/db.py",
+      "/src/flight_server.py",
+      "/tests/test_exclude_rows.py"
+    ],
+    "acceptance_criteria": "CONTEXT: External review (chatgpt_review round 2) found two vendor 'delisting-terminal placeholder' bars persisted in daily_close and propagated to analytical inputs (weekly_close phantom QRVO 2026-10-09 bar flat/Vol=0; WBD weekly Open=0). Advisory exclusion was rejected; enforcement is required. Implement: (1) src/config.py — IngestionConfig gains `exclude_rows: List[dict]` entries {ticker: str, date: YYYY-MM-DD}; validators reject malformed entries (bad date format, empty ticker, non-dict). (2) src/config.yaml — seed `ingestion.exclude_rows` with the two known pairs (QRVO 2026-10-05, WBD 2026-10-05) with a comment explaining they are vendor placeholder bars still served upstream. (3) src/ingestion.py — at ONE choke point covering ALL load paths (initial/daily/on_request), drop downloaded rows matching (Ticker,Date) in exclude_rows BEFORE upsert; log RUNTIME EVENT with dropped count. (4) src/db.py — `delete_daily_rows(pairs) -> int`: parameterized DELETE FROM daily_close WHERE (Ticker,Date) IN pairs, write-locked, returns deleted row count. (5) src/flight_server.py — new do_action `delete_daily_rows`: payload {'rows':[{'ticker':..,'date':..}]}, returns JSON {status, deleted}; validates payload shape, rejects non-dict/empty gracefully. (6) tests/test_exclude_rows.py — covers: config parse+validation (good/malformed), row filtering on a mocked download path, delete_daily_rows against tmp DuckDB, action routing + payload validation. GATES: python -m pytest tests/ -q exit 0; python scripts/check_loops.py --src-dir src --strict exit 0; python scripts/poll_tasks.py --verify INC-T6 ALL PASS.",
+    "assigned_to": "B"
   }
 ]
