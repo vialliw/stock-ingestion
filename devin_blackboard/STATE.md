@@ -2,12 +2,21 @@
 Last Updated: 2026-10-17 (delta re-review)
 Current Branch: main
 
-## R1A-T1 — RawClose (schema v9) — reopened for zero-ratio remediation
+## R1A-T1 — RawClose (schema v9) — D-R1A-3 zero-ratio remediation completed by executor B
 
-The Orchestrator accepted D-R1A-3, reset the task to `todo`, added R1A-AC7,
-and corrected the deployment gate from non-positive to non-finite/NULL.
-Finite zero/negative observations remain valid; only zero-raw/nonzero-adjusted
-rows lack a usable factor and must be rejected.
+Fix commit 24a88ba applies identity ratio only to finite raw Close == 0 AND
+Adj Close == 0. Zero raw with positive or negative nonzero adjusted Close
+retains an undefined ratio and is dropped. New non-vacuous
+`test_zero_raw_close_requires_zero_adjusted_close` submits all three rows in
+one frame, proves only zero/zero survives with raw OHLC unchanged, and proves
+both contradictory rows are absent. AC6 legitimate zero/negative behavior
+remains green. Focused: 23 passed; AC4/5/6/7 each passed; full suite: 1930
+passed; strict loops clean (17 files); poll verify: 12/12 PASS. No deployment.
+
+Disclosure/history: the Orchestrator accepted D-R1A-3, reset the task to
+`todo`, added R1A-AC7, and corrected deployment prose from non-positive to
+non-finite/NULL. Finite zero/negative observations remain valid; only
+zero-raw/nonzero-adjusted rows lack a usable factor and are rejected.
 
 CRITIC-D final delta/composite gate (2026-10-17, HEAD 4d79655): **FAIL**.
 Commit 6ec566f correctly retains finite zero/negative market values and updates
