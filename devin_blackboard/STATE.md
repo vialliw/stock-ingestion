@@ -4,6 +4,15 @@ Current Branch: main
 
 ## R1A-T1 — RawClose (schema v9) — D-R1A-3 zero-ratio remediation completed by executor B
 
+CHALLENGER-C D-R1A-3 delta review (HEAD d014817): **APPROVED**. Independent
+mixed-frame normalization proved zero/zero identity acceptance; zero/positive
+and zero/negative adjusted rejection; negative/negative ratio acceptance;
+standard 0.5x/2x ratio arithmetic; and NaN/infinite rejection. An all-invalid
+frame correctly marks the ticker failed. AC7 fails against pre-fix 6ec566f
+(three rows survive instead of one). AC4-7, 23 focused, 1930 full, strict
+loops, docs parity, and poll verify pass. Scope since 4d79655 is limited to
+blackboard, src/ingestion.py, and tests/test_raw_close.py. No deployment.
+
 Fix commit 24a88ba applies identity ratio only to finite raw Close == 0 AND
 Adj Close == 0. Zero raw with positive or negative nonzero adjusted Close
 retains an undefined ratio and is dropped. New non-vacuous

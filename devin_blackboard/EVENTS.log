@@ -4689,3 +4689,26 @@ Evidence map:
     "output": ""
   }
 ]
+
+[2026-10-17] [CHALLENGER-C] D-R1A-3 remediation delta review (HEAD d014817): **APPROVED**.
+
+Independent normalization probe using one ten-row flat-layout frame:
+- raw=0/adj=0 survived with identity ratio; RawClose=Close=0 and OHLC stayed 10/12/8.
+- raw=0/adj=+5 and raw=0/adj=-5 were both dropped because their ratios remain undefined.
+- raw=-37/adj=-37 survived with ratio 1 and unchanged negative OHLC.
+- Standard raw=100/adj=50 and raw=100/adj=200 survived with exact ratios 0.5 and 2.0; adjusted OHLC was 50/55/45 and 200/220/180 respectively.
+- Raw NaN/+inf and adjusted NaN/-inf rows were dropped. Output contained only the four valid dates and all output values were finite.
+- A second all-invalid mixed frame returned empty, succeeded=[], failed=['BAD'], and a RawClose/adjustment error.
+
+Mutation/non-vacuity:
+- Checked out pre-fix 6ec566f `src/ingestion.py`. AC7 failed: all three zero-raw rows survived (`len(normalized)==3`, expected 1), proving the regression kills the faulty unconditional zero identity mask. Restored HEAD.
+
+Gates independently run:
+- AC4-AC7 combined: 4 passed, 19 deselected.
+- Focused `tests/test_raw_close.py`: 23 passed, 14 warnings.
+- Full `pytest tests/ -q`: 1930 passed, 507 warnings in 219.16s.
+- Strict loop checker: clean, 17 files.
+- `poll_tasks.py --verify R1A-T1`: ALL PASS 12/12.
+- README.md/docs/README.md byte-identical (`fc /b` no differences).
+
+Scope audit `git diff --name-status 4d79655..HEAD`: devin_blackboard/{EVENTS.log,STATE.md,TASKS.json}, src/ingestion.py, tests/test_raw_close.py. Implementation commit 24a88ba changes only src/ingestion.py and tests/test_raw_close.py. No deployment performed.
