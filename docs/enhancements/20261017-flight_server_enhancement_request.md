@@ -5,6 +5,8 @@
 
 ## Request 1 — Per-bar raw close / adjustment factor (priority: high)
 
+**Implementation status (2026-10-17): Option A deployed, with a documented historical-source limitation.** Schema v9 adds `RawClose DOUBLE` to `daily_close`; all current ingestion paths use one `auto_adjust=False` yfinance pull, retain raw `Close` as `RawClose`, and reconstruct the existing adjusted OHLC contract from `Adj Close / Close`. The legacy Flight `do_put` contract is now eight columns and requires `RawClose`. A 2010→present repair load wrote 4,319,073 rows; AAPL/MSFT/SPY spot checks were exact (33/33, maximum absolute error 0.0). The live table retains eight legitimate finite non-positive observations and has 6,507 historical NULLs limited to Yahoo-unavailable delisted histories: WBD 2,535, QRVO 2,535, LESL 1,437. Use of the interim external raw-close store was declined, so those rows remain an explicit exception to acceptance criterion 1. New upstream-served rows receive finite, non-NULL `RawClose`.
+
 **Why:** v6 §5.1 requires fills, share counts and per-share commissions on **raw executable prices**; `daily_close` stores only `auto_adjust=True` total-return prices. Without a raw basis, backtest commissions and share counts are distorted around dividends/splits.
 
 **What:** one of (either satisfies the need — your choice):

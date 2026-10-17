@@ -115,7 +115,7 @@ df["Date"] = pd.to_datetime(df["Date"])
 | `Ticker` | VARCHAR | uppercase symbol |
 | `Open` `High` `Low` `Close` | DOUBLE | **adjusted** (total-return; splits + dividends applied via the yfinance `Adj Close`/`Close` ratio) |
 | `Volume` | DOUBLE | raw shares (unadjusted) |
-| `RawClose` | DOUBLE | **unadjusted** close (schema v9+) — the yfinance `auto_adjust=False` `Close`. NULL for rows written before the v9 migration backfill; the per-bar adjustment factor is derivable as `Close / RawClose`. |
+| `RawClose` | DOUBLE | **unadjusted** close (schema v9+) — the yfinance `auto_adjust=False` `Close`; the per-bar adjustment factor is derivable as `Close / RawClose` when `RawClose != 0`. The 2026-10-17 repair backfill populated all upstream-served history; 6,507 NULLs remain only for Yahoo-unavailable WBD/QRVO/LESL history. |
 
 PK `(Date, Ticker)`. ~10-year history (config `initial_load_years`).
 
@@ -125,11 +125,15 @@ PK `(Date, Ticker)`. ~10-year history (config `initial_load_years`).
 > the historical `auto_adjust=True` contract. This is the right basis
 > for returns/signals, but it is **not a raw historical close** — use
 > `RawClose` (schema v9+) for share counts, commissions and market-cap
-> work that needs raw executable prices. Rows loaded before the
-> migration carry `RawClose = NULL` until the owner runs the
-> 2010→present repair backfill; new ingestion always writes a finite,
+> work that needs raw executable prices. The 2010→present repair
+> backfill completed on 2026-10-17 for every row Yahoo still serves.
+> Exactly 6,507 historical rows remain NULL because Yahoo no longer
+> serves the delisted WBD/QRVO/LESL histories; consumers must treat
+> those as unavailable raw basis rather than infer `RawClose` from the
+> adjusted close. New upstream-served rows always receive a finite,
 > non-NULL `RawClose`. Zero (`^IRX`) and negative (`CL=F` Apr-2020)
-> values are legitimate market observations and are retained.
+> values are legitimate market observations and are retained; the
+> adjustment factor is undefined when `RawClose == 0`.
 
 > **Non-equity series:** `daily_close` also holds non-equity series —
 > `^TNX`, `CL=F` and `^IRX` (macro series added for the Correlation
