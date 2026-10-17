@@ -23,7 +23,7 @@ import pyarrow as pa
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 # F16-T1: CNN Fear & Greed sub-indicator payload keys — each becomes a
 # ``<key> DOUBLE`` + ``<key>_rating VARCHAR`` column pair on
@@ -119,6 +119,7 @@ class DatabaseManager:
                     Low DOUBLE,
                     Close DOUBLE,
                     Volume DOUBLE,
+                    RawClose DOUBLE,
                     PRIMARY KEY (Date, Ticker)
                 );
             """)
@@ -368,6 +369,26 @@ class DatabaseManager:
                     "INSERT INTO schema_version (version) VALUES (?)", [8]
                 )
 
+            # --- v8 -> v9: RawClose column on daily_close (R1A-T1) ---
+            # Fresh databases already carry RawClose from the CREATE
+            # TABLE above; the ADD COLUMN is guarded so migrating an
+            # existing DB is row-preserving and re-running is a no-op.
+            if current_version < 9:
+                cols = {
+                    r[0]
+                    for r in self.conn.execute(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = 'daily_close'"
+                    ).fetchall()
+                }
+                if "RawClose" not in cols:
+                    self.conn.execute(
+                        "ALTER TABLE daily_close ADD COLUMN RawClose DOUBLE"
+                    )
+                self.conn.execute(
+                    "INSERT INTO schema_version (version) VALUES (?)", [9]
+                )
+
     # ------------------------------------------------------------------
     # Read path (short-lived read-only connections)
     # ------------------------------------------------------------------
@@ -415,6 +436,11 @@ class DatabaseManager:
             work[str_cols] = work[str_cols].astype(object)
         if not pd.api.types.is_datetime64_any_dtype(work["Date"]):
             work["Date"] = pd.to_datetime(work["Date"])
+        # R1A-T1: RawClose is part of the daily_close contract since
+        # schema v9.  Callers that predate the column (or omit it) get a
+        # NULL — the ingestion normalization always populates it.
+        if "RawClose" not in work.columns:
+            work["RawClose"] = None
         with self._write_lock:
             self.conn.register("staging_df", work)
             self.conn.execute("""
@@ -426,12 +452,13 @@ class DatabaseManager:
                     High = source.High,
                     Low = source.Low,
                     Close = source.Close,
-                    Volume = source.Volume
+                    Volume = source.Volume,
+                    RawClose = source.RawClose
                 WHEN NOT MATCHED THEN INSERT
-                    (Date, Ticker, Open, High, Low, Close, Volume)
+                    (Date, Ticker, Open, High, Low, Close, Volume, RawClose)
                 VALUES
                     (source.Date, source.Ticker, source.Open, source.High,
-                     source.Low, source.Close, source.Volume);
+                     source.Low, source.Close, source.Volume, source.RawClose);
             """)
             self.conn.unregister("staging_df")
             return len(df)

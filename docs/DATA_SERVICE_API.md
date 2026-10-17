@@ -6,7 +6,7 @@ This document is the complete contract: endpoint, query protocol,
 schema, semantics, and caveats. You do not need the rest of this repo —
 only `pyarrow` and this page.
 
-**Version:** schema v7 / service live as of 2026-09-22.
+**Version:** schema v9 / service live as of 2026-10-17 (`daily_close` gained `RawClose`; legacy `do_put` schema is now 8 columns).
 
 ---
 
@@ -113,18 +113,22 @@ df["Date"] = pd.to_datetime(df["Date"])
 |---|---|---|
 | `Date` | DATE | NYSE trading day |
 | `Ticker` | VARCHAR | uppercase symbol |
-| `Open` `High` `Low` `Close` | DOUBLE | **yfinance `auto_adjust=True`** |
+| `Open` `High` `Low` `Close` | DOUBLE | **adjusted** (total-return; splits + dividends applied via the yfinance `Adj Close`/`Close` ratio) |
 | `Volume` | DOUBLE | raw shares (unadjusted) |
+| `RawClose` | DOUBLE | **unadjusted** close (schema v9+) — the yfinance `auto_adjust=False` `Close`. NULL for rows written before the v9 migration backfill; the per-bar adjustment factor is derivable as `Close / RawClose`. |
 
 PK `(Date, Ticker)`. ~10-year history (config `initial_load_years`).
 
 > **⚠ Price-basis caveat (read before valuation work):** OHLC are
-> **total-return adjusted** — yfinance `auto_adjust=True` bakes in
-> *both splits and dividends* (the legacy `Adj Close` factor applied to
-> OHLC). This is the right basis for returns/signals, but it is **not
-> a raw historical close** — do **not** multiply it by a
-> point-in-time share count for market cap. If your use case needs raw
-> prices, flag it to the pipeline owner before building on `Close`.
+> **total-return adjusted** — the loader pulls `auto_adjust=False` and
+> re-applies the per-row `Adj Close / Close` ratio, so `Close` matches
+> the historical `auto_adjust=True` contract. This is the right basis
+> for returns/signals, but it is **not a raw historical close** — use
+> `RawClose` (schema v9+) for share counts, commissions and market-cap
+> work that needs raw executable prices. Rows loaded before the
+> migration carry `RawClose = NULL` until the owner runs the
+> 2010→present repair backfill; new ingestion always writes a finite
+> positive `RawClose`.
 
 > **Non-equity series:** `daily_close` also holds non-equity series —
 > `^TNX`, `CL=F` and `^IRX` (macro series added for the Correlation
@@ -276,7 +280,7 @@ These are runtime-created schemas — no `SCHEMA_VERSION` migration (stays
 ### 3.10 Audit/internal tables (available but not a stable contract)
 
 `ingestion_runs` (run log), `splits_processed` (split-repair
-bookkeeping), `schema_version` (migration markers — current `7`).
+bookkeeping), `schema_version` (migration markers — current `9`).
 
 ---
 
@@ -483,10 +487,16 @@ Notes:
 
 1. **Legacy `daily_close` upsert** — no descriptor, a PATH descriptor,
    or any CMD descriptor that is not a JSON object carrying `"table"`.
-   The Arrow stream must match the `daily_close` schema exactly
-   (7 columns, PK `(Date,Ticker)` semantics); rows are upserted in one
-   vectorized operation and `exclude_tickers` are filtered out. This is
-   the historical contract and is unchanged.
+   The Arrow stream must match the `daily_close` schema exactly —
+   **8 columns** since schema v9 (R1A-T1):
+   `Date DATE32, Ticker STRING, Open FLOAT64, High FLOAT64,
+   Low FLOAT64, Close FLOAT64, Volume FLOAT64, RawClose FLOAT64`
+   (PK `(Date,Ticker)` semantics). Rows are upserted in one vectorized
+   operation and `exclude_tickers`/`exclude_rows` are filtered out.
+   **Breaking change:** the pre-v9 7-column payload (no `RawClose`) is
+   rejected with a schema-mismatch `FlightServerError` — producers must
+   send `RawClose` (the unadjusted close; `FLOAT64`, nullable on the
+   column until the 2010→present repair backfill completes).
 2. **Generalized client-DML write** — a CMD descriptor whose body is a
    JSON object `{"table": "pivot.<name>", "mode":
    "create_or_replace|append|replace"}` (optional `namespace`,

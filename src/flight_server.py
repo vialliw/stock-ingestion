@@ -121,6 +121,9 @@ _DAILY_CLOSE_SCHEMA = pa.schema(
         pa.field("Low", pa.float64()),
         pa.field("Close", pa.float64()),
         pa.field("Volume", pa.float64()),
+        # R1A-T1: schema v9 — RawClose (unadjusted close) joined the
+        # daily_close contract; the legacy 7-column payload is rejected.
+        pa.field("RawClose", pa.float64()),
     ]
 )
 

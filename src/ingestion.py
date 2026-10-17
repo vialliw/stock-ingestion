@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import duckdb
+import numpy as np
 import pandas as pd
 import pandas_market_calendars as mcal
 import requests
@@ -312,7 +313,10 @@ class IngestionEngine:
 
         ``end_date`` is treated as inclusive, so it is adjusted +1 day
         internally to satisfy yfinance's exclusive ``end`` parameter.
-        Downloads use ``auto_adjust=True``, ``interval="1d"``,
+        Downloads use ``auto_adjust=False`` (R1A-T1: one batch pull
+        returns both the raw ``Close`` — stored as ``RawClose`` — and
+        ``Adj Close``, whose per-row ratio reconstructs the historical
+        adjusted OHLC contract), ``interval="1d"``,
         ``group_by='ticker'`` and ``threads=True`` — pass
         ``threads=False`` for gentler pacing (the second-pass retry
         does this after a rate-limit cool-down).  ``progress=False``
@@ -328,7 +332,7 @@ class IngestionEngine:
             start=start_date,
             end=end_dt.strftime("%Y-%m-%d"),
             interval="1d",
-            auto_adjust=True,
+            auto_adjust=False,
             group_by="ticker",
             threads=threads,
             progress=False,
@@ -380,8 +384,15 @@ class IngestionEngine:
     ) -> Tuple[pd.DataFrame, List[str], List[str], Dict[str, str]]:
         """Normalize batch ``yf.download`` output to the flat schema.
 
-        Handles both multi-ticker (``columns.nlevels == 2``) and
-        single-ticker output.  Drops rows with NaN OHLC.  An empty
+        Handles both multi-ticker (``columns.nlevels == 2``, in either
+        ``(ticker, field)`` or ``(field, ticker)`` level order) and
+        single-ticker output.  Drops rows with NaN OHLC.  R1A-T1: the
+        raw ``Close`` becomes ``RawClose``; when the ``Adj Close``
+        field is present the per-row ``Adj Close / Close`` ratio
+        scales OHLC and ``Close`` back to the historical
+        ``auto_adjust=True`` contract, and rows that cannot produce
+        both an adjusted Close and a finite positive RawClose are
+        dropped rather than stored with NULL.  An empty
         ticker that is in ``exclude_tickers`` is purged from the DB
         only after ``_confirm_delisted`` independently verifies the
         delisting (a rate-limit throttle must never wipe real history);
@@ -401,8 +412,13 @@ class IngestionEngine:
             # dropna on a MultiIndex DataFrame.
             try:
                 if df.columns.nlevels == 2:
-                    # Multi-ticker: columns are (ticker, field)
-                    ticker_df = df[t].copy()
+                    # Multi-ticker MultiIndex — historically
+                    # (ticker, field) via group_by='ticker', but current
+                    # yfinance may emit (field, ticker); support both.
+                    if t in set(df.columns.get_level_values(0)):
+                        ticker_df = df[t].copy()
+                    else:
+                        ticker_df = df.xs(t, axis=1, level=1).copy()
                 else:
                     # Single ticker: columns are flat
                     ticker_df = df.copy()
@@ -436,12 +452,61 @@ class IngestionEngine:
                     errors[t] = "Empty dataset"
                     continue
 
+                # R1A-T1: the downloaded ``Close`` is RAW (batch pulls
+                # run auto_adjust=False).  Derive the per-row
+                # adjustment ratio ``Adj Close / Close`` and scale OHLC
+                # so Close/Open/High/Low keep the existing adjusted
+                # (total-return) contract while ``RawClose`` carries
+                # the unadjusted close.  Rows lacking a finite positive
+                # raw close or a usable adjustment are dropped — never
+                # stored with a NULL RawClose.
+                raw_close = pd.to_numeric(ticker_df["Close"], errors="coerce")
+                if "Adj Close" in ticker_df.columns:
+                    adj_close = pd.to_numeric(
+                        ticker_df["Adj Close"], errors="coerce"
+                    )
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        ratio = adj_close / raw_close
+                    valid = (
+                        np.isfinite(raw_close) & (raw_close > 0)
+                        & np.isfinite(ratio) & (ratio > 0)
+                    )
+                else:
+                    # No Adj Close field in the frame (pre-adjusted or
+                    # foreign-sourced pull): implicit ratio of 1.
+                    adj_close = None
+                    ratio = pd.Series(1.0, index=ticker_df.index)
+                    valid = np.isfinite(raw_close) & (raw_close > 0)
+                ticker_df = ticker_df.loc[valid].copy()
+                if ticker_df.empty:
+                    logger.warning(
+                        "RUNTIME EVENT: Ticker '%s' produced no rows with a "
+                        "finite positive raw close and valid adjustment — "
+                        "skipped (nothing stored).",
+                        t,
+                    )
+                    failed.append(t)
+                    errors[t] = "No rows with valid RawClose/adjustment"
+                    continue
+                ratio = ratio.loc[ticker_df.index]
+                raw_close = raw_close.loc[ticker_df.index]
+                ticker_df[["Open", "High", "Low"]] = ticker_df[
+                    ["Open", "High", "Low"]
+                ].mul(ratio, axis=0)
+                ticker_df["Close"] = (
+                    adj_close.loc[ticker_df.index]
+                    if adj_close is not None
+                    else raw_close
+                )
+                ticker_df["RawClose"] = raw_close
+
                 ticker_df = ticker_df.reset_index()
                 ticker_df["Ticker"] = t
                 ticker_df["Date"] = pd.to_datetime(ticker_df["Date"]).dt.date
                 records.append(
                     ticker_df[
-                        ["Date", "Ticker", "Open", "High", "Low", "Close", "Volume"]
+                        ["Date", "Ticker", "Open", "High", "Low", "Close",
+                         "Volume", "RawClose"]
                     ]
                 )
                 succeeded.append(t)
