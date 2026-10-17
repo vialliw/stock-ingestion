@@ -2,7 +2,7 @@
 Last Updated: 2026-10-17
 Current Branch: main
 
-## R1A-T1 — RawClose (schema v9) — done by executor B
+## R1A-T1 — RawClose (schema v9) — done by executor B, APPROVED by challenger C
 
 Implementation commit c969a43; mechanical compatibility-test commit
 fe3921a after the Orchestrator-approved scope amendment. `daily_close` schema
@@ -15,6 +15,20 @@ Focused amended-scope tests: 1039 passed; full suite: 1925 passed; strict loop
 checker: exit 0 (17 files); `poll_tasks.py --verify R1A-T1`: ALL PASS. No
 deploy/restart/backfill performed — Orchestrator owns the post-B/C/D deployment
 gate.
+
+CHALLENGER-C review (HEAD 542b7b4): **APPROVED**. Independent probes
+(9 categories, all PASS): fresh+v8 migration idempotence/row-preservation;
+flat/(ticker,field)/(field,ticker) column layouts; adjustment arithmetic
+edge cases (zero/negative/NaN/inf Close and Adj Close, mixed-valid rows,
+dividend-only and split ratios); all 5 load pathways share the normalization
+choke point; upsert semantics backward-compatible; 8-col do_put validated;
+no downstream SELECT * breakage; do_get unchanged; 8 mutation-kills
+demonstrate test non-vacuity. Gates re-run: 18/18 focused, 1925/1925 full
+suite, loop checker strict clean (17 files), poll_tasks --verify ALL PASS.
+Non-blocking advisory N1: upsert_dataframe MERGE overwrites RawClose
+unconditionally (including NULL from legacy 7-col frames) — mitigated by
+do_put schema gate + ingestion choke point; COALESCE defense-in-depth is
+optional. Awaiting Critic-D independent verification.
 
 ## Incident management (2026-10-12)
 
