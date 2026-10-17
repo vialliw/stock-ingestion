@@ -4501,3 +4501,25 @@ Evidence map:
     "output": ""
   }
 ]
+
+[2026-10-17] [CHALLENGER-C] live-gate correction delta review (HEAD 6a26093): **APPROVED**.
+
+Independent real temporary-DuckDB probes, DuckDB/Python 1.5.5:
+- Ingestion `src/ingestion.py:464-484`: ^IRX-style zero raw close (Open=0, High=0.01, Low=-0.01, Close=0, Adj Close=0) normalizes with ratio masked to 1.0; RawClose=0 and adjusted OHLC equal raw values. WTI-style negative bar (Close=-37, Adj Close=-37) normalizes with ratio=1, RawClose=-37, all OHLC finite.
+- DB matched updates `src/db.py:458-463`: seeding CL=F with RawClose=999 then upserting normalized negative row leaves RawClose=-37; seeding ^IRX with 888 then upserting zero row leaves RawClose=0. NULL/NaN/+inf/-inf on matched updates all preserve target RawClose=181.
+- Prior mixed-frame durability (AC5) still holds: in one frame, omitted RawClose preserves target while explicit valid value updates another row.
+- Known health semantics: `check_daily_close_health` flags non-positive OHLC (as before) but does not inspect RawClose. `scripts/incident_watch.py:383-391` `_builtin_benign_integrity` suppresses exactly the known rows: CL=F 2020-04-20/21 and ^IRX 2020-03-18..30.
+- Type coercion: `isfinite` accepts DOUBLE/INTEGER/DECIMAL; malformed VARCHAR/bool RawClose fails loudly at DuckDB bind before any row is changed, preserving the invariant.
+
+Mutation/non-vacuity:
+- Checked out pre-fix b973b3c `src/db.py` and `src/ingestion.py`. AC6 `test_finite_nonpositive_raw_close_is_retained` failed because the ticker was dropped ("no rows with a finite positive raw close"), confirming the live-gate defect. Restored HEAD.
+
+Gates independently run:
+- AC6 exact command: 1 passed, 21 deselected.
+- Focused `tests/test_raw_close.py`: 22 passed, 14 warnings.
+- Full `pytest tests/ -q`: 1929 passed, 507 warnings in 210.44s.
+- Strict loop checker: clean, 17 files.
+- `poll_tasks.py --verify R1A-T1`: ALL PASS 11/11.
+- README.md/docs/README.md byte-identical (`fc /b` no differences).
+
+Scope audit `git diff --name-status 205dc9e..HEAD`: devin_blackboard/{EVENTS.log,STATE.md,TASKS.json}, docs/DATA_SERVICE_API.md, src/db.py, src/ingestion.py, tests/test_raw_close.py. All within R1A-T1 scope; implementation commit 6ec566f changes only docs/DATA_SERVICE_API.md, src/db.py, src/ingestion.py, tests/test_raw_close.py. No deployment performed.

@@ -4,6 +4,17 @@ Current Branch: main
 
 ## R1A-T1 — RawClose (schema v9) — finite-non-NULL correction completed by executor B
 
+CHALLENGER-C live-gate correction delta review (HEAD 6a26093): **APPROVED**.
+Independent real temp DuckDB probes confirmed ^IRX zero bars normalize with
+identity ratio, WTI negative bars normalize with finite ratio, DB matched
+updates replace targets with zero/negative RawClose, NULL/NaN/inf preserve
+target, prior mixed-frame durability still holds, and `incident_watch`
+`_builtin_benign_integrity` covers the known ^IRX and CL=F rows. AC6 fails
+against pre-fix b973b3c. AC4/AC5/AC6, 22 focused, 1929 full suite, strict
+loops, and docs parity all pass. Scope since 205dc9e is limited to
+blackboard/docs/src/db.py/src/ingestion.py/tests/test_raw_close.py. No
+deployment.
+
 Fix commit 6ec566f accepts all finite RawClose values. Ingestion retains zero
 (^IRX) and negative (WTI) bars, using ratio 1 for a finite zero raw/adjusted
 close where division is undefined; DB matched updates replace RawClose with
