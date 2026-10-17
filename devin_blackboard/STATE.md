@@ -4,6 +4,27 @@ Current Branch: main
 
 ## Incident management (2026-10-12)
 
+INC-T6 done 2026-10-17 (executor B): enforced (ticker, date) exclusion
+of vendor delisting-terminal placeholder bars. `IngestionConfig` gains
+`exclude_rows: List[dict]` — strict {ticker,date} shape, ticker
+upper+stripped, real-calendar YYYY-MM-DD (YAML date objects accepted),
+unknown keys/empty ticker/bad date/non-dict rejected, pairs deduped;
+`config.yaml` seeds QRVO+WBD 2026-10-05 with placeholder-bar comments.
+Filter `_apply_exclude_rows` runs at the ONE choke point in
+`_normalize_batch_df` (covers initial/daily/on_request + retry + split
+re-download) — vectorized `Ticker|YYYY-MM-DD` key match tolerant of
+Timestamp/str/date dtypes; drops log a RUNTIME EVENT with count.
+`db.delete_daily_rows(pairs)` = write-locked parameterized row-IN
+DELETE returning count (empty -> 0). New do_action `delete_daily_rows`
+validates {"rows":[{ticker,date}]} shape -> {"status","deleted",
+"requested"}; malformed -> FlightServerError, DB failure -> FAILED JSON
+(dml_admin style). do_put legacy path also applies exclude_rows (same
+enforcement as exclude_tickers there — no client-write resurrection).
+Tests +46 in tests/test_exclude_rows.py -> 1902/1902 suite,
+check_loops --strict clean (17 files), --verify INC-T6 exit 0 (prose
+AC). OPS FOLLOW-UP still pending (orchestrator): action-call to delete
+the 2 stored rows, weekly_refresh, suppressions update.
+
 INC-T5 done 2026-10-17 (executor B): `scripts/incident_watch.py` —
 acknowledged_delisted tickers are now excluded from the AGGREGATE
 SEV2 thresholds, not just per-ticker suppression. Gaps:

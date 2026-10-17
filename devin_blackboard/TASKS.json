@@ -4239,7 +4239,7 @@
     "title": "Enforce exclusion of delisting-artifact rows: ingestion exclude_rows filter + delete_daily_rows Flight action",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [],
     "input_files": [
       "/src/config.py",

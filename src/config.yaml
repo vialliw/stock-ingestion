@@ -1240,6 +1240,20 @@ ingestion:
   - TWO
   - WBD
   - WBS
+  # Vendor "delisting-terminal placeholder" bars — rows the loader drops
+  # before upsert (enforced, not advisory; INC-T6). Entries: {ticker,
+  # date: "YYYY-MM-DD"}.
+  #   QRVO 2026-10-05: flat 114.169998 / Vol=0 placeholder — NOT served
+  #     upstream anymore (last real bar 2026-10-02), kept here as a
+  #     guard in case the vendor re-serves it.
+  #   WBD  2026-10-05: Open=0 / Vol=40 placeholder — still served
+  #     upstream, so deleting the stored row alone is not durable; the
+  #     filter must catch it on every load path.
+  exclude_rows:
+  - ticker: QRVO
+    date: "2026-10-05"
+  - ticker: WBD
+    date: "2026-10-05"
   daily_lookback_days: 4
   initial_load_years: 10
 server:

@@ -467,6 +467,40 @@ class DatabaseManager:
         )
         return count
 
+    def delete_daily_rows(self, pairs: List[Tuple[str, str]]) -> int:
+        """Delete specific ``(Ticker, Date)`` rows from ``daily_close``.
+
+        INC-T6: targeted eviction of vendor artifact bars (e.g.
+        delisting-terminal placeholder rows) — finer-grained than
+        ``purge_ticker``/``purge_tickers``.  Write-locked, parameterized
+        row-value ``IN`` delete; returns the number of rows deleted.
+        An empty ``pairs`` list is a no-op returning 0.
+        """
+        if not pairs:
+            return 0
+        placeholders = ", ".join("(?, CAST(? AS DATE))" for _ in pairs)
+        params: List[str] = []
+        # justified: bound-parameter flattening must interleave ticker,
+        # date in the exact order of the SQL placeholders — no
+        # SQL/vectorized equivalent for building a param list, and the
+        # list is tiny (an ops tool deleting a handful of rows).
+        for ticker, row_date in pairs:
+            params.extend([str(ticker), str(row_date)])
+        with self._write_lock:
+            result = self.conn.execute(
+                "DELETE FROM daily_close "
+                f"WHERE (Ticker, Date) IN ({placeholders})",
+                params,
+            )
+            count = result.fetchone()[0] if result else 0
+        logger.warning(
+            "RUNTIME EVENT: Deleted %s daily_close row(s) for "
+            "(ticker, date) pairs %s.",
+            count,
+            list(pairs),
+        )
+        return count
+
     # ------------------------------------------------------------------
     # Split tracking
     # ------------------------------------------------------------------

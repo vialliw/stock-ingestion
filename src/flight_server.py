@@ -7,8 +7,8 @@ validated before reaching DuckDB) and a ``do_action`` endpoint routing
 the administrative actions
 (initial_load, daily_load, on_request_load, metadata_load,
 weekly_refresh, fear_greed_refresh, signal_pipeline, signal_analysis,
-dml_admin, daily_report, health_check, data_health, get_run_history,
-sync_to_r2).  ``do_put`` accepts either the legacy ``daily_close``
+dml_admin, delete_daily_rows, daily_report, health_check, data_health,
+get_run_history, sync_to_r2).  ``do_put`` accepts either the legacy ``daily_close``
 upsert or a JSON command descriptor for allowlisted-namespace writes
 (F26-T1).
 
@@ -765,6 +765,76 @@ class MarketDataFlightServer(flight.FlightServerBase):
                 result = {"status": "FAILED", "error": str(e)}
             return _ActionResult(json.dumps(result).encode("utf-8"))
 
+        elif action_type == "delete_daily_rows":
+            # INC-T6: targeted eviction of vendor artifact rows (e.g.
+            # delisting-terminal placeholder bars) from daily_close.
+            # Payload: {"rows": [{"ticker": "QRVO",
+            #                     "date": "2026-10-05"}, ...]}.
+            if not isinstance(payload, dict):
+                raise flight.FlightServerError(
+                    f"delete_daily_rows payload must be a JSON object, "
+                    f"got {type(payload).__name__}"
+                )
+            rows = payload.get("rows")
+            if not isinstance(rows, list) or not rows:
+                raise flight.FlightServerError(
+                    "delete_daily_rows payload requires a non-empty "
+                    "'rows' list of {ticker, date} objects"
+                )
+            pairs = []
+            for i, entry in enumerate(rows):
+                # justified: per-entry payload validation must raise on
+                # the first malformed element with its index — cannot
+                # be vectorized.
+                if not isinstance(entry, dict):
+                    raise flight.FlightServerError(
+                        f"rows[{i}] must be an object with 'ticker' "
+                        f"and 'date', got {type(entry).__name__}"
+                    )
+                ticker = entry.get("ticker")
+                if not isinstance(ticker, str) or not ticker.strip():
+                    raise flight.FlightServerError(
+                        f"rows[{i}].ticker must be a non-empty string, "
+                        f"got {ticker!r}"
+                    )
+                row_date = entry.get("date")
+                if not isinstance(row_date, str) or not re.fullmatch(
+                    r"\d{4}-\d{2}-\d{2}", row_date.strip()
+                ):
+                    raise flight.FlightServerError(
+                        f"rows[{i}].date must be a YYYY-MM-DD string, "
+                        f"got {row_date!r}"
+                    )
+                try:
+                    datetime.strptime(row_date.strip(), "%Y-%m-%d")
+                except ValueError:
+                    raise flight.FlightServerError(
+                        f"rows[{i}].date is not a real calendar date, "
+                        f"got {row_date!r}"
+                    )
+                pairs.append((ticker.strip().upper(), row_date.strip()))
+            try:
+                deleted = self.db.delete_daily_rows(pairs)
+            except Exception as e:
+                # Mirrors dml_admin — a DB failure surfaces as
+                # status=FAILED in the JSON body, not a transport error.
+                logger.error("delete_daily_rows failed: %s", e)
+                result = {
+                    "status": "FAILED",
+                    "error": str(e),
+                    "requested": len(pairs),
+                }
+                return _ActionResult(json.dumps(result).encode("utf-8"))
+            return _ActionResult(
+                json.dumps(
+                    {
+                        "status": "SUCCESS",
+                        "deleted": deleted,
+                        "requested": len(pairs),
+                    }
+                ).encode("utf-8")
+            )
+
         elif action_type == "daily_report":
             start_time = datetime.now()
             target_date = payload.get("date")
@@ -929,6 +999,34 @@ class MarketDataFlightServer(flight.FlightServerBase):
                     exclude_tickers,
                 )
                 df = df.loc[~mask].copy()
+
+        # INC-T6: the same enforced (ticker, date) exclusions apply to
+        # the client write path — a do_put into daily_close must not
+        # resurrect a filtered vendor artifact row.
+        exclude_rows = getattr(ingestion_cfg, "exclude_rows", None)
+        if isinstance(exclude_rows, (list, tuple)) and exclude_rows:
+            keys = {
+                f"{str(e.get('ticker', '')).strip().upper()}|"
+                f"{str(e.get('date', '')).strip()}"
+                for e in exclude_rows
+                if isinstance(e, dict)
+            }
+            if keys and not df.empty:
+                date_str = pd.to_datetime(df["Date"]).dt.strftime("%Y-%m-%d")
+                row_keys = (
+                    df["Ticker"].astype(str).str.strip().str.upper()
+                    + "|" + date_str
+                )
+                mask = row_keys.isin(keys)
+                excluded_count = int(mask.sum())
+                if excluded_count:
+                    logger.warning(
+                        "RUNTIME EVENT: do_put filtered %s row(s) "
+                        "matching exclude_rows pairs %s",
+                        excluded_count,
+                        sorted(set(row_keys[mask])),
+                    )
+                    df = df.loc[~mask].copy()
 
         rows_upserted = self.db.upsert_dataframe(df)
         logger.info("do_put upserted %s rows into daily_close", rows_upserted)

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Literal, Optional
 
 import yaml
@@ -31,15 +31,18 @@ class DatabaseConfig(BaseModel):
 
 
 class IngestionConfig(BaseModel):
-    """Ticker universe, blacklist and daily-load lookback window.
+    """Ticker universe, blacklist, row exclusions and load windows.
 
-    Both lists are automatically uppercased, stripped of surrounding
-    whitespace, and deduplicated (preserving first-seen order) via the
-    ``normalize_tickers`` field validator.
+    ``tickers``/``exclude_tickers`` are automatically uppercased,
+    stripped of surrounding whitespace, and deduplicated (preserving
+    first-seen order) via the ``normalize_tickers`` field validator.
+    ``exclude_rows`` is the enforced per-(ticker, date) kill-list of
+    vendor artifact bars, validated by ``validate_exclude_rows``.
     """
 
     tickers: List[str] = Field(default_factory=list)
     exclude_tickers: List[str] = Field(default_factory=list)
+    exclude_rows: List[dict] = Field(default_factory=list)
     daily_lookback_days: int = Field(default=4, ge=1)
     initial_load_years: int = Field(default=6, ge=1)
 
@@ -87,6 +90,84 @@ class IngestionConfig(BaseModel):
             if upper and upper not in seen:
                 seen.add(upper)
                 result.append(upper)
+        return result
+
+    @field_validator("exclude_rows", mode="before")
+    @classmethod
+    def validate_exclude_rows(cls, v) -> List[dict]:
+        """Per-(ticker, date) row exclusions — enforced, not advisory.
+
+        Each entry is a ``{"ticker": ..., "date": ...}`` mapping naming
+        one vendor artifact bar (e.g. a delisting-terminal placeholder
+        still served upstream) that the loader must drop before upsert.
+        ``None`` (YAML ``null``) -> ``[]``.  ``ticker`` is normalized
+        like ``tickers`` (strip + uppercase, non-empty).  ``date`` must
+        be a real calendar date in strict ``YYYY-MM-DD`` form — a
+        YAML-parsed ``datetime.date``/``datetime`` is accepted and
+        normalized to ISO form.  Unknown keys are rejected so a typo
+        cannot silently no-op the exclusion.  Entries are deduplicated
+        on the normalized (ticker, date) pair, preserving first-seen
+        order.
+        """
+        if v is None:
+            return []
+        if not isinstance(v, (list, tuple)):
+            raise ValueError(
+                f"exclude_rows must be a list, got {type(v).__name__}"
+            )
+        seen: set = set()
+        result: List[dict] = []
+        # justified: per-entry shape/type validation cannot be
+        # vectorized — we must raise ValueError on the first malformed
+        # entry with its index in the message.
+        for i, entry in enumerate(v):
+            if not isinstance(entry, dict):
+                raise ValueError(
+                    f"exclude_rows[{i}] must be a mapping "
+                    f"{{ticker, date}}, got "
+                    f"{type(entry).__name__} {entry!r}"
+                )
+            unknown = set(entry) - {"ticker", "date"}
+            if unknown:
+                raise ValueError(
+                    f"exclude_rows[{i}] has unknown keys "
+                    f"{sorted(unknown)}; only 'ticker' and 'date' "
+                    f"are allowed"
+                )
+            ticker = entry.get("ticker")
+            if not isinstance(ticker, str) or not ticker.strip():
+                raise ValueError(
+                    f"exclude_rows[{i}].ticker must be a non-empty "
+                    f"string, got {ticker!r}"
+                )
+            d = entry.get("date")
+            if isinstance(d, datetime):
+                d = d.date().isoformat()
+            elif isinstance(d, date):
+                d = d.isoformat()
+            elif isinstance(d, str):
+                d = d.strip()
+            else:
+                raise ValueError(
+                    f"exclude_rows[{i}].date must be a YYYY-MM-DD "
+                    f"string, got {type(d).__name__} {d!r}"
+                )
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
+                raise ValueError(
+                    f"exclude_rows[{i}].date must be in YYYY-MM-DD "
+                    f"format, got {d!r}"
+                )
+            try:
+                datetime.strptime(d, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError(
+                    f"exclude_rows[{i}].date is not a real calendar "
+                    f"date, got {d!r}"
+                )
+            pair = (ticker.strip().upper(), d)
+            if pair not in seen:
+                seen.add(pair)
+                result.append({"ticker": pair[0], "date": pair[1]})
         return result
 
 

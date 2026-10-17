@@ -463,8 +463,50 @@ class IngestionEngine:
                         )
 
         if records:
-            return pd.concat(records, ignore_index=True), succeeded, failed, errors
+            out = pd.concat(records, ignore_index=True)
+            return self._apply_exclude_rows(out), succeeded, failed, errors
         return pd.DataFrame(), succeeded, failed, errors
+
+    def _apply_exclude_rows(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Drop normalized rows matching ``ingestion.exclude_rows``.
+
+        INC-T6 enforcement: vendor artifact bars (delisting-terminal
+        placeholders) must never reach ``daily_close``.  Applied here —
+        the single choke point every download path (initial / daily /
+        on_request, retry, and split re-download) flows through before
+        ``upsert_dataframe``.  The ``Date`` column may hold
+        ``datetime.date`` objects or strings depending on the stage, so
+        both sides are normalized to ``YYYY-MM-DD`` for the (Ticker,
+        Date) match.  Logs a RUNTIME EVENT with the dropped count when
+        >0 and returns the filtered frame.
+        """
+        ingestion_cfg = getattr(self.cfg, "ingestion", None)
+        pairs = getattr(ingestion_cfg, "exclude_rows", None)
+        if not isinstance(pairs, (list, tuple)) or not pairs or df.empty:
+            return df
+        keys = {
+            f"{str(e.get('ticker', '')).strip().upper()}|"
+            f"{str(e.get('date', '')).strip()}"
+            for e in pairs
+            if isinstance(e, dict)
+        }
+        if not keys:
+            return df
+        date_str = pd.to_datetime(df["Date"]).dt.strftime("%Y-%m-%d")
+        row_keys = (
+            df["Ticker"].astype(str).str.strip().str.upper() + "|" + date_str
+        )
+        mask = row_keys.isin(keys)
+        dropped = int(mask.sum())
+        if not dropped:
+            return df
+        logger.warning(
+            "RUNTIME EVENT: exclude_rows dropped %d row(s) matching "
+            "configured (ticker, date) exclusions: %s",
+            dropped,
+            sorted(set(row_keys[mask])),
+        )
+        return df.loc[~mask].reset_index(drop=True)
 
     # ------------------------------------------------------------------
     # Second-pass retry for transient empty-dataset failures
