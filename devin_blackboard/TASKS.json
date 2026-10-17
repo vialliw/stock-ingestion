@@ -4376,5 +4376,77 @@
         "text": "Deployment gate owned by Orchestrator after B/C/D code approval: restart FlightServer, run one 2010-to-present repair backfill for configured tickers through the service, verify zero NULL/non-finite RawClose rows from 2010 onward (finite zero/negative market values are valid), and spot-check sampled values against a fresh yfinance auto_adjust=False pull within floating-point rounding."
       }
     ]
+  },
+  {
+    "id": "HRAW-T1",
+    "title": "Add RawClose health reporting and incident-watch classification",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "assigned_to": "B",
+    "depends_on": [],
+    "input_files": [
+      "/src/db.py",
+      "/scripts/incident_watch.py",
+      "/tests/test_health_check.py",
+      "/tests/test_incident_watch.py",
+      "/docs/DATA_SERVICE_API.md",
+      "/docs/INCIDENT_WATCH.md",
+      "/docs/incident_management_requirements.md",
+      "/docs/enhancements/20261017-flight_server_enhancement_request.md"
+    ],
+    "output_files": [
+      "/src/db.py",
+      "/scripts/incident_watch.py",
+      "/tests/test_health_check.py",
+      "/tests/test_incident_watch.py",
+      "/docs/DATA_SERVICE_API.md",
+      "/docs/INCIDENT_WATCH.md",
+      "/docs/incident_management_requirements.md"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "HRAW-AC1",
+        "check": "health and watcher focused tests",
+        "command": "python -m pytest tests/test_health_check.py tests/test_incident_watch.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "HRAW-AC2",
+        "check": "full suite green",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "HRAW-AC3",
+        "check": "strict loop checker",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "HRAW-AC4",
+        "check": "incident watcher self-test",
+        "command": "python scripts/incident_watch.py --self-test",
+        "expected_exit": 0
+      },
+      {
+        "text": "check_daily_close_health adds a checks.raw_close section computed in SQL with total row count, invalid row count, affected ticker count, reason counts, and bounded per-ticker aggregates containing ticker, missing/invalid count, first_date, and last_date. Invalid means RawClose is NULL/non-finite, or RawClose is nonzero and Close/RawClose is non-finite or non-positive. Finite zero and negative RawClose observations are valid; zero RawClose has an undefined factor and is not itself an error. RawClose findings contribute to WARN without changing existing health fields or do_get contracts."
+      },
+      {
+        "text": "Health output is bounded but count-faithful: totals include all rows/tickers even when per_ticker is truncated; malformed/older schemas fail report-only as CHECK_FAILED rather than crashing a load. Tests use real temporary DuckDB and cover clean values, NULL, NaN/infinity, invalid factor sign, zero/negative valid values, max_items truncation, and existing-health regression."
+      },
+      {
+        "text": "incident_watch classifies one RawClose finding per affected ticker aggregate, never one folder per row. Recent last_date in the health window is SEV2 with targeted reload guidance; historical is SEV3; acknowledged_delisted tickers are SEV4 suppressed because Yahoo-unavailable history cannot be repaired. Any invalid_count not attributable to the bounded per_ticker list yields a conservative count-level incident. Malformed raw_close payloads/counts produce anomaly findings without crashing."
+      },
+      {
+        "text": "Incident identity/dedup/escalation/auto-resolve work for RawClose findings, suppressed_detail exposes suppressed raw_close count, and prior evidence scanning recognizes RawClose tickers. Tests prove recent/historical/acknowledged/truncated/malformed cases, no per-row incident explosion, and mutation-meaningful behavior."
+      },
+      {
+        "text": "DATA_SERVICE_API.md, INCIDENT_WATCH.md, and incident_management_requirements.md document the RawClose health JSON shape, valid zero/negative semantics, severities, suppression/remediation, and the known 6,507-row WBD/QRVO/LESL historical limitation. README twins remain byte-identical."
+      },
+      {
+        "text": "Deployment gate: restart Flight Server, call real data_health, verify raw_close counts match direct Flight SQL; run incident_watch and verify known acknowledged delisted RawClose history is suppressed while any unsuppressed affected ticker creates one bounded incident, with no false incident for finite zero/negative values."
+      }
+    ]
   }
 ]

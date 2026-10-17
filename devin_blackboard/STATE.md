@@ -2,6 +2,17 @@
 Last Updated: 2026-10-17 (delta re-review)
 Current Branch: main
 
+## HRAW-T1 — RawClose health + incident watch — registered
+
+Plan approved 2026-10-17. Add a bounded, count-faithful SQL `raw_close`
+section to `data_health`; classify one incident per affected ticker (recent
+SEV2, historical SEV3, acknowledged-delisted SEV4 suppressed); preserve valid
+finite zero/negative observations; surface unattributed truncated counts
+conservatively; document the JSON/severity/remediation contract. Sequential
+Executor B -> Challenger C -> Critic D -> live deploy -> independent
+ChatGPT-style external review. Known live baseline: 6,507 NULLs across WBD,
+QRVO and LESL; no false positive for the eight valid non-positive values.
+
 ## R1A-T1 — RawClose (schema v9) — code PASS; deployment gate partial
 
 Orchestrator deployment 2026-10-17: restarted `Flight Server`, confirmed
