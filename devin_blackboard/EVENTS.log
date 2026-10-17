@@ -4576,3 +4576,4 @@ verify zero `NULL/non-positive RawClose` rows, contradicting the newly approved
 finite-non-NULL requirement and legitimate ^IRX/WTI values. Orchestrator must
 amend this to zero NULL/non-finite (with the agreed legacy-history handling)
 before any deployment gate. No deployment/backfill performed or approved.
+[2026-10-17T16:53:49.934284+00:00] [EXECUTOR] claimed R1A-T1
