@@ -4284,5 +4284,66 @@
       "/tests/test_weekly_orphans.py"
     ],
     "acceptance_criteria": "CONTEXT: rebuild_weekly_close (db.py ~707) and rebuild_weekly_indicators (~760) are upsert-only (INSERT ON CONFLICT / INSERT OR REPLACE). Deleting daily_close rows never removes their weekly rollup rows — verified live: daily QRVO/WBD 2026-10-05 rows deleted via delete_daily_rows, but the phantom weekly_close row (QRVO, 2026-10-09, flat 114.169998 Vol=0) and the WBD Open=0 weekly bar survived a weekly_refresh. FIX: after the existing upsert in each rebuild method, remove orphans: weekly_close — DELETE rows whose (Date,Ticker) no longer exists in the daily aggregation (week key = date_trunc('week', Date)::DATE + 4); weekly_indicators — DELETE rows whose (Date,Ticker) is absent from weekly_close. Keep it inside the existing _write_lock scope, pure SQL, no loops. Return contract (rows-written counts) unchanged. TESTS: tests/test_weekly_orphans.py — real tmp_path DatabaseManager: seed daily rows for 2 weeks, rebuild, delete ALL daily rows of one week for a ticker, rebuild again, assert that ticker's weekly row is gone AND weekly_indicators row gone, other week intact; assert idempotent rebuild (counts stable). GATES: python -m pytest tests/ -q exit 0; python scripts/check_loops.py --src-dir src --strict exit 0; python scripts/poll_tasks.py --verify INC-T7 ALL PASS."
+  },
+  {
+    "id": "R1A-T1",
+    "title": "Request 1 Option A: add raw_close to daily_close and populate it on every price load",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "assigned_to": "B",
+    "depends_on": [],
+    "input_files": [
+      "/docs/enhancements/20261017-flight_server_enhancement_request.md",
+      "/src/db.py",
+      "/src/ingestion.py",
+      "/src/flight_server.py",
+      "/tests/test_db.py",
+      "/tests/test_ingestion.py",
+      "/tests/test_do_put.py",
+      "/docs/DATA_SERVICE_API.md"
+    ],
+    "output_files": [
+      "/src/db.py",
+      "/src/ingestion.py",
+      "/src/flight_server.py",
+      "/tests/test_raw_close.py",
+      "/docs/DATA_SERVICE_API.md"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "R1A-AC1",
+        "check": "raw-close focused tests",
+        "command": "python -m pytest tests/test_raw_close.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "R1A-AC2",
+        "check": "full suite green",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "R1A-AC3",
+        "check": "loop checker strict",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "text": "Database schema migration advances schema_version from v8 to v9, adds nullable-on-migration RawClose DOUBLE to existing daily_close without losing rows, and all new ingestion upserts write RawClose; migration is idempotent."
+      },
+      {
+        "text": "Use one yfinance auto_adjust=False download per batch. Normalize raw Close into RawClose while preserving the existing adjusted OHLC/Close contract by using Adj Close and the per-row adjustment ratio; reject/drop rows that cannot produce both adjusted Close and finite positive RawClose rather than silently storing NULL."
+      },
+      {
+        "text": "Initial, daily, on-request, retry, and split-redownload paths all flow through the RawClose-producing normalization. Tests cover single- and multi-ticker yfinance column layouts and adjustment-ratio arithmetic around a synthetic corporate action."
+      },
+      {
+        "text": "Legacy daily_close do_put wire schema is intentionally changed from 7 to 8 columns by adding RawClose FLOAT64, validation rejects the old 7-column payload, and DATA_SERVICE_API.md documents the new schema and migration/backfill requirement. do_get single-SELECT behavior is unchanged."
+      },
+      {
+        "text": "Deployment gate owned by Orchestrator after B/C/D code approval: restart FlightServer, run one 2010-to-present repair backfill for configured tickers through the service, verify zero NULL/non-positive RawClose rows from 2010 onward, and spot-check sampled values against a fresh yfinance auto_adjust=False pull within floating-point rounding."
+      }
+    ]
   }
 ]

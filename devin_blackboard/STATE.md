@@ -194,6 +194,17 @@ Canonical workflow doc remains `docs/MULTI_AGENT_WORKFLOW_PLAYBOOK.md`.
 
 None.
 
+## Active work — Request 1 Option A raw close (2026-10-17)
+
+R1A-T1 registered and ready for Executor B. Plan: schema v9 adds
+`RawClose DOUBLE` to `daily_close`; ingestion switches each batch to one
+`auto_adjust=False` yfinance pull and derives the existing adjusted OHLC
+contract from `Adj Close / Close` while retaining raw `Close` as `RawClose`;
+upsert and legacy do_put move to eight columns; focused tests and
+DATA_SERVICE_API documentation are required. After B -> C -> D approval,
+the Orchestrator will restart FlightServer, repair-backfill 2010-present,
+verify zero missing/non-positive RawClose values, and spot-check yfinance.
+
 Resolved: **D-F26-1** (CRITIC-D composite gate 2026-09-23, HEAD eadcdb7) — `scripts/dml_client.py` `DmlClient.put_frame` swallowed server-side write errors: its `finally` wrapped `writer.close()` in `except Exception: pass`, and on pyarrow 21.0.0 the server's `FlightServerError` is delivered at `close()`. Verified live pre-fix: dup-PK / schema-mismatch / bad-namespace `put_frame` calls returned with NO error while the server audited `do_put:append FAILED`/`REJECTED`. **FIXED by executor B in F26-T6** (commit 592a5ff): `put_frame` now calls `writer.close()` on the success path so its errors propagate; on a write-phase failure a best-effort close runs inside `except` WITHOUT masking the primary exception — the docstring contract ("Raises flight.FlightError on REJECTED/FAILED writes") is now true. Full-method audit: `admin()` + the 10 op wrappers carry no try/except (propagate); `main()`'s top-level handler prints to stderr + exit 1 (surfacing, not swallowing) — no other terminal-op swallow found. Tests +7 in tests/test_client_dml.py: `TestPutFrameOverWire` (real `MarketDataFlightServer` on ephemeral port + real temp `DatabaseManager` + real `DmlClient`) — valid put lands rows + SUCCESS audit; dup-PK append raises `flight.FlightError` with FAILED audit + no dup rows; schema-mismatch put raises with REJECTED audit; `main.*` put raises with REJECTED audit — plus `TestPutFrameErrorPropagation` (stubbed-writer pins: close() error propagates; done_writing error propagates with close still running; primary write error not masked by secondary close error). Gates: pytest 1769/1769 (1762+7), check_loops exit 0 (17 files), git status clean. Deployment reminder stands: restart StockIngestion-FlightServer for F26-T4/T5/T6 fixes. CRITIC-D RE-GATE 2026-09-23 (HEAD a625c02): **F26-T6 PASS -> COMPOSITE F26 VERDICT: PASS.** All 4 F26-T6 ACs independently verified with own probes (real gRPC server + real temp DatabaseManager + real DmlClient, 14/14): dup-PK append raises FlightServerError + FAILED audit + no dup rows; schema-mismatch + main.* puts raise + REJECTED audit; valid put lands rows + SUCCESS audit; verbatim PRE-FIX replica returned SILENTLY on dup-PK while server audited FAILED (defect confirmed real, delivered at close()). Mutation check: 4 propagation tests fail on pre-fix file (non-vacuous). Own gates: pytest 1769/1769 (178s), check_loops exit 0 (17 files), README twins byte-identical (89842 B), git clean; T6 commits touched zero src/ files (client-side only) so the verified server-side boundary stack stands.
 
 Prior blocker text (preserved): `put_frame` `except Exception: pass` falsified fail-loudly semantics; F26-T1 AC6 had failed on this single defect; all other F26-T1..T5 ACs were independently verified PASS (see EVENTS.log).
