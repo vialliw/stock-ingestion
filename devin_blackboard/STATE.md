@@ -4,6 +4,21 @@ Current Branch: main
 
 ## Incident management (2026-10-12)
 
+INC-T7 done 2026-10-17 (executor B, commit f4bac93): weekly rollup
+rebuilds now delete orphan weeks. `rebuild_weekly_close` (db.py) —
+after the existing INSERT ... ON CONFLICT, inside the same
+_write_lock — anti-join DELETEs weekly_close rows whose (Date,Ticker)
+week key (`date_trunc('week',Date)::DATE+4`) is absent from the daily
+aggregation; `rebuild_weekly_indicators` DELETEs rows whose
+(Date,Ticker) is absent from weekly_close. Pure SQL, no loops; return
+contracts (total counts) unchanged. Fixes the live phantom QRVO
+2026-10-09 weekly bar + matching weekly_indicators row that survived
+delete_daily_rows + weekly_refresh. tests/test_weekly_orphans.py +5
+-> 1907/1907 suite, check_loops --strict exit 0 (17 files), --verify
+INC-T7 exit 0 (prose AC). OPS FOLLOW-UP (orchestrator): restart
+StockIngestion-FlightServer + rerun weekly_refresh to purge the live
+phantom rows.
+
 INC-T6 done 2026-10-17 (executor B): enforced (ticker, date) exclusion
 of vendor delisting-terminal placeholder bars. `IngestionConfig` gains
 `exclude_rows: List[dict]` — strict {ticker,date} shape, ticker
@@ -156,7 +171,7 @@ user/Interactive 23:30 local (18:30 ET). Ops guide: docs/INCIDENT_WATCH.md.
 
 INC-T6 registered 2026-10-17 (ready): external review found vendor 'delisting-terminal placeholder' bars (QRVO 2026-10-05 flat/Vol=0 — not served upstream; WBD 2026-10-05 Open=0/Vol=40 — still served upstream) persisted in daily_close and PROPAGATED to analytical inputs (weekly_close phantom QRVO 2026-10-09 bar; WBD weekly Open=0). Task: ingestion `exclude_rows` (ticker,date) filter + `delete_daily_rows` Flight action + tests. Ops follow-up after deploy: delete the 2 rows, weekly_refresh, update suppressions.
 
-INC-T7 registered 2026-10-17 (todo): weekly rollup rebuilds are upsert-only — deleting daily rows leaves orphan weekly_close/weekly_indicators rows (verified live: phantom QRVO 2026-10-09 weekly bar survived weekly_refresh after the daily row was deleted). Fix: anti-join cleanup inside the existing rebuild write-lock.
+INC-T7 registered 2026-10-17 (done 2026-10-17, commit f4bac93): weekly rollup rebuilds are upsert-only — deleting daily rows leaves orphan weekly_close/weekly_indicators rows (verified live: phantom QRVO 2026-10-09 weekly bar survived weekly_refresh after the daily row was deleted). Fix: anti-join cleanup inside the existing rebuild write-lock.
 
 ## Reusable assets extracted (2026-10-06)
 
