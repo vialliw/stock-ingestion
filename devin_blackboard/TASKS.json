@@ -4290,7 +4290,7 @@
     "title": "Request 1 Option A: add raw_close to daily_close and populate it on every price load",
     "role": "executor",
     "model": "swe",
-    "status": "done",
+    "status": "todo",
     "assigned_to": "B",
     "depends_on": [],
     "input_files": [
@@ -4349,10 +4349,16 @@
         "expected_exit": 0
       },
       {
+        "id": "R1A-AC6",
+        "check": "finite zero and negative raw market values are retained",
+        "command": "python -m pytest tests/test_raw_close.py -q -k finite_nonpositive_raw_close_is_retained",
+        "expected_exit": 0
+      },
+      {
         "text": "Database schema migration advances schema_version from v8 to v9, adds nullable-on-migration RawClose DOUBLE to existing daily_close without losing rows, and all new ingestion upserts write RawClose; migration is idempotent."
       },
       {
-        "text": "Use one yfinance auto_adjust=False download per batch. Normalize raw Close into RawClose while preserving the existing adjusted OHLC/Close contract by using Adj Close and the per-row adjustment ratio; reject/drop rows that cannot produce both adjusted Close and finite positive RawClose rather than silently storing NULL."
+        "text": "Use one yfinance auto_adjust=False download per batch. Normalize raw Close into RawClose while preserving the existing adjusted OHLC/Close contract by using Adj Close and the per-row adjustment ratio; reject/drop rows that cannot produce finite non-NULL RawClose and an adjustment ratio rather than silently storing NULL. Retain legitimate zero/negative finite market values (for example ^IRX zero and negative WTI)."
       },
       {
         "text": "Initial, daily, on-request, retry, and split-redownload paths all flow through the RawClose-producing normalization. Tests cover single- and multi-ticker yfinance column layouts and adjustment-ratio arithmetic around a synthetic corporate action."

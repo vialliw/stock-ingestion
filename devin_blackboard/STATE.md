@@ -2,7 +2,18 @@
 Last Updated: 2026-10-17 (delta re-review)
 Current Branch: main
 
-## R1A-T1 — RawClose (schema v9) — CRITIC-D composite re-gate PASS
+## R1A-T1 — RawClose (schema v9) — reopened after live deployment probe
+
+Live repair backfill completed for 1,222 configured tickers (4,319,073 rows,
+SUCCESS), but verification found 6,515 invalid/missing RawClose values. Eight
+are legitimate finite non-positive market values (^IRX zero, negative WTI,
+plus current USAC/DDS values) incorrectly rejected by the implementation;
+the project health contract already recognizes those values as valid. The
+Orchestrator corrected the over-strict positive-only interpretation to finite
+non-NULL, added R1A-AC6, reset the task to `todo`, and requires another B-C-D
+cycle. The remaining 6,507 NULLs belong to delisted WBD/QRVO/LESL history no
+longer served by Yahoo and require the user-disclosed interim raw-close store
+for completion after code approval.
 
 CRITIC-D final independent composite re-gate (2026-10-17, HEAD 205dc9e):
 **PASS**. Commit b973b3c removes the frame-level `_has_raw_close` marker and
