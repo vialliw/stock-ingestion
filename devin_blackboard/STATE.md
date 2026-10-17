@@ -4,6 +4,16 @@ Current Branch: main
 
 ## R1A-T1 — RawClose (schema v9) — mixed-frame D-R1A-2 remediated by executor B
 
+CHALLENGER-C D-R1A-2 delta review (HEAD fb31b0b): **APPROVED**. Independent
+real temp DuckDB mixed-frame probes proved omitted/NULL/NaN/+inf/-inf/zero/
+negative matched values preserve each row's target, finite positive values
+update only their own rows, other fields update, and unmatched legacy inserts
+remain NULL. DuckDB 1.5.5 `isfinite` supports DOUBLE/INTEGER/DECIMAL and rejects
+malformed VARCHAR loudly and atomically; pandas nullable Float64 stages safely.
+Both new regressions fail against pre-fix 796f41e. AC4/AC5, 21 focused, 1928
+full, and strict loop gates pass. Scope since 289ca99 is limited to blackboard,
+src/db.py, and tests/test_raw_close.py. No deployment.
+
 Fix commit b973b3c removes the frame-level `_has_raw_close` marker and makes
 MERGE row-sensitive: `RawClose` is updated only when the source value is
 finite and positive; missing/NULL/NaN/non-positive values preserve the stored

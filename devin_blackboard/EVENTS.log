@@ -4315,3 +4315,23 @@ Evidence map:
     "output": ""
   }
 ]
+
+[2026-10-17] [CHALLENGER-C] D-R1A-2 remediation delta review (HEAD fb31b0b): **APPROVED**.
+
+Independent real temporary-DuckDB probe, DuckDB/Python 1.5.5:
+- Seeded eight matched rows with distinct populated RawClose values, then sent one mixed nine-row DataFrame containing row-level omitted, explicit NULL, NaN, +inf, -inf, zero, negative, finite-positive, and an unmatched legacy row. Omitted/NULL/NaN/nonfinite/nonpositive matched values preserved each distinct target while Close updated; finite positive 777.25 updated only its row; unmatched legacy row inserted with NULL.
+- A second alternating valid/invalid four-row matched frame proved no cross-row attribution: valid rows became 501/503 while invalid rows retained 1001/1003.
+- `isfinite` returned expected results for DOUBLE finite/NaN/Infinity, INTEGER, and DECIMAL. pandas nullable Float64 with pd.NA plus Decimal-coerced finite value staged as DOUBLE and preserved/updated correctly.
+- Malformed object/VARCHAR RawClose (`not-a-number`) fails loudly at bind (`isfinite(VARCHAR)` has no overload) before MERGE and leaves the matched row unchanged. This is an acceptable type-coercion hazard: production ingestion and exact Flight schema supply numeric DOUBLE; malformed internal callers fail rather than weakening the invariant. Boolean/VARCHAR-like malformed columns likewise are not silently accepted. No durability defect found.
+
+Mutation/non-vacuity:
+- Checked out pre-fix 796f41e src/db.py. AC4 still passed, but `test_mixed_frame_preserves_missing_raw_close` failed with AAPL RawClose=NaN instead of 181. The explicit-NULL/invalid regression independently failed with RawClose=NaN instead of 181. Restored HEAD; working tree clean before blackboard edits.
+
+Gates independently run:
+- AC4+AC5 combined: 2 passed, 19 deselected.
+- AC5 exact command: 1 passed, 20 deselected.
+- Focused `tests/test_raw_close.py`: 21 passed, 13 warnings.
+- `poll_tasks.py --verify R1A-T1`: ALL PASS 10/10, including full suite 1928 passed, 506 warnings in 179.95s.
+- Strict loop checker: clean, 17 files.
+
+Scope audit `git diff --name-status 289ca99..HEAD`: only devin_blackboard/EVENTS.log, STATE.md, TASKS.json; src/db.py; tests/test_raw_close.py. Implementation commit b973b3c itself changes only src/db.py and tests/test_raw_close.py. No deployment performed.
