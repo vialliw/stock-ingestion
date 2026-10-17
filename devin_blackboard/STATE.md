@@ -1,8 +1,26 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-16
+Last Updated: 2026-10-17
 Current Branch: main
 
 ## Incident management (2026-10-12)
+
+INC-T5 done 2026-10-17 (executor B): `scripts/incident_watch.py` —
+acknowledged_delisted tickers are now excluded from the AGGREGATE
+SEV2 thresholds, not just per-ticker suppression. Gaps:
+`eff_missing = max(total_missing_days - listed delisted days, 0)`
+gates the >=30 group SEV2 (group detail lists only non-ack tickers);
+delisted gap tickers always emit their SEV4 suppressed finding (was
+only emitted below threshold); the >=10-session single-ticker trigger
+is unreachable for delisted. Staleness: `eff_stale_count =
+stale_count - listed-ack'd` gates the >=25 SEV2. Truncated/unlisted
+entries stay counted (conservative, INC-T1b N1 preserved).
+Suppressed accounting extended additively: `suppressed_detail`
+{check: {count, missing_days}} in `_last_check.json` + stdout digest;
+suppressed events.jsonl entries carry `missing_days`. Fixes the live
+false-SEV2 (DBRG+QRVO+WBD, 31 of 33 days). Tests +6 regression
+(TestDelistedAggregateExclusion) -> 72/72 watcher, 1856/1856 suite,
+check_loops + --strict clean (17 files), --self-test exit 0,
+--verify INC-T5 ALL PASS (5/5).
 
 INC-T4 done 2026-10-17 (executor B): `scripts/register_incident_watch.ps1`
 gained a `-UserPrincipal` switch — registers `StockIngestion-HealthWatch`
