@@ -156,6 +156,8 @@ user/Interactive 23:30 local (18:30 ET). Ops guide: docs/INCIDENT_WATCH.md.
 
 INC-T6 registered 2026-10-17 (ready): external review found vendor 'delisting-terminal placeholder' bars (QRVO 2026-10-05 flat/Vol=0 — not served upstream; WBD 2026-10-05 Open=0/Vol=40 — still served upstream) persisted in daily_close and PROPAGATED to analytical inputs (weekly_close phantom QRVO 2026-10-09 bar; WBD weekly Open=0). Task: ingestion `exclude_rows` (ticker,date) filter + `delete_daily_rows` Flight action + tests. Ops follow-up after deploy: delete the 2 rows, weekly_refresh, update suppressions.
 
+INC-T7 registered 2026-10-17 (todo): weekly rollup rebuilds are upsert-only — deleting daily rows leaves orphan weekly_close/weekly_indicators rows (verified live: phantom QRVO 2026-10-09 weekly bar survived weekly_refresh after the daily row was deleted). Fix: anti-join cleanup inside the existing rebuild write-lock.
+
 ## Reusable assets extracted (2026-10-06)
 
 Global skills (all projects): `multi-agent-blackboard`, `duckdb-flight-service`,
