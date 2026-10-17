@@ -4712,3 +4712,58 @@ Gates independently run:
 - README.md/docs/README.md byte-identical (`fc /b` no differences).
 
 Scope audit `git diff --name-status 4d79655..HEAD`: devin_blackboard/{EVENTS.log,STATE.md,TASKS.json}, src/ingestion.py, tests/test_raw_close.py. Implementation commit 24a88ba changes only src/ingestion.py and tests/test_raw_close.py. No deployment performed.
+
+[2026-10-17] [CRITIC-D] R1A-T1 **FINAL COMPOSITE GATE: PASS** (HEAD 8e7248e).
+
+D-R1A-3 adjudication: RESOLVED. `src/ingestion.py:471-480` now defines
+`zero_pair = (raw_close == 0) & (adj_close == 0)` and masks the ratio to 1.0
+only for that pair. Independent eight-row flat-layout normalization probe:
+- raw=0/adj=0 survived with identity ratio and OHLC unchanged;
+- raw=0/adj=+5 and raw=0/adj=-5 were dropped (no usable ratio);
+- raw=-37/adj=-37 survived unchanged;
+- standard 0.5x and 2.0x adjustments produced exact adjusted OHLC;
+- NaN raw and infinite Adj Close rows were dropped.
+Output contained only the four valid rows. This is a non-vacuous fix for the
+zero/nonzero fabrication found in the prior Critic gate.
+
+Independent DB durability matrix (real temp DuckDB): seeded six targets,
+then one frame with omitted, NULL, NaN, +inf, 0 and -37 RawClose values.
+Omitted/NULL/NaN/+inf preserved targets 10/11/12/13 respectively; finite 0
+updated to 0; finite -37 updated to -37. Legacy insert compatibility and
+explicit valid update behavior remain correct; malformed non-numeric columns
+still fail loudly at DuckDB bind.
+
+Current structured gates independently executed:
+- AC1 focused suite: 23 passed, 14 warnings.
+- AC2 full suite: 1930 passed, 507 warnings, 238.96s.
+- AC3 strict loop checker: clean, 17 files.
+- AC4+AC5+AC6+AC7 combined: 4 passed, 19 deselected.
+- `poll_tasks.py --verify R1A-T1`: ALL PASS 12/12; five prose entries still
+  report as vacuous `unknown` PASS and were manually adjudicated.
+- README.md/docs/README.md byte parity: exit 0.
+
+Original criteria rechecked manually and via own probes:
+- v8->v9 migration retains all rows, adds exact RawClose DOUBLE, advances to
+  schema_version 9, and reopen is idempotent.
+- Fresh DB schema/name/type are correct.
+- One yfinance `auto_adjust=False` pull per batch; flat, `(ticker,field)`, and
+  `(field,ticker)` layouts remain covered.
+- Standard corporate-action ratio arithmetic and legitimate finite zero/negative
+  market values are preserved; rows lacking a finite RawClose and defined ratio
+  are dropped.
+- Initial/daily/on-request/retry/split-redownload all share normalization.
+- `upsert_dataframe` insert/update preserves durability and accepts finite
+  non-NULL values only on matched updates.
+- Real ephemeral Flight server recheck: exact 8-column do_put accepted and
+  counted; old 7-column payload rejected; do_get returned the expected row count
+  under its unchanged single-SELECT path.
+- DATA_SERVICE_API/deployment prose now correctly says finite zero/negative
+  values are valid and the deployment check should verify no NULL/non-finite
+  RawClose; READMEs byte-identical.
+- Scope `git diff --name-status 29c5e5c..HEAD` contains only blackboard,
+  src/ingestion.py, tests/test_raw_close.py, and the approved AC/task changes;
+  implementation delta is limited to src/ingestion.py + tests/test_raw_close.py.
+
+Composite verdict: **PASS**. B/C/D code approval complete. No deployment,
+restart, or backfill was performed; the remaining live verification/backfill
+and interim raw-close history work are Orchestrator-owned.

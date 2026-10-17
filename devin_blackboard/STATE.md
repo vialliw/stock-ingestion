@@ -2,7 +2,20 @@
 Last Updated: 2026-10-17 (delta re-review)
 Current Branch: main
 
-## R1A-T1 — RawClose (schema v9) — D-R1A-3 zero-ratio remediation completed by executor B
+## R1A-T1 — RawClose (schema v9) — CRITIC-D FINAL COMPOSITE PASS
+
+CRITIC-D final composite gate (2026-10-17, HEAD 8e7248e): **PASS**.
+D-R1A-1, D-R1A-2 and D-R1A-3 are resolved. Commit 24a88ba now applies the
+identity ratio only to the finite `raw_close == 0 AND adj_close == 0` pair;
+zero raw with positive or negative nonzero adjusted close keeps an undefined
+ratio and is dropped. My own eight-row ratio matrix confirmed zero/zero
+acceptance, both contradictory zero/nonzero rejections, negative/negative
+acceptance, exact 0.5 and 2.0 adjustment arithmetic, and NaN/infinite
+rejection. A separate MERGE matrix confirmed omitted/NULL/NaN/+inf preserve
+targets while finite 0 and -37 update targets exactly. All 12 current
+acceptance criteria pass; full suite 1930 passed; strict loops clean;
+README parity and scope clean. R1A-T1 is approved for the Orchestrator's
+deployment/backfill gate; no deployment was performed here.
 
 CHALLENGER-C D-R1A-3 delta review (HEAD d014817): **APPROVED**. Independent
 mixed-frame normalization proved zero/zero identity acceptance; zero/positive
