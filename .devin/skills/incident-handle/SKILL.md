@@ -47,10 +47,21 @@ tbl = c.do_get(fl.Ticket(json.dumps({"sql": "<SQL>"}).encode())).read_all()
 |--------|------------------------------|---------|--------|
 | stale/gap | nothing after DB last_date | **Delisted/corporate action** | `acknowledged_delisted` (see below) |
 | stale/gap | data exists for missing days | **Fetch miss** | Re-fetch (below) |
+| coverage `missing_tickers` | upstream serves nothing at all | **Invalid/mis-configured symbol** | Check `git log src/config.yaml` for a recent add; correct or remove the symbol (user decision), never suppress |
+| coverage + metadata warn | upstream healthy | **Newly configured, never backfilled** | `on_request_load` from the data floor + `metadata_load` (below) |
 | integrity row | same "bad" values upstream | **Real weird bar** (halted final day, negative WTI) | `benign_integrity` entry |
 | integrity row | different values upstream | **Corrupt row** | Re-fetch ticker/date |
 | flat O=H=L=C, Vol=0 at a delisted ticker's end | upstream stopped earlier | **Vendor terminal placeholder** | Quarantine (below) — NOT benign |
 | zero/neg Open with tiny Vol at delist end | upstream still serves it | **Suspect terminal bar — cause unresolved** | Quarantine (below) |
+
+**Config-vs-data distinction:** a ticker absent from `daily_close` entirely
+shows up under **coverage** (`missing_tickers`), not gaps — gap-days only
+count tickers with at least one stored row. An absent ticker with an
+upstream-empty probe is almost always a bad symbol, not a data problem
+(real case 2026-10-17: user added `DXY`; Yahoo serves nothing — the dollar
+index is `DX-Y.NYB`; fixed by replacing with `UUP`). A config change needs
+a **`Flight Server` task restart** — the server holds config in memory;
+the watcher will keep flagging the old symbol until then.
 
 Real 2026-10-17 precedent: DBRG/QRVO/WBD confirmed delisted this way.
 **Correction to earlier handling:** WBD 2026-10-05 `Open=0, Vol=40` is NOT
@@ -74,6 +85,11 @@ c.do_action(fl.Action("on_request_load", json.dumps(
 `daily_load {"tickers": [...], "force": true}` works too but ignores the list
 for scoping and ran a full 1214-ticker catch-up (~6 min, 4842 rows) on
 2026-10-17 — harmless but slow; prefer `on_request_load` for targeted windows.
+
+**Newly configured ticker checklist** (coverage/metadata incidents):
+`on_request_load` with `start_date` at the data floor (~2010-01-04 after the
+2010 backfill) → `metadata_load {"tickers": [...]}` → restart `Flight Server`
+if the config edit postdates the last server start → re-run the watcher.
 
 **Suppress confirmed delisted / benign rows** — edit
 `incidents/_config/suppressions.json` (operational data, safe to edit):
@@ -132,6 +148,14 @@ the orchestrator; do not hand-edit `src/`/`scripts/` from a handler session.
 
 ## Gotchas
 
+- **Config changes are not live until `Flight Server` restarts** — the
+  server holds `config.yaml` in memory; a symbol add/remove/fix invisible to
+  the watcher until then. Restart via the `Flight Server` scheduled task.
+- When a user action resolves an incident (e.g. a config fix), add a
+  `resolution_note` field to the resolved folder's `incident.json` so the
+  record explains *why* it cleared, not just that it did.
+- SEV3 findings escalate to SEV2 (rename + re-page) on the 3rd consecutive
+  check — resolve or acknowledge before then to avoid the page.
 - `pending_session` is never a finding — today's session inside the +2h grace
   is expected.
 - Toast fires on NEW SEV1/SEV2 and escalations only; suppressed items never

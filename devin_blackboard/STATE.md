@@ -182,7 +182,7 @@ rebuilds were upsert-only (orphan weekly rows survived daily deletes) ->
 anti-join cleanup; verified live: artifact rows deleted, phantom QRVO
 2026-10-09 weekly bar + WBD Open=0 weekly + indicator rows purged
 (896,750 rebuilt). Suites: 1907/1907, check_loops --strict clean.
-chatgpt_review: APPROVED (4 rounds). Pending user: DXY bad symbol.
+chatgpt_review: APPROVED (4 rounds). DXY resolved: user swapped DXY->UUP; UUP backfilled 2010..2026 (4223 rows) + metadata; open/ empty 2026-10-17.
 ## Reusable assets extracted (2026-10-06)
 
 Global skills (all projects): `multi-agent-blackboard`, `duckdb-flight-service`,

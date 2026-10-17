@@ -320,7 +320,6 @@ ingestion:
   - DX
   - DXC
   - DXCM
-  - DXY
   - DY
   - DYN
   - EA
@@ -1096,6 +1095,7 @@ ingestion:
   - USNA
   - USO
   - USPH
+  - UUP
   - UVSP
   - V
   - VAC
