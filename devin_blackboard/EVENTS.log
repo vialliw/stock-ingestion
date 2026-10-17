@@ -4168,3 +4168,55 @@ Gates re-run by challenger:
 Scope audit: `git diff --stat a0263b8..HEAD` shows only devin_blackboard/{EVENTS.log,STATE.md,TASKS.json} (orchestrator AC disclosure + blackboard updates), src/db.py (executor fix), and tests/test_raw_close.py (regression test). No out-of-scope source or test changes. Working tree clean after verification.
 
 Verdict: APPROVED. No deployment performed.
+
+[2026-10-17] [CRITIC-D] R1A-T1 remediation re-gate **FAIL** (HEAD 289ca99).
+Commit 796f41e fixes the exact original wholly-seven-field matched-update repro,
+but does not make RawClose durable for mixed batched internal writes.
+
+Independent real temporary-DuckDB matrix:
+1. Seeded AAPL RawClose=181 and MSFT RawClose=381.
+2. One wholly legacy three-row frame updated both existing keys and inserted
+   NVDA: AAPL/MSFT RawClose remained 181/381 while other values updated; new
+   NVDA RawClose was NULL. This confirms original repro preservation,
+   multi-row legacy behavior, and accepted legacy-insert semantics.
+3. One explicit-valid two-row frame updated AAPL/MSFT RawClose to 189/389;
+   explicit valid values still update correctly.
+4. BLOCKER D-R1A-2: one mixed two-record DataFrame explicitly supplied
+   AAPL RawClose=193 while omitting RawClose from the MSFT record. Pandas
+   materialized a RawClose column with NaN for MSFT. Because src/db.py:444 sets
+   `_has_raw_close` once for the whole frame, both rows take the explicit branch
+   at src/db.py:459-462. Result: AAPL became 193 as expected, but MSFT became
+   NULL, reproducing the forbidden NULL-overwrite through a realistic batched
+   internal caller. Challenger's disclosed explicit-NULL behavior has the same
+   consequence. Exact 8-column Flight validation does not enforce non-NULL or
+   positive values because the Arrow field is nullable.
+
+Adjudication: **BLOCKING**. AC4's wholly legacy frame test is non-vacuous (it
+kills the old implementation) but incomplete: it cannot detect row-level
+missing/NaN in a frame that has a RawClose column. The post-backfill invariant
+is still not durable for internal callers/future batched writes. Required fix:
+matched updates should replace RawClose only for a row carrying a finite,
+positive value; row-level missing/NULL should preserve target.RawClose. Add
+mixed-frame and explicit-NULL regressions, including multiple matched rows and
+a legacy insert. PM should retain/document NULL only for genuinely new legacy
+inserts if that compatibility exception remains intended.
+
+All current structured AC commands were nevertheless executed independently:
+- R1A-AC1 `pytest tests/test_raw_close.py -q`: 19 passed, 10 warnings.
+- R1A-AC2 `pytest tests/ -q`: 1926 passed, 503 warnings, 199.11s.
+- R1A-AC3 strict loop checker: clean, 17 files.
+- R1A-AC4 targeted legacy test: 1 passed, 18 deselected.
+- `poll_tasks.py --verify R1A-T1`: ALL PASS (four executable ACs; five prose
+  criteria still appear as vacuous `unknown` passes, manually reviewed here).
+- README.md/docs/README.md byte parity: exit 0.
+
+Composite original-feature recheck: fresh DB and idempotent row-preserving v8->v9
+migration, exact RawClose DOUBLE/name, one auto_adjust=False batch pull, all
+three yfinance layouts, adjusted OHLC ratio arithmetic, invalid ingestion-row
+dropping/no NULL from ingestion, initial/daily/on-request/retry/split choke
+points, explicit insert/update, real Flight 8-column acceptance/7-column
+rejection, unchanged do_get single-SELECT contract, and API documentation all
+remain PASS based on source inspection plus focused/full tests and prior own
+real-Flight probe. Scope audit `git diff --name-status b237cf6..HEAD` contains
+only blackboard files, src/db.py, and tests/test_raw_close.py; pre-review working
+tree was clean. No deployment, restart, or backfill performed or approved.
