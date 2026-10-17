@@ -2,7 +2,12 @@
 Last Updated: 2026-10-17 (delta re-review)
 Current Branch: main
 
-## R1A-T1 — RawClose (schema v9) — CRITIC-D FAIL on zero-ratio handling
+## R1A-T1 — RawClose (schema v9) — reopened for zero-ratio remediation
+
+The Orchestrator accepted D-R1A-3, reset the task to `todo`, added R1A-AC7,
+and corrected the deployment gate from non-positive to non-finite/NULL.
+Finite zero/negative observations remain valid; only zero-raw/nonzero-adjusted
+rows lack a usable factor and must be rejected.
 
 CRITIC-D final delta/composite gate (2026-10-17, HEAD 4d79655): **FAIL**.
 Commit 6ec566f correctly retains finite zero/negative market values and updates

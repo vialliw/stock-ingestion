@@ -4290,7 +4290,7 @@
     "title": "Request 1 Option A: add raw_close to daily_close and populate it on every price load",
     "role": "executor",
     "model": "swe",
-    "status": "blocked",
+    "status": "todo",
     "assigned_to": "B",
     "depends_on": [],
     "input_files": [
@@ -4355,6 +4355,12 @@
         "expected_exit": 0
       },
       {
+        "id": "R1A-AC7",
+        "check": "zero raw close requires zero adjusted close",
+        "command": "python -m pytest tests/test_raw_close.py -q -k zero_raw_close_requires_zero_adjusted_close",
+        "expected_exit": 0
+      },
+      {
         "text": "Database schema migration advances schema_version from v8 to v9, adds nullable-on-migration RawClose DOUBLE to existing daily_close without losing rows, and all new ingestion upserts write RawClose; migration is idempotent."
       },
       {
@@ -4367,7 +4373,7 @@
         "text": "Legacy daily_close do_put wire schema is intentionally changed from 7 to 8 columns by adding RawClose FLOAT64, validation rejects the old 7-column payload, and DATA_SERVICE_API.md documents the new schema and migration/backfill requirement. do_get single-SELECT behavior is unchanged."
       },
       {
-        "text": "Deployment gate owned by Orchestrator after B/C/D code approval: restart FlightServer, run one 2010-to-present repair backfill for configured tickers through the service, verify zero NULL/non-positive RawClose rows from 2010 onward, and spot-check sampled values against a fresh yfinance auto_adjust=False pull within floating-point rounding."
+        "text": "Deployment gate owned by Orchestrator after B/C/D code approval: restart FlightServer, run one 2010-to-present repair backfill for configured tickers through the service, verify zero NULL/non-finite RawClose rows from 2010 onward (finite zero/negative market values are valid), and spot-check sampled values against a fresh yfinance auto_adjust=False pull within floating-point rounding."
       }
     ]
   }
