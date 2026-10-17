@@ -4,6 +4,20 @@ Current Branch: main
 
 ## Incident management (2026-10-12)
 
+INC-T4 done 2026-10-17 (executor B): `scripts/register_incident_watch.ps1`
+gained a `-UserPrincipal` switch — registers `StockIngestion-HealthWatch`
+under the current `WindowsIdentity` (`LogonType Interactive`,
+`RunLevel Limited`) so the task is visible in the non-elevated Task
+Scheduler GUI; runs only while that user is logged on
+(`StartWhenAvailable` covers misses). Default path unchanged
+(SYSTEM/ServiceAccount/Highest). New `.PARAMETER` help + `.EXAMPLE`;
+summary line reflects the mode (`as SYSTEM` vs
+`as DOMAIN\user (Interactive/Limited)`). README twins gained one
+`-UserPrincipal` line in "Incident health watch" — `fc /b`
+byte-identical. **Not executed** — deploy is the orchestrator's step.
+Gates: `--verify INC-T4` ALL PASS (4/4 — PSParser clean, twins
+identical, check_loops exit 0 / 17 files).
+
 INC-T3 done 2026-10-16 (executor B): `.gitignore:15` now ignores `incidents/`
 (repo junction -> `C:\Intel\incidents\stock-ingestion` live store; comment
 says never commit). Also ran `git rm -r --cached incidents/` to untrack the
