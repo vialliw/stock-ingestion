@@ -716,6 +716,12 @@ class DatabaseManager:
         ``max(High)`` / ``min(Low)``; ``Volume`` is summed.
         ``INSERT ... ON CONFLICT (Date, Ticker) DO UPDATE`` makes a
         repeat run idempotent.
+
+        INC-T7: after the upsert, an anti-join DELETE removes orphan
+        weekly rows whose ``(Date, Ticker)`` is no longer produced by
+        the daily aggregation — previously a deleted daily row left its
+        weekly rollup behind (e.g. the QRVO 2026-10-09 phantom bar that
+        survived ``delete_daily_rows`` + ``weekly_refresh``).
         """
         with self._write_lock:
             self.conn.execute("""
@@ -749,6 +755,17 @@ class DatabaseManager:
                     Close = excluded.Close,
                     Volume = excluded.Volume
             """)
+            # INC-T7: anti-join cleanup — remove weekly_close rows whose
+            # (Date, Ticker) week key is no longer produced by the
+            # daily aggregation (their daily source rows were deleted).
+            self.conn.execute("""
+                DELETE FROM weekly_close
+                WHERE (Date, Ticker) NOT IN (
+                    SELECT (date_trunc('week', Date)::DATE + 4) AS WeekDate,
+                           Ticker
+                    FROM daily_close
+                )
+            """)
             count = self.conn.execute(
                 "SELECT COUNT(*) FROM weekly_close"
             ).fetchone()[0]
@@ -767,6 +784,11 @@ class DatabaseManager:
         stoch_slow_k -> moving_averages -> indicator_base ->
         signal_line_base -> final_calculations CTE chain, including
         ``stoch_80_20_x`` -> ``Slow_D_80_20_Crossover``.
+
+        INC-T7: after the upsert, an anti-join DELETE removes orphan
+        indicator rows whose ``(Date, Ticker)`` is absent from
+        ``weekly_close`` (e.g. the week orphaned by a
+        ``delete_daily_rows`` eviction upstream).
         """
         with self._write_lock:
             self.conn.execute("""
@@ -854,6 +876,14 @@ class DatabaseManager:
             FROM final_calculations;
             """
             self.conn.execute(sql_query)
+            # INC-T7: anti-join cleanup — remove weekly_indicators rows
+            # whose (Date, Ticker) no longer exists in weekly_close.
+            self.conn.execute("""
+                DELETE FROM weekly_indicators
+                WHERE (Date, Ticker) NOT IN (
+                    SELECT Date, Ticker FROM weekly_close
+                )
+            """)
             count = self.conn.execute(
                 "SELECT COUNT(*) FROM weekly_indicators"
             ).fetchone()[0]
