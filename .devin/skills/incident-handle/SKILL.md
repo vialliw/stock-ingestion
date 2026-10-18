@@ -53,6 +53,20 @@ tbl = c.do_get(fl.Ticket(json.dumps({"sql": "<SQL>"}).encode())).read_all()
 | integrity row | different values upstream | **Corrupt row** | Re-fetch ticker/date |
 | flat O=H=L=C, Vol=0 at a delisted ticker's end | upstream stopped earlier | **Vendor terminal placeholder** | Quarantine (below) — NOT benign |
 | zero/neg Open with tiny Vol at delist end | upstream still serves it | **Suspect terminal bar — cause unresolved** | Quarantine (below) |
+| `raw_close` invalid (NULL/non-finite RawClose) | upstream serves the window | **Fixable gap** | `on_request_load` re-fetch repopulates RawClose |
+| `raw_close` invalid | upstream does NOT serve the window | **Pre-v9 schema-migration row** | `do_put` upsert with `RawClose=Close` — only when exact (see below) |
+
+**`raw_close` NULL repair via `do_put`** (no code needed): read the invalid
+rows (`WHERE RawClose IS NULL OR NOT isfinite(RawClose)`), set
+`RawClose = Close`, and `do_put` an 8-column Arrow frame (Date date32,
+Ticker, OHLC, Volume, RawClose float64) with a `for_path(b"daily_close")`
+descriptor — the legacy path MERGE-upserts and fills NULL RawClose.
+`RawClose = Close` is EXACT only when no corporate action touched the row —
+verify `yf.Ticker(...).dividends`/`.splits` over the row's date and that
+the row post-dates any ex-date. If corp actions exist in-window, don't
+hand-fill — the raw value isn't reconstructible; treat per severity.
+Delisted tickers' NULL history (upstream withdrawn) stays suppressed via
+`acknowledged_delisted`.
 
 **Config-vs-data distinction:** a ticker absent from `daily_close` entirely
 shows up under **coverage** (`missing_tickers`), not gaps — gap-days only
