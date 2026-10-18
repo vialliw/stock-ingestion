@@ -38,9 +38,10 @@ A quantitative stock-data ingestion service that centralizes daily equity data f
 
 1. **Downloads** daily OHLCV/close data from `yfinance` for a configurable universe of tickers.
 2. **Stores** canonical daily data in a local DuckDB file with upsert semantics and split-adjustment tracking.
-3. **Serves** read-only SQL queries to concurrent consumers via Apache Arrow Flight.
-4. **Syncs** the completed DuckDB file to Cloudflare R2 as a durable artifact.
-5. **Schedules** automatic daily loads via APScheduler in a separate process.
+3. **Serves** concurrent consumers via Apache Arrow Flight — single-statement SELECT queries (`do_get`), Arrow uploads (`do_put`), admin actions (`do_action`), and an allowlisted client-DML surface for trusted downstream projects.
+4. **Derives** server-side layers on top of `daily_close` — weekly bars + indicators, CNN Fear & Greed, signal pipelines, and client-managed `pivot`-schema tables — plus interactive dashboards (Streamlit report app, market breadth, RRG, correlation).
+5. **Syncs** the completed DuckDB file to Cloudflare R2 as a durable artifact.
+6. **Schedules** automatic daily loads via APScheduler in a separate process, plus Windows scheduled tasks for the Flight service, daily catch-up load, and incident health watch.
 
 The project was built using a coordinated multi-agent workflow (executor → challenger → critic) with durable Git/blackboard state, ensuring every feature passed structured acceptance criteria before release.
 
@@ -75,7 +76,7 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 
 - **DuckDB as canonical store** — no Parquet export; the DuckDB file is the single source of truth.
 - **R2 sync only after completion** — intermediate states are never uploaded.
-- **Read-only Flight endpoint** — `do_get` accepts SELECT/WITH queries only; no DML or DDL.
+- **Single-statement SELECT endpoint** — `do_get` tickets must parse via `duckdb.extract_statements` as exactly one `SELECT`/`WITH` statement; multi-statement smuggling (e.g. `SELECT 1; SET ...`) is rejected before execution. Writes happen only through the constrained `do_put`/`dml_admin` surface (namespace-allowlisted, audited — see [Client-Issued DML](#client-issued-dml-pivot-namespace)). DuckDB extension autoload/autoinstall is disabled at open.
 - **Query timeout** — configurable, default 120 seconds, no row limit.
 - **Scheduler as separate process** — does not start the Flight server; opens its own DuckDB connection with lock retry/backoff.
 - **SQL > vectorized > loop** — enforced by an AST-based loop checker and pre-commit hook.
@@ -90,7 +91,8 @@ The project was built using a coordinated multi-agent workflow (executor → cha
 - **Daily load** — fetches the latest trading day's data. Two modes:
   - **Trading-day gated (default)** — skips weekends and NYSE market holidays. Used by the APScheduler daemon and GitHub Actions CI.
   - **Catch-up (`force=True`)** — runs even on non-trading days so a machine that was off on a trading day downloads the missed data on the next day it is on. Uses the configured `daily_lookback_days` window (default 4). Used by the local Windows scheduled task.
-- **On-request load** — fetches a custom date range for specific tickers.
+- **On-request load** — fetches a custom date range for specific tickers (also the vehicle for historical floor backfills). Caveat: unlike `initial_load` it does **not** call `_record_historical_splits` afterward — extending the floor across a split date leaves that split "unprocessed" until a later `_check_and_apply_splits` pass re-downloads the ticker.
+- **New-ticker backfill** — `daily_load` detects configured tickers absent from `daily_close` and backfills them from the *aligned start date* (the universe's shared historical floor — currently 2010-01-04), then records their historical splits as processed so old splits never trigger a re-download.
 - **Automatic retry** — after the first batch download, tickers that came back empty (e.g. yfinance rate-limiting reporting valid tickers as "possibly delisted; no price data found") are retried once in a follow-up download after a ~15s cool-down, single-threaded for gentler pacing. Recovered tickers move from `tickers_failed` to `tickers_succeeded` and their rows are merged into the result.
 - **Split adjustment** — tracks processed splits in a dedicated table to avoid double-adjustment. Re-downloads happen **before** any delete, and only tickers that returned data are replaced — a failed or empty re-download preserves existing history and leaves the split unprocessed for retry.
 - **Ticker exclusion** — an `exclude_tickers` list filters out unwanted tickers during ingestion and `do_put`.
@@ -297,6 +299,7 @@ python scripts/run_signal_analysis.py
 stock-ingestion/
 ├── src/
 │   ├── __init__.py
+│   ├── client_dml.py          # Client-DML engine — namespaced writes, validation, audit
 │   ├── config.py              # Pydantic v2 config models + YAML loader
 │   ├── config.yaml            # Default configuration file
 │   ├── db.py                  # DatabaseManager — DuckDB schema, migrations, queries
@@ -320,9 +323,12 @@ stock-ingestion/
 │   ├── test_config_breaking.py
 │   ├── test_db.py
 │   ├── test_delisted_lifecycle.py
+│   ├── test_client_dml.py    # Client-DML: confinement, validation, wire probes, put_frame propagation
 │   ├── test_do_put.py
+│   ├── test_exclude_rows.py
 │   ├── test_flight_server.py
 │   ├── test_health_check.py
+│   ├── test_incident_watch.py # Health-watch folder lifecycle + severity classification
 │   ├── test_ingestion.py
 │   ├── test_integration.py
 │   ├── test_logging.py
@@ -332,6 +338,7 @@ stock-ingestion/
 │   ├── test_poll_tasks.py
 │   ├── test_query_timeout.py
 │   ├── test_r2_sync.py
+│   ├── test_raw_close.py
 │   ├── test_correlation_dashboard.py  # Correlation dashboard module (SQL, wide pivot, returns, figures)
 │   ├── test_fear_greed_dashboard.py  # Fear & Greed dashboard module (SQL, window presets, figures)
 │   ├── test_report_app.py     # Streamlit report app (SQL builders, fetch fallback, xlsx, RRG + Fear & Greed + Correlation tabs)
@@ -341,7 +348,8 @@ stock-ingestion/
 │   ├── test_fear_greed.py      # CNN Fear & Greed: parse/resilience, upsert, bridge, action, config
 │   ├── test_signal_pipeline.py # Signal pipeline: schema v7, ingest/dedupe/repair/prune/perf/metadata
 │   ├── test_signal_analysis.py # Signal analysis: aly_ schema isolation, phases, DST, views, perf, reports
-│   └── test_weekly.py          # Weekly layer: Friday keys, OHLCV agg, indicators, bridge
+│   ├── test_weekly.py          # Weekly layer: Friday keys, OHLCV agg, indicators, bridge
+│   └── test_weekly_orphans.py  # Orphan indicator cleanup on weekly_close delete
 ├── scripts/
 │   ├── breadth_dashboard.bat   # Double-click wrapper for breadth_dashboard.py
 │   ├── breadth_dashboard.py    # Market breadth HTML dashboard (port of legacy breadth_builder02.py, Flight-first)
@@ -354,6 +362,10 @@ stock-ingestion/
 │   ├── data_health_report.py   # On-demand daily_close health report via the data_health Flight action
 │   ├── data_health_verify.bat  # Double-click wrapper for data_health_verify.py
 │   ├── data_health_verify.py   # Probes flagged gaps vs yfinance: download_gap vs halt_or_suspension
+│   ├── dml_client.py          # Vendorable DmlClient — dml_admin + do_put descriptor wrapper
+│   ├── incident_watch.py      # Health-watch runner — classifies data_health findings into SEV folders
+│   ├── notify_done.ps1        # Windows toast on cycle completion (registered PowerShell AUMID)
+│   ├── register_incident_watch.ps1  # At-a-time HealthWatch task + central incident store provisioning
 │   ├── load_company_metadata.py   # company_metadata backfill via the metadata_load Flight action
 │   ├── orchestrator.py         # Signal-pipeline run via the signal_pipeline Flight action
 │   ├── poll_tasks.py           # Multi-agent task lifecycle manager
@@ -382,9 +394,18 @@ stock-ingestion/
 │   └── locks/                  # Task claim locks
 ├── docs/
 │   ├── dev_plan/               # Phase 1 and Phase 2 development plans
+│   ├── enhancements/           # Feature spec/notes per enhancement
+│   ├── report_idea/            # RVOL/regime report specs rendered by report_app
 │   ├── tech_spec/              # Technical specifications
 │   ├── workflow_idea/          # Multi-agent workflow documentation and role prompts
+│   ├── README.md               # Byte-identical twin of the root README
+│   ├── MULTI_AGENT_WORKFLOW_PLAYBOOK.md  # Canonical B→C→D playbook (reusable in other repos)
+│   ├── client_dml_sql_study.md # Client-DML source-SQL validation study
+│   ├── incident_management_requirements.md  # Incident store layout + watcher contract
 │   └── DATA_SERVICE_API.md     # Consumer-facing data-service contract (schema + Flight API)
+├── .devin/
+│   ├── agents/                 # Subagent role profiles (executor/challenger/critic/planner)
+│   └── skills/                 # Project skills (stock-ingestion-ops, incident-handle)
 ├── AGENTS.md                   # Multi-agent blackboard protocol rules
 ├── requirements.txt
 └── README.md
@@ -431,7 +452,7 @@ pip install -r requirements.txt
 
 ## Configuration
 
-All configuration is in `src/config.yaml`, loaded by `PipelineConfig.from_yaml()` with Pydantic v2 validation.
+All configuration is in `src/config.yaml`, loaded by `PipelineConfig.from_yaml()` with Pydantic v2 validation. The Flight server reads it **once at startup** — edits (e.g. new tickers) require a service restart to take effect; on restart, `daily_load` detects new tickers and backfills them from the aligned start date.
 
 ```yaml
 database:
@@ -909,7 +930,11 @@ Output per preset: **`<prefix>.html`** and **`<prefix>_analysis_prompt.json`** w
 
 ## Database Schema
 
-The DuckDB database contains eight tables:
+The `main` schema contains thirteen tables (documented below) plus the
+`schema_version` marker. `signal_analysis` adds per-set schemas
+(`signals_<name>`) holding `aly_`-prefixed objects — see
+[Signal Analysis Pipeline](#signal-analysis-pipeline); client DML adds
+tables under allowlisted namespaces such as `pivot`.
 
 ### `daily_close` (canonical OHLCV data)
 
@@ -925,7 +950,7 @@ The DuckDB database contains eight tables:
 
 Primary key: `(Date, Ticker)` — upsert semantics on conflict.
 
-Non-equity series can live here too: `^TNX`, `CL=F` and `^IRX` (the macro series for the Correlation tab) share the table — `Close` is a yield percent for the `^` indices and USD/bbl for `CL=F`, not a share price. Trading calendars differ by series (`CL=F` prints on equity-market holidays; partial-day index rows can be absent) and non-positive closes exist (`CL=F` Apr-2020 negative, `^IRX` ~0% in Mar-2020) — consumers combining tickers should inner-align on `Date` and not assume `Close > 0`.
+Non-equity series can live here too: `^TNX`, `CL=F`, `^IRX` and `^VIX` (the macro series for the Correlation tab) share the table — `Close` is a yield percent for the `^` indices and USD/bbl for `CL=F`, not a share price. Trading calendars differ by series (`CL=F` prints on equity-market holidays; partial-day index rows can be absent) and non-positive closes exist (`CL=F` Apr-2020 negative, `^IRX` ~0% in Mar-2020) — consumers combining tickers should inner-align on `Date` and not assume `Close > 0`.
 
 ### `splits_processed` (split adjustment tracking)
 
@@ -1015,6 +1040,14 @@ Rebuilt from `weekly_close` by `rebuild_weekly_indicators()` (`INSERT OR REPLACE
 
 Upserted by `run_fear_greed_load` (via the `fear_greed_refresh` action) with `INSERT ... ON CONFLICT (date) DO UPDATE` — re-runs update changed values in place. See [CNN Fear & Greed Index](#cnn-fear--greed-index).
 
+### `signal_records` / `signal_performance` / `cluster_metadata` (schema v7)
+
+Written by the `signal_pipeline` action (see [Signal Pipeline](#signal-pipeline)):
+
+- **`signal_records`** — one row per signal: `Signal_File`, `Model`, `Trading_Date`, `Ticker`, OHLC + `Cluster`, `Hist_WinRate`, `ATR`, `best_k`, `Target`, `Current_Price`, `Stop_Price`, `Target_Percent`, `Stop_Percent`, `Reward_Risk_Ratio`, `Shares_to_buy`, `Max_Drawdown`, `Centroid_Dist`, `Drift_Warning`. PK `(Ticker, Trading_Date, Cluster, Model, Signal_File)`.
+- **`signal_performance`** — forward-return outcome per signal (same PK): `Hit_Target_Date`/`Hit_Target_T`, `Hit_Stop_Date`/`Hit_Stop_T`, `Time_Exit_Close`, `T`. First-hit semantics within `max_holding_days`; `LEAST` resolves same-day target+stop.
+- **`cluster_metadata`** — 6-row lookup (`Cluster` PK, `Description`), replaced verbatim each run.
+
 ### `table_registry` (client-DML object registry, schema v8)
 
 Server-owned registry of every client-created object under an
@@ -1076,20 +1109,23 @@ python -m pytest tests/test_flight_server.py -q
 python -m pytest tests/ -v
 ```
 
-The test suite includes 1040 tests covering:
+The test suite includes ~1,940 tests covering:
 
 | Test File | Coverage |
 |-----------|----------|
 | `test_breadth_dashboard.py` | Market breadth dashboard: verbatim SQL, EMA seeding, indicators, figure, CLI |
+| `test_client_dml.py` | Client DML: namespace confinement, op validation, denylist, wire-level probes, `put_frame` error propagation |
 | `test_config.py` | `initial_load_years` + `market_breadth_years` config fields (both impls) |
 | `test_config_breaking.py` | Config validation, edge cases, breaking changes |
 | `test_correlation_dashboard.py` | Correlation dashboard module: SQL, to_wide/dropna, returns kinds, figure structure, CORR_GUIDE + CORR_INTRO_GUIDE/CORR_LOOKFOR_GUIDE |
 | `test_db.py` | DatabaseManager: schema, migrations, upsert, queries |
 | `test_delisted_lifecycle.py` | Delisted ticker handling |
 | `test_do_put.py` | do_put schema validation, exclude filtering, upsert |
+| `test_exclude_rows.py` | Excluded-ticker filtering/purge paths |
 | `test_fear_greed.py` | CNN Fear & Greed: parse/resilience, upsert idempotency, bridge, action, config |
 | `test_flight_server.py` | do_get SELECT validation, do_action routing |
 | `test_health_check.py` | health_check + get_run_history actions |
+| `test_incident_watch.py` | Incident health-watch: folder lifecycle, severity classification, dedup/escalation, auto-resolve |
 | `test_ingestion.py` | IngestionEngine: initial/daily/on-request loads |
 | `test_integration.py` | End-to-end Flight server integration |
 | `test_logging.py` | JSON/text logging, log file path |
@@ -1099,12 +1135,14 @@ The test suite includes 1040 tests covering:
 | `test_poll_tasks.py` | Task lifecycle manager (claim/done/blocked/stale) |
 | `test_query_timeout.py` | Query timeout enforcement, no LIMIT injection |
 | `test_r2_sync.py` | R2 sync (mocked boto3), auto-sync, manual sync |
+| `test_raw_close.py` | Raw vs adjusted close handling |
 | `test_fear_greed_dashboard.py` | Fear & Greed dashboard module: SQL builder, window presets, rating ordinals, figure structure |
 | `test_report_app.py` | Streamlit report app: SQL builders, fetch fallback, xlsx, Market Breadth + RRG + Fear & Greed + Correlation tabs |
 | `test_rrg_dashboard.py` | RRG dashboard: verbatim presets, weekly_close SQL, RRG math, figure, LLM payload, CLI |
 | `test_scheduler.py` | PipelineScheduler (mocked APScheduler) |
 | `test_store_csv.py` | CSV store (legacy) |
 | `test_weekly.py` | Weekly layer: Friday-dated weekly_close, weekly_indicators, refresh ordering, bridge |
+| `test_weekly_orphans.py` | Orphan indicator rows removed when weekly_close rows are deleted |
 
 All external services (yfinance, boto3, APScheduler) are mocked in tests — no real network calls.
 
@@ -1192,26 +1230,24 @@ All lifecycle commands automatically commit and push to `origin main`.
 These issues were identified during review but are non-blocking. They may be addressed in a future hardening cycle:
 
 1. **Pydantic boolean coercion** — `query_timeout_seconds` may accept booleans (Pydantic coerces `true` to `1`).
-2. **Prefix-only SQL validation** — `do_get` validates only the SQL prefix; trailing statements after a semicolon may execute.
-3. **Daemon worker continuation** — the query worker thread may continue running after `threading.Timer` signals a timeout.
-4. **Audit status `UNKNOWN`** — some ingestion result dictionaries omit a `status` key, causing the audit row to record `UNKNOWN`.
-5. **DuckDB API deprecation** — `fetch_arrow_table()` may be deprecated in DuckDB 1.5.5.
-6. **R2 exception handling** — `sync_to_r2` does not wrap credential/file/bucket exceptions in `FlightServerError`.
-7. **R2 PARTIAL zero-row sync** — auto-sync triggers on `PARTIAL` even when `total_rows == 0`.
-8. **Cross-platform key building** — `_build_key` uses `os.path.basename` which may not split Windows backslash paths on Linux.
-9. **Scheduler broad exception retry** — `_create_db_manager` retries on any `Exception`, not only DuckDB lock errors.
-10. **Scheduler shutdown** — `shutdown(wait=False)` may not await long-running jobs before process exit.
-11. **Scheduler timezone validation** — invalid timezone strings crash on `scheduler.start()` instead of being caught earlier.
-12. **do_put read_all** — uses `reader.read_all()` instead of `pyarrow.Table.from_batches()` (functionally equivalent).
-13. **health_check column swap** — `get_health_info()` swaps `schema_version` and `last_run` columns, causing JSON serialization issues in some cases.
-14. **`do_get` `WITH…INSERT` gap** — the prefix validator passes any `WITH`-led statement; DML is rejected only by the read-only transaction fallback — the protection is incidental, not by-design (the challenger impl's `_FORBIDDEN_RE` closes it).
-15. **`do_put` ignores `descriptor`** — uploads are hardcoded to `daily_close` regardless of the flight descriptor path.
-16. **Macro tickers share `daily_close`** — `^TNX`/`CL=F`/`^IRX` join breadth denominators (3/~1213, negligible) and `CL=F`'s large notional can surface in dollar-volume rankings.
-17. **Correlation tab residuals** — the coverage warning is computed on full history, so it can fire when the differing range lies outside the selected window preset; a degenerate-Y scatter draws a slope-0 trendline under "corr n/a"; rolling `window=1` renders an all-NaN line (unreachable via the UI minimum of 10).
-18. **F&G guide legend wording** — says "Red / dark red" for fear though the band renders orange `#ff7f0e` (inherited from the source doc).
-19. **`pending_session` WARN is expected** — `data_health` warns while today's session is still open; it self-resolves after close.
-20. **`INDICATORS`/`FEAR_GREED_SUB_INDICATORS` drift risk** — the heatmap's label list duplicates the ingestion constant; a future rename produces a silent all-gap heatmap row, not a mislabel.
-21. **RRG Custom benchmark not normalized** — a lowercase `spy` errors rather than uppercasing (pre-existing preset behavior).
+2. **Daemon worker continuation** — the query worker thread may continue running after `threading.Timer` signals a timeout.
+3. **Audit status `UNKNOWN`** — some ingestion result dictionaries omit a `status` key, causing the audit row to record `UNKNOWN`.
+4. **DuckDB API deprecation** — `fetch_arrow_table()` may be deprecated in DuckDB 1.5.5.
+5. **R2 exception handling** — `sync_to_r2` does not wrap credential/file/bucket exceptions in `FlightServerError`.
+6. **R2 PARTIAL zero-row sync** — auto-sync triggers on `PARTIAL` even when `total_rows == 0`.
+7. **Cross-platform key building** — `_build_key` uses `os.path.basename` which may not split Windows backslash paths on Linux.
+8. **Scheduler broad exception retry** — `_create_db_manager` retries on any `Exception`, not only DuckDB lock errors.
+9. **Scheduler shutdown** — `shutdown(wait=False)` may not await long-running jobs before process exit.
+10. **Scheduler timezone validation** — invalid timezone strings crash on `scheduler.start()` instead of being caught earlier.
+11. **do_put read_all** — uses `reader.read_all()` instead of `pyarrow.Table.from_batches()` (functionally equivalent).
+12. **health_check column swap** — `get_health_info()` swaps `schema_version` and `last_run` columns, causing JSON serialization issues in some cases.
+13. **Built-in file readers reachable via `do_get`** — `read_text`/`read_blob`/`glob`/`sniff_csv` remain callable inside a SELECT for trusted local clients (disclosed in `DATA_SERVICE_API.md`).
+14. **Macro tickers share `daily_close`** — `^TNX`/`CL=F`/`^IRX`/`^VIX` join breadth denominators (4/~1220, negligible) and `CL=F`'s large notional can surface in dollar-volume rankings.
+15. **Correlation tab residuals** — the coverage warning is computed on full history, so it can fire when the differing range lies outside the selected window preset; a degenerate-Y scatter draws a slope-0 trendline under "corr n/a"; rolling `window=1` renders an all-NaN line (unreachable via the UI minimum of 10).
+16. **F&G guide legend wording** — says "Red / dark red" for fear though the band renders orange `#ff7f0e` (inherited from the source doc).
+17. **`pending_session` WARN is expected** — `data_health` warns while today's session is still open; it self-resolves after close.
+18. **`INDICATORS`/`FEAR_GREED_SUB_INDICATORS` drift risk** — the heatmap's label list duplicates the ingestion constant; a future rename produces a silent all-gap heatmap row, not a mislabel.
+19. **RRG Custom benchmark not normalized** — a lowercase `spy` errors rather than uppercasing (pre-existing preset behavior).
 
 ---
 
