@@ -1,8 +1,8 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-17 (delta re-review)
+Last Updated: 2026-10-20 (HRAW-T1 blocked)
 Current Branch: main
 
-## HRAW-T1 — RawClose health + incident watch — registered
+## HRAW-T1 — RawClose health + incident watch — BLOCKED (scope amendment needed)
 
 Plan approved 2026-10-17. Add a bounded, count-faithful SQL `raw_close`
 section to `data_health`; classify one incident per affected ticker (recent
@@ -12,6 +12,41 @@ conservatively; document the JSON/severity/remediation contract. Sequential
 Executor B -> Challenger C -> Critic D -> live deploy -> independent
 ChatGPT-style external review. Known live baseline: 6,507 NULLs across WBD,
 QRVO and LESL; no false positive for the eight valid non-positive values.
+
+Executor-B resume pass (2026-10-20): the prior session's implementation was
+already committed in 33ce99d (~557 lines: src/db.py checks.raw_close SQL
+section; scripts/incident_watch.py raw_close classification; focused tests;
+docs). Review confirmed it matches every prose AC: SQL-computed
+total_rows/invalid_count/affected_ticker_count, four disjoint reason_counts,
+bounded per_ticker aggregates (ticker, invalid_count, first_date, last_date);
+finite zero/negative RawClose treated valid; CHECK_FAILED on malformed/older
+schemas; watcher emits ONE finding per affected ticker (recent SEV2 with
+refetch guidance, historical SEV3, acknowledged_delisted SEV4 suppressed),
+conservative count-level SEV3 for unattributed counts, anomaly findings for
+malformed payloads, suppressed_detail exposes raw_close count+invalid_count,
+prior-evidence scan includes raw_close per_ticker; all three docs cover the
+JSON shape, severities, suppression/remediation and the 6,507-row delisted
+limitation. Gates: AC1 focused 110/110 PASS, AC3 strict loops clean (17
+files), AC4 watcher self-test PASS.
+
+**Active blocker (B, 2026-10-20):** AC2 `pytest tests/ -q` fails — 10 tests
+in tests/test_db.py (`test_health_ok_when_data_current`,
+`test_health_pending_session_not_expected_pre_close` x3,
+`test_health_post_grace_data_present_ok`,
+`test_health_gap_window_drops_pending_session`,
+`test_health_naive_now_treated_as_utc`,
+`test_health_as_of_without_now_counts_as_of_session`,
+`test_health_injected_trading_days_bypass_pending`,
+`test_health_weekend_as_of_has_no_pending`) assert health_status=OK after
+`_seed_current`, whose `make_df` builds legacy 7-column frames →
+RawClose=NULL → correctly counted as `null_raw` invalid → WARN. NULL
+flagging is required by the HRAW ACs (the live 6,507-NULL baseline exists
+to be surfaced) and R1A-T1 mandates legacy upserts keep NULL RawClose, so
+the only correct fix is seeding RawClose in test_db.py fixtures — which is
+NOT in HRAW-T1 output_files. REQUIRED ORCHESTRATOR ACTION: add
+`tests/test_db.py` to HRAW-T1 output_files (scope amendment; precedent
+fe3921a "mechanical compatibility tests"), reset task to todo, respawn B to
+update `make_df`/`_seed_current` and re-run verify→done.
 
 ## R1A-T1 — RawClose (schema v9) — code PASS; deployment gate partial
 

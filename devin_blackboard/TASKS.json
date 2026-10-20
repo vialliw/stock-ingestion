@@ -4382,7 +4382,7 @@
     "title": "Add RawClose health reporting and incident-watch classification",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "blocked",
     "assigned_to": "B",
     "depends_on": [],
     "input_files": [
