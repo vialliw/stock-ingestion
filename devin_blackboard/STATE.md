@@ -1,6 +1,28 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-20 (HRAW-T1 done — executor B)
+Last Updated: 2026-10-20 (HRAW-T1 — Challenger C APPROVED)
 Current Branch: main
+
+## HRAW-T1 — RawClose health + incident watch — Challenger C APPROVED (2026-10-20)
+
+**CHALLENGER-C verdict: APPROVED** (HEAD 11c17fe; impl 33ce99d + fixture fix
+0b9431a). Independent real temp DuckDB + synthetic watcher probes (12
+categories, all PASS): SQL raw_close edge matrix (zero/negative/NULL/NaN/±inf
+raw, ratio zero/negative/NaN/±inf, zero/zero valid, negative-raw positive-ratio
+valid, negative-raw negative-ratio flagged); pre-v9 schema -> CHECK_FAILED no
+crash; per-ticker truncation keeps faithful totals; WARN rollup; watcher
+recent->SEV2/historical->SEV3/ack-delisted->SEV4-suppressed/unattributed->SEV3
+count-level/malformed->anomaly/one-per-ticker; truncated+unattributed dual
+finding; prior-evidence scan includes raw_close per_ticker; suppressed_detail
+exposes invalid_count; 2 mutation-kills confirm test non-vacuity; gates
+test_health_check+test_incident_watch 110/110, test_db 120/120, check_loops
+--strict clean (17); scope audit matches output_files + blackboard only;
+README.md == docs/README.md byte-identical; docs cover JSON shape/severities/
+suppression/remediation + 6,507-row WBD/QRVO/LESL limitation. Advisory only:
+AC wording "Finite zero/negative RawClose are VALID" is slightly ambiguous vs
+the factor-check clause, but the implementation correctly separates value-
+validity from factor-check (legitimate negative-raw positive-ratio stays
+valid) — matches live 8-value baseline + R1A-T1 history. No code change
+needed. Next: Critic D -> orchestrator deploy gate.
 
 ## HRAW-T1 — RawClose health + incident watch — DONE (executor B, 2026-10-20)
 
