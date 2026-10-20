@@ -1,9 +1,17 @@
 # Incident Playbook — Detect → Triage → Fix → Verify → Record
 
 End-to-end playbook for working the StockIngestion-HealthWatch incident
-queue. Combines the agent skills `.devin/skills/incident-handle` (working
-the queue) and `.devin/skills/incident-writeup` (writing it up) into one
-procedure for humans and agents.
+queue. This document **combines two agent skills into one procedure** —
+`.devin/skills/incident-handle` (working the queue: triage, root-cause,
+remediate, verify) and `.devin/skills/incident-writeup` (recording the
+resolution in plain English) — for humans and agents.
+
+It does **not** cover the watcher machinery itself. The automated
+detection layer (`scripts/incident_watch.py`, the `StockIngestion-
+HealthWatch` scheduled task, severities, suppression file schema, folder
+lifecycle) is documented separately in `docs/INCIDENT_WATCH.md` and stays
+deployed as a scheduled task — the playbook starts where the watcher
+stops: a non-empty `open\` folder or a stale heartbeat.
 
 Store: `C:\Intel\incidents\stock-ingestion\` (repo junction `incidents\`)
 · Ops guide: `docs/INCIDENT_WATCH.md` · Spec:
