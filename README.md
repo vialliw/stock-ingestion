@@ -628,7 +628,7 @@ powershell -ExecutionPolicy Bypass -File scripts\register_incident_watch.ps1 -Un
 
 The default principal is SYSTEM (elevated registration; the task is hidden from the non-elevated Task Scheduler GUI) — pass `-UserPrincipal` to register under your own account instead (visible in Task Scheduler without elevation; runs only while you're logged on).
 
-The watcher writes into a **centralized cross-project incident store** — `C:\Intel\incidents\stock-ingestion\` with `open\` / `acknowledged\` / `resolved\` trees, `_reports\` raw health snapshots, and `_config\suppressions.json` — reached from the repo through the `incidents\` junction (`mklink /J`) created by the registration script (layout: `docs/incident_management_requirements.md` §7). An **empty `open\` plus a fresh `_last_check.json` = healthy**; a stale heartbeat means the watcher itself is down.
+The watcher writes into a **centralized cross-project incident store** — `C:\Intel\incidents\stock-ingestion\` with `open\` / `acknowledged\` / `resolved\` trees, `_reports\` raw health snapshots, and `_config\suppressions.json` — reached from the repo through the `incidents\` junction (`mklink /J`) created by the registration script (layout: `docs/incident_management_requirements.md` §7). An **empty `open\` plus a fresh `_last_check.json` = healthy**; a stale heartbeat means the watcher itself is down. Working the queue (triage → remediate → verify → record): `docs/INCIDENT_PLAYBOOK.md`.
 
 Offline check — no Flight server, config, or store needed; runs a bundled synthetic WARN fixture into a fresh temp dir:
 
