@@ -1,6 +1,6 @@
 ---
 name: incident-handle
-description: Work incident folders from the StockIngestion-HealthWatch store — triage, delisting vs fetch-failure vs corruption triage tree, remediation via Flight actions or suppressions, verify auto-resolve
+description: Work incident folders from the StockIngestion-HealthWatch store end-to-end — heartbeat check, triage, delisting vs fetch-failure vs corruption tree, remediation via Flight actions or suppressions, verify auto-resolve, then record the resolution in plain English (resolution_note + closed GitHub issue)
 triggers:
   - user
   - model
@@ -12,11 +12,14 @@ allowed-tools:
   - edit
 ---
 
-# incident-handle — working the incident queue
+# incident-handle — working the incident queue, end to end
 
-Companion to the `stock-ingestion-ops` runbook. Invoke when `incidents/open/`
-(repo junction → `C:\Intel\incidents\stock-ingestion\open`) is non-empty or
-`_last_check.json` is stale.
+Companion to the `stock-ingestion-ops` runbook; the human-facing version of
+this whole procedure is `docs/INCIDENT_PLAYBOOK.md`. Invoke when
+`incidents/open/` (repo junction → `C:\Intel\incidents\stock-ingestion\open`)
+is non-empty or `_last_check.json` is stale. Covers the full lifecycle:
+detect → triage → root-cause → remediate → verify → **record** (plain-English
+writeup, steps 6 below).
 
 Store: `C:\Intel\incidents\stock-ingestion\` · Spec:
 `docs/incident_management_requirements.md` · Ops guide: `docs/INCIDENT_WATCH.md`
@@ -159,6 +162,48 @@ If a folder was created by a watcher bug (not a data problem), the fix is a
 code task on `scripts/incident_watch.py` via the blackboard (INC-T5 pattern:
 registered, executor B, challenger, critic) — NOT a suppression entry. Tell
 the orchestrator; do not hand-edit `src/`/`scripts/` from a handler session.
+
+## Step 6 — record (plain-English writeup)
+
+Every resolved folder gets a `resolution_note` in its `incident.json`, and
+each incident gets a **closed GitHub issue** in `vialliw/stock-ingestion`
+(labels `incident` + `sevN` + `resolved`; title `[INC YYYY-MM-DD] …`;
+GitHub can't backdate — the body carries the true timeline table: incident
+key, severity, check, first/last seen, severity history, verbatim report).
+
+Write the Resolution in plain English — three parts:
+
+```
+**What happened:**
+- <what the check flagged, one line>
+- <what we checked and found>
+- <"First fix (too weak): …" — admit course-corrections>
+
+**What we did:**
+1. <action>
+2. <action>
+
+**Outcome:** <what's true now, residual risk, anything reversible>
+```
+
+Vocabulary rules:
+- Everyday words first: "the vendor still serves this bar" not
+  "vendor-consistent"; "marked harmless" not "suppressed"; "re-downloaded"
+  not "re-fetched"; "removed" not "purged" (unless purge is the load-bearing
+  semantic — then "removed (purged)").
+- Keep exact identifiers verbatim — `delete_daily_rows`, `on_request_load`,
+  `ingestion.exclude_rows`, `acknowledged_delisted`, INC-T6, `daily_close`,
+  `weekly_close`. Never paraphrase these.
+- Name the vendor once, plainly: "Yahoo" or "the vendor (Yahoo)".
+- Translate jargon once, inline ("a ghost bar the vendor keeps for a dead
+  stock"); keep numbers concrete (row counts, dates, windows).
+- Honest uncertainty: "we couldn't prove it was safe — removed but logged,
+  so it can be restored if ever proven real."
+- Short sentences; a reader who doesn't know this codebase should follow
+  flagged → checked → found → fixed → verified.
+
+Reference example (approved style — WBD 2026-10-05 ghost bar): GitHub issue
+#1's Resolution section.
 
 ## Gotchas
 

@@ -4917,3 +4917,5 @@ Evidence map:
 [2026-10-20][ORCH] Added docs/INCIDENT_PLAYBOOK.md — combined human-facing playbook merging incident-handle (detect→triage→fix→verify) + incident-writeup (record). README twins updated with pointer (byte-identical preserved).
 
 [2026-10-20][ORCH] Clarified INCIDENT_PLAYBOOK.md scope: it combines incident-handle + incident-writeup skills; the detection layer (incident_watch.py + StockInestion-HealthWatch scheduled task) stays documented in INCIDENT_WATCH.md — playbook starts where the watcher stops.
+
+[2026-10-20][ORCH] Merged incident-writeup into incident-handle (single skill covering handle+record; Step 6 = plain-English writeup rules). Deleted .devin/skills/incident-writeup/. INCIDENT_PLAYBOOK.md re-scoped: human-facing version of the combined skill.

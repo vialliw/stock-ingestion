@@ -1,10 +1,11 @@
 # Incident Playbook — Detect → Triage → Fix → Verify → Record
 
 End-to-end playbook for working the StockIngestion-HealthWatch incident
-queue. This document **combines two agent skills into one procedure** —
-`.devin/skills/incident-handle` (working the queue: triage, root-cause,
-remediate, verify) and `.devin/skills/incident-writeup` (recording the
-resolution in plain English) — for humans and agents.
+queue. This is the human-facing version of the agent skill
+`.devin/skills/incident-handle`, which covers the whole lifecycle in one
+place — **handling** the queue (triage, root-cause, remediate, verify) and
+**recording** each resolution in plain English (resolution_note + closed
+GitHub issue). Same procedure, two presentations.
 
 It does **not** cover the watcher machinery itself. The automated
 detection layer (`scripts/incident_watch.py`, the `StockIngestion-
@@ -136,7 +137,7 @@ accounts for every known-benign item.
 - **Never** bury a watcher bug under a suppression — file a blackboard
   defect task on `scripts\incident_watch.py` instead (INC-T5 pattern).
 
-## Phase 6 — Record (incident-writeup style)
+## Phase 6 — Record (plain-English writeup)
 
 Every resolved folder gets a `resolution_note` in `incident.json`, and
 each incident gets a **closed GitHub issue** in `vialliw/stock-ingestion`
@@ -164,8 +165,8 @@ Vocabulary: everyday words first ("the vendor still serves this bar",
 INC-T6, `daily_close`), jargon translated once inline, concrete numbers
 and dates, honest uncertainty ("unknown — removed but logged, restorable").
 
-Reference example — `docs\INCIDENT_PLAYBOOK.md` issues #1–#15 and
-`.devin\skills\incident-writeup\SKILL.md` (WBD ghost-bar example).
+Reference example — GitHub issues #1–#15, especially #1 (the WBD ghost
+bar); the same style rules live in `incident-handle` Step 6.
 
 ## Recurring patterns (learned)
 
