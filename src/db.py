@@ -1632,7 +1632,82 @@ class DatabaseManager:
                     [max_items],
                 ).fetchall()
 
-                # (d) DUPLICATE (Ticker, Date) keys — defensive; the
+                # (d) RAW_CLOSE — NULL/non-finite RawClose, or nonzero
+                # RawClose with a non-finite/non-positive Close/RawClose
+                # factor.  Finite zero/negative RawClose values are
+                # valid market observations; zero RawClose has an
+                # undefined factor but is not itself invalid.
+                raw_invalid_condition = """
+                    RawClose IS NULL OR isnan(RawClose) OR isinf(RawClose)
+                    OR (
+                        RawClose <> 0
+                        AND (
+                            isnan(Close / RawClose)
+                            OR isinf(Close / RawClose)
+                            OR (Close / RawClose) <= 0
+                        )
+                    )
+                """
+                # Priority-ordered reason filters so each invalid row is
+                # counted exactly once (count-faithful reason_counts).
+                raw_close_row = conn.execute(
+                    f"""
+                    SELECT
+                        COUNT(*) AS total_rows,
+                        COUNT(*) FILTER (WHERE ({raw_invalid_condition}))
+                            AS invalid_count,
+                        COUNT(DISTINCT CASE WHEN ({raw_invalid_condition})
+                                       THEN Ticker END)
+                            AS affected_ticker_count,
+                        COUNT(*) FILTER (
+                            WHERE ({raw_invalid_condition})
+                              AND RawClose IS NULL
+                        ) AS null_raw,
+                        COUNT(*) FILTER (
+                            WHERE ({raw_invalid_condition})
+                              AND RawClose IS NOT NULL
+                              AND (isnan(RawClose) OR isinf(RawClose))
+                        ) AS nonfinite_raw,
+                        COUNT(*) FILTER (
+                            WHERE ({raw_invalid_condition})
+                              AND RawClose IS NOT NULL
+                              AND NOT (isnan(RawClose) OR isinf(RawClose))
+                              AND RawClose <> 0
+                              AND (
+                                  isnan(Close / RawClose)
+                                  OR isinf(Close / RawClose)
+                              )
+                        ) AS nonfinite_factor,
+                        COUNT(*) FILTER (
+                            WHERE ({raw_invalid_condition})
+                              AND RawClose IS NOT NULL
+                              AND NOT (isnan(RawClose) OR isinf(RawClose))
+                              AND RawClose <> 0
+                              AND NOT (
+                                  isnan(Close / RawClose)
+                                  OR isinf(Close / RawClose)
+                              )
+                              AND (Close / RawClose) <= 0
+                        ) AS nonpositive_factor
+                    FROM daily_close
+                    """
+                ).fetchone()
+                raw_close_samples = conn.execute(
+                    f"""
+                    SELECT Ticker,
+                           COUNT(*) AS invalid_count,
+                           CAST(MIN(Date) AS VARCHAR) AS first_date,
+                           CAST(MAX(Date) AS VARCHAR) AS last_date
+                    FROM daily_close
+                    WHERE {raw_invalid_condition}
+                    GROUP BY Ticker
+                    ORDER BY Ticker
+                    LIMIT ?
+                    """,
+                    [max_items],
+                ).fetchall()
+
+                # (e) DUPLICATE (Ticker, Date) keys — defensive; the
                 # PRIMARY KEY (Date, Ticker) normally prevents these.
                 dup_rows = conn.execute(
                     """
@@ -1704,12 +1779,14 @@ class DatabaseManager:
 
         violation_count = int(integrity_row[3]) if integrity_row else 0
         total_missing_days = sum(int(r[1]) for r in gap_rows)
+        raw_close_invalid = int(raw_close_row[1]) if raw_close_row else 0
         findings = (
             len(stale_rows)
             + len(missing_rows)
             + violation_count
             + len(dup_rows)
             + total_missing_days
+            + raw_close_invalid
         )
         report: Dict[str, Any] = {
             "health_status": "WARN" if findings else "OK",
@@ -1750,6 +1827,38 @@ class DatabaseManager:
                     "violations": [
                         {"ticker": r[0], "date": r[1], "reason": r[2]}
                         for r in integrity_samples
+                    ],
+                },
+                "raw_close": {
+                    "total_rows": (
+                        int(raw_close_row[0]) if raw_close_row else 0
+                    ),
+                    "invalid_count": raw_close_invalid,
+                    "affected_ticker_count": (
+                        int(raw_close_row[2]) if raw_close_row else 0
+                    ),
+                    "reason_counts": {
+                        "null_raw": (
+                            int(raw_close_row[3]) if raw_close_row else 0
+                        ),
+                        "nonfinite_raw": (
+                            int(raw_close_row[4]) if raw_close_row else 0
+                        ),
+                        "nonfinite_factor": (
+                            int(raw_close_row[5]) if raw_close_row else 0
+                        ),
+                        "nonpositive_factor": (
+                            int(raw_close_row[6]) if raw_close_row else 0
+                        ),
+                    },
+                    "per_ticker": [
+                        {
+                            "ticker": r[0],
+                            "invalid_count": int(r[1]),
+                            "first_date": r[2],
+                            "last_date": r[3],
+                        }
+                        for r in raw_close_samples
                     ],
                 },
                 "duplicates": {

@@ -4779,3 +4779,5 @@ and interim raw-close history work are Orchestrator-owned.
 [2026-10-18][ORCH] Recorded all 13 resolved incidents as closed GitHub issues #1-#13 on vialliw/stock-ingestion (labels: incident, sev2/sev3, resolved). GitHub cannot backdate created_at — each issue title carries the incident date and the body records the true timeline (first_seen/last_seen/severity history/evidence/verbatim report/resolution narrative + auto-resolve ts from events.jsonl). Scripts kept in %TEMP% only.
 
 [2026-10-18][ORCH] Added .devin/skills/incident-writeup/SKILL.md — plain-English "What happened / What we did / Outcome" resolution style (user-approved Version-B). Rewrote all 13 GitHub incident issues' Resolution sections in that style and synced resolution_note fields in every resolved incident.json (local store now matches the issues).
+
+[2026-10-20T16:21:15.412615+00:00] [SYSTEM] auto-recovered stale lock for HRAW-T1 (was claimed by B since 2026-10-17T20:12:49.805823+00:00). Task reset to todo.

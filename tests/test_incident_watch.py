@@ -1155,6 +1155,142 @@ def _write_delisted(root: Path, *tickers) -> None:
         encoding="utf-8")
 
 
+# ---------------------------------------------------------------------
+# HRAW-T1: RawClose findings
+# ---------------------------------------------------------------------
+
+def _raw_close_check(per_ticker, invalid_count=None):
+    """Build a raw_close check dict from a list of per-ticker entries."""
+    if invalid_count is None:
+        invalid_count = sum(e.get("invalid_count", 0) for e in per_ticker)
+    return {
+        "total_rows": 1000,
+        "invalid_count": invalid_count,
+        "affected_ticker_count": len(per_ticker),
+        "reason_counts": {
+            "null_raw": 0, "nonfinite_raw": 0,
+            "nonfinite_factor": 0, "nonpositive_factor": 0,
+        },
+        "per_ticker": list(per_ticker),
+    }
+
+
+class TestRawClose:
+    def test_recent_raw_close_invalid_is_sev2(self, tmp_path):
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["raw_close"] = _raw_close_check([
+            {"ticker": "WBD", "invalid_count": 2535,
+             "first_date": "2016-09-01", "last_date": _WE},
+        ])
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_raw_close_WBD" in n for n in names)
+        inc = _incident(tmp_path, "open",
+                        next(n for n in names if "raw_close_WBD" in n))
+        assert "re-fetch" in inc["suggested_action"].lower()
+
+    def test_historical_raw_close_invalid_is_sev3(self, tmp_path):
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["raw_close"] = _raw_close_check([
+            {"ticker": "WBD", "invalid_count": 2535,
+             "first_date": "2016-09-01", "last_date": "2016-09-02"},
+        ])
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev3_raw_close_WBD" in n for n in names)
+        assert not any("_sev2_raw_close_WBD" in n for n in names)
+
+    def test_acknowledged_delisted_raw_close_suppressed(self, tmp_path):
+        _write_delisted(tmp_path, "WBD", "QRVO", "LESL")
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["raw_close"] = _raw_close_check([
+            {"ticker": "WBD", "invalid_count": 2535,
+             "first_date": "2016-09-01", "last_date": _WE},
+            {"ticker": "QRVO", "invalid_count": 2535,
+             "first_date": "2016-09-01", "last_date": _WE},
+            {"ticker": "LESL", "invalid_count": 1437,
+             "first_date": "2020-10-29", "last_date": _WE},
+        ])
+        stats = _run(tmp_path, h)
+        assert _open_names(tmp_path) == []
+        assert stats["suppressed_detail"]["raw_close"]["count"] == 3
+        assert stats["suppressed_detail"]["raw_close"]["invalid_count"] == 6507
+        hb = json.loads((tmp_path / "_last_check.json").read_text(
+            encoding="utf-8"))
+        assert hb["suppressed_detail"]["raw_close"]["invalid_count"] == 6507
+
+    def test_raw_close_count_only_is_sev3(self, tmp_path):
+        """Invalid rows the bounded per_ticker list cannot attribute still
+        produce a single conservative count-level SEV3 finding."""
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["raw_close"] = _raw_close_check(
+            [], invalid_count=42)
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev3_raw_close_count42" in n for n in names)
+        assert not any("_sev2_raw_close" in n for n in names)
+
+    def test_raw_close_one_folder_per_ticker_not_per_row(self, tmp_path):
+        """2,535 invalid rows for one ticker create exactly one folder."""
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["raw_close"] = _raw_close_check([
+            {"ticker": "WBD", "invalid_count": 2535,
+             "first_date": "2016-09-01", "last_date": _WE},
+        ])
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert len(names) == 1
+        assert len(stats["new"]) == 1
+        assert "WBD" in names[0]
+
+    def test_raw_close_malformed_payload_no_crash(self, tmp_path):
+        h = _health()
+        h["daily_close"]["checks"]["raw_close"] = "query failed"
+        stats = _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("raw_close_malformed_payload" in n for n in names)
+        assert stats["new"]
+
+    def test_raw_close_auto_resolves(self, tmp_path):
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["raw_close"] = _raw_close_check([
+            {"ticker": "WBD", "invalid_count": 1,
+             "first_date": _WE, "last_date": _WE},
+        ])
+        _run(tmp_path, h)
+        assert _open_names(tmp_path)
+        stats = _run(tmp_path, _health())
+        assert _open_names(tmp_path) == []
+        assert len(stats["resolved"]) == 1
+        assert "raw_close_WBD" in stats["resolved"][0]
+
+    def test_raw_close_prior_evidence_affects_coverage(self, tmp_path):
+        """A ticker listed in a prior raw_close snapshot counts as
+        previously-held data for the coverage SEV2 rule."""
+        prior = _health()
+        prior["daily_close"]["checks"]["raw_close"] = _raw_close_check([
+            {"ticker": "QRVO", "invalid_count": 1,
+             "first_date": _WE, "last_date": _WE},
+        ])
+        (tmp_path / "_reports").mkdir(parents=True)
+        (tmp_path / "_reports" / "2026-10-08.json").write_text(
+            json.dumps(prior), encoding="utf-8")
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["coverage"] = {
+            "missing_count": 1, "configured_count": 1214,
+            "missing_tickers": ["QRVO"]}
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_coverage_QRVO" in n for n in names)
+
+
 class TestDelistedAggregateExclusion:
     def test_delisted_gap_days_excluded_from_total(self, tmp_path):
         """Live repro: 31 delisted + 2 live days = 33 reported -> the

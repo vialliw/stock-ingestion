@@ -297,7 +297,7 @@ result rows. Payloads are optional JSON objects unless noted.
 | Action | Payload | Returns | Purpose |
 |---|---|---|---|
 | `health_check` | — | `{status, db_connected, db_path, ticker_count, daily_close_count, schema_version, uptime_seconds, last_run}` | Service/DB liveness |
-| `data_health` | `{gap_days?: int≥1}` | `{status, health:{health_status: OK\|WARN\|CHECK_FAILED, mode, as_of, latest_trading_day, pending_session, checks:{staleness, coverage, integrity, duplicates, gaps}, daily_close:{…own status…}, fear_greed:{health_status: OK\|WARN\|CHECK_FAILED\|DISABLED, …}, weekly:{health_status, …}, company_metadata:{health_status, …}}}` | Full composite data-quality report (see note below) |
+| `data_health` | `{gap_days?: int≥1}` | `{status, health:{health_status: OK\|WARN\|CHECK_FAILED, mode, as_of, latest_trading_day, pending_session, checks:{staleness, coverage, integrity, duplicates, gaps, raw_close}, daily_close:{…own status…}, fear_greed:{health_status: OK\|WARN\|CHECK_FAILED\|DISABLED, …}, weekly:{health_status, …}, company_metadata:{health_status, …}}}` | Full composite data-quality report (see note below) |
 | `daily_load` | `{force?: bool}` | `{status: SUCCESS\|PARTIAL\|SKIPPED, tickers_*, rows_upserted, health, metadata, weekly}` | Today's incremental load (write) |
 | `initial_load` | `{years?: int 1–30}` | like `daily_load` | Full-history load (write) |
 | `on_request_load` | `{tickers: [str], start_date, end_date}` — **required** | like `daily_load` | Custom-range backfill (write) |
@@ -310,6 +310,19 @@ result rows. Payloads are optional JSON objects unless noted.
 | `dml_admin` | `{op: <enum>, ...}` — see §4.1 | `{status: SUCCESS\|FAILED\|REJECTED, op, target, rows_written?, error?, ...}` | Client-issued DML confined to `client_dml.allowed_namespaces` (the `pivot` contract): create/replace/append/drop registered tables and views, pin/unpin, TTL sweep. Every op is audited in `client_dml_audit` — including REJECTED ones. |
 | `get_run_history` | — | `{status, run_history: [...]}` | `ingestion_runs` audit log |
 | `sync_to_r2` | — | R2 sync result | Push DB artifact to Cloudflare R2 |
+
+> **RawClose health (`checks.raw_close`).** Added in schema v9/HRAW-T1.
+> Reports `total_rows`, `invalid_count`, `affected_ticker_count`,
+> disjoint `reason_counts` (`null_raw`, `nonfinite_raw`,
+> `nonfinite_factor`, `nonpositive_factor`), and a bounded `per_ticker`
+> list (`ticker`, `invalid_count`, `first_date`, `last_date`).  A row is
+> invalid only when `RawClose` is NULL/non-finite, or when `RawClose` is
+> nonzero and `Close / RawClose` is non-finite or non-positive.  Finite
+> zero (`^IRX`) and negative (`CL=F` Apr-2020) `RawClose` values are valid
+> market observations; zero `RawClose` has an undefined adjustment factor
+> but is not a health violation.  The known 6,507 historical NULLs for
+> delisted WBD/QRVO/LESL are surfaced here and suppressed as
+> acknowledged-delisted in the incident watcher.
 
 ### 4.1 Client-issued DML — the `pivot` namespace (`dml_admin`)
 

@@ -42,6 +42,8 @@ daily_close.checks.integrity        # violation_count, reason_counts{}, violatio
 daily_close.checks.duplicates       # duplicate_count, duplicates[]
 daily_close.checks.gaps             # tickers_with_gaps, total_missing_days,
                                     #   per_ticker[{ticker,missing_count,missing_days[]}], window_start/end
+daily_close.checks.raw_close        # total_rows, invalid_count, affected_ticker_count,
+                                    #   reason_counts{}, per_ticker[{ticker,invalid_count,first_date,last_date}]
 fear_greed.health_status            # OK|WARN|CHECK_FAILED|DISABLED (+staleness/integrity/series)
 weekly.health_status                # OK|WARN|CHECK_FAILED (+staleness/parity/stale_tickers/integrity)
 company_metadata.health_status      # OK|WARN|CHECK_FAILED (+coverage/null_fields)
@@ -78,6 +80,9 @@ company_metadata.health_status      # OK|WARN|CHECK_FAILED (+coverage/null_field
 - `integrity` violations dated **within the trailing 30-session window** after
   suppressing the known-benign list (§3) — recent corrupt rows mean the loader
   accepted bad data.
+- `raw_close` invalid rows with `last_date` inside the trailing gap window, after
+  suppressing acknowledged-delisted tickers — recent missing/unusable RawClose
+  means upstream data did not populate or the adjustment factor is broken.
 - `gaps.total_missing_days ≥ 30` in one run, or any single ticker missing ≥ 10
   sessions in the window (broad or persistent gap, not a feed blip).
 - Same incident (any level) unacknowledged across ≥ 3 consecutive checks →
@@ -92,9 +97,14 @@ company_metadata.health_status      # OK|WARN|CHECK_FAILED (+coverage/null_field
 - `company_metadata` coverage WARN.
 - Suspected delisting/corporate action: ticker stale ≥ 5 sessions with no
   integrity error — ticket says "verify ticker status" rather than "re-fetch".
+- `raw_close` invalid rows dated **outside** the trailing window (historical
+  Yahoo-unavailable data), plus any `invalid_count` not attributable to the
+  bounded `per_ticker` list (truncated report).
 
 **SEV4 — log only**
 - Integrity violations matching the known-benign list (§3).
+- `raw_close` rows for acknowledged-delisted tickers (Yahoo-unavailable
+  historical data is expected and cannot be repaired).
 - `company_metadata` null-field rows (informational by design).
 - `pending_session` notes; `DISABLED` optional sections.
 

@@ -807,3 +807,197 @@ def test_report_script_pre_f17_report_shape(capsys):
     assert "[staleness]" in out
     assert "[fear_greed]" not in out
     assert "[weekly]" not in out
+
+
+# =====================================================================
+# HRAW-T1: RawClose health check (real DuckDB)
+# =====================================================================
+
+
+def _seed_daily_close_raw(db, ticker_days):
+    """Upsert rows that include a RawClose column.
+
+    ``ticker_days`` maps ticker -> [(date, raw_close, close), ...].
+    OHLC/Volume are fixed; only RawClose and Close vary per row.
+    """
+    rows = []
+    for ticker, days in ticker_days.items():
+        for d, raw, close in days:
+            rows.append({
+                "Date": pd.to_datetime(d),
+                "Ticker": str(ticker),
+                "Open": 100.0,
+                "High": 105.0,
+                "Low": 95.0,
+                "Close": float(close),
+                "Volume": 1000.0,
+                "RawClose": None if raw is None else float(raw),
+            })
+    if rows:
+        df = pd.DataFrame(rows)
+        db.upsert_dataframe(df)
+
+
+def test_raw_close_clean_values_report_ok(tmp_path):
+    """All valid RawClose values (finite, or zero/negative market
+    observations) keep raw_close.invalid_count at 0."""
+    db = DatabaseManager(str(tmp_path / "raw_clean.duckdb"))
+    try:
+        # Seed today as the only expected session so staleness/gaps are
+        # clean and no tickers are configured for coverage.  Integrity
+        # checks reject non-positive Close, so all Close values must be > 0
+        # here; zero RawClose with positive Close is valid raw-close health.
+        today = "2026-10-17"
+        _seed_daily_close_raw(db, {
+            "AAPL": [(today, 100.0, 102.0)],
+            "^IRX": [(today, 0.0, 0.05)],
+            "MSFT": [(today, 200.0, 204.0)],
+        })
+        report = db.check_daily_close_health(
+            include_gaps=True, gap_days=1,
+            trading_days=[today])
+        assert report["health_status"] == "OK"
+        raw = report["checks"]["raw_close"]
+        assert raw["total_rows"] == 3
+        assert raw["invalid_count"] == 0
+        assert raw["affected_ticker_count"] == 0
+        assert raw["reason_counts"] == {
+            "null_raw": 0, "nonfinite_raw": 0,
+            "nonfinite_factor": 0, "nonpositive_factor": 0,
+        }
+        assert raw["per_ticker"] == []
+    finally:
+        db.close()
+
+
+def test_raw_close_null_nonfinite_and_bad_factor(tmp_path):
+    """NULL/non-finite RawClose and nonzero RawClose with a non-finite
+    or non-positive Close/RawClose factor are all counted."""
+    db = DatabaseManager(str(tmp_path / "raw_invalid.duckdb"))
+    try:
+        # Distinct dates per row to avoid (Date, Ticker) collisions.
+        days = [f"2026-10-{d:02d}" for d in range(10, 16)]
+        _seed_daily_close_raw(db, {
+            "AAPL": [
+                (days[0], None, 102.0),           # null_raw
+                (days[1], float("nan"), 102.0),   # nonfinite_raw
+                (days[2], float("inf"), 102.0),  # nonfinite_raw
+            ],
+            "BADC": [
+                (days[3], 10.0, 0.0),             # nonpositive_factor (0)
+                (days[4], 10.0, -20.0),           # nonpositive_factor (-2x)
+                (days[5], 10.0, float("inf")),    # nonfinite_factor
+            ],
+        })
+        report = db.check_daily_close_health(
+            include_gaps=True, gap_days=1,
+            trading_days=[days[-1]])
+        raw = report["checks"]["raw_close"]
+        assert raw["total_rows"] == 6
+        assert raw["invalid_count"] == 6
+        assert raw["affected_ticker_count"] == 2
+        # DuckDB stores pandas NaN as SQL NULL, so the None + NaN rows
+        # both land in null_raw; the explicit +inf RawClose row is
+        # nonfinite_raw; the 0/-20 Close rows are nonpositive_factor; the
+        # inf Close row is nonfinite_factor.  Reason counts are disjoint.
+        assert raw["reason_counts"]["null_raw"] == 2
+        assert raw["reason_counts"]["nonfinite_raw"] == 1
+        assert raw["reason_counts"]["nonpositive_factor"] == 2
+        assert raw["reason_counts"]["nonfinite_factor"] == 1
+        assert sum(raw["reason_counts"].values()) == raw["invalid_count"]
+        per = {r["ticker"]: r for r in raw["per_ticker"]}
+        assert per["AAPL"]["invalid_count"] == 3
+        assert per["BADC"]["invalid_count"] == 3
+    finally:
+        db.close()
+
+
+def test_raw_close_zero_raw_with_nonzero_adjusted_valid(tmp_path):
+    """Zero RawClose is valid even though the adjustment factor is
+    undefined; only the RawClose value itself matters for health."""
+    db = DatabaseManager(str(tmp_path / "raw_zero.duckdb"))
+    try:
+        today = "2026-10-17"
+        # Zero raw with positive adjusted close — factor undefined, but
+        # the RawClose observation is finite and legitimate.
+        _seed_daily_close_raw(db, {
+            "^IRX": [(today, 0.0, 0.05)],
+        })
+        report = db.check_daily_close_health(
+            include_gaps=True, gap_days=1,
+            trading_days=[today, "2026-10-16"])
+        raw = report["checks"]["raw_close"]
+        assert raw["invalid_count"] == 0
+        assert raw["reason_counts"]["nonfinite_factor"] == 0
+    finally:
+        db.close()
+
+
+def test_raw_close_per_ticker_truncation_keeps_totals(tmp_path):
+    """The bounded per_ticker list truncates but totals remain faithful."""
+    db = DatabaseManager(str(tmp_path / "raw_truncate.duckdb"))
+    try:
+        today = "2026-10-17"
+        ticker_days = {
+            f"T{i:02d}": [(today, None, 100.0 + i)]
+            for i in range(50)
+        }
+        _seed_daily_close_raw(db, ticker_days)
+        report = db.check_daily_close_health(
+            include_gaps=True, gap_days=1,
+            trading_days=[today, "2026-10-16"],
+            max_items=5)
+        raw = report["checks"]["raw_close"]
+        assert raw["total_rows"] == 50
+        assert raw["invalid_count"] == 50
+        assert raw["affected_ticker_count"] == 50
+        assert len(raw["per_ticker"]) == 5
+    finally:
+        db.close()
+
+
+def test_raw_close_includes_findings_for_health_status(tmp_path):
+    """raw_close invalid rows contribute to the top-level WARN rollup."""
+    db = DatabaseManager(str(tmp_path / "raw_warn.duckdb"))
+    try:
+        today = "2026-10-17"
+        _seed_daily_close_raw(db, {
+            "AAPL": [(today, None, 102.0)],
+        })
+        report = db.check_daily_close_health(
+            include_gaps=True, gap_days=1,
+            trading_days=[today, "2026-10-16"])
+        # No staleness/gaps because the seeded date is the latest session.
+        assert report["health_status"] == "WARN"
+        assert report["checks"]["raw_close"]["invalid_count"] == 1
+    finally:
+        db.close()
+
+
+def test_data_health_over_wire_raw_close_section(tmp_path):
+    """The data_health action exposes raw_close counts over real gRPC."""
+    db = DatabaseManager(str(tmp_path / "raw_wire.duckdb"))
+    today = "2026-10-17"
+    _seed_daily_close_raw(db, {
+        "WBD": [("2026-10-16", None, 12.0)],
+        "QRVO": [("2026-10-16", None, 100.0)],
+    })
+
+    cfg = MagicMock()
+    cfg.db_path = str(tmp_path / "raw_wire.duckdb")
+    cfg.ingestion.tickers = ["WBD", "QRVO"]
+    cfg.ingestion.exclude_tickers = []
+    cfg.fear_greed.enabled = False
+
+    harness = _WireHarness(MarketDataFlightServer, db, cfg)
+    try:
+        data = harness.action("data_health")
+        assert data["status"] == "SUCCESS"
+        health = data["health"]
+        raw = health["checks"]["raw_close"]
+        assert raw["invalid_count"] == 2
+        assert raw["affected_ticker_count"] == 2
+        assert {r["ticker"] for r in raw["per_ticker"]} == {"QRVO", "WBD"}
+    finally:
+        harness.close()
+        db.close()

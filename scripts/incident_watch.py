@@ -453,6 +453,7 @@ def _prior_evidence_tickers(root: Path) -> set:
             _as_dict(checks.get("gaps")).get("per_ticker"),
             _as_dict(checks.get("integrity")).get("violations"),
             _as_dict(checks.get("duplicates")).get("duplicates"),
+            _as_dict(checks.get("raw_close")).get("per_ticker"),
         )
         # justified: fixed 4-element tuple of evidence lists.
         for lst in lists:
@@ -758,6 +759,72 @@ def classify_health(health, *, probe_error=None, benign=None,
                 "keys should be impossible."),
         ))
 
+    # ---- raw_close (HRAW-T1) ----
+    # Aggregate per ticker; never one folder per row.  Recent invalid
+    # rows in the gap window are SEV2; historical are SEV3.
+    # acknowledged-delisted tickers downgrade to SEV4 suppressed.  Any
+    # invalid_count not covered by the bounded per_ticker list is a
+    # conservative count-level SEV3 incident.  Malformed payloads are
+    # handled by _check_dict / _count_field as SEV2 anomalies.
+    raw = _check_dict(checks, "raw_close", findings)
+    raw_invalid = _count_field(
+        raw, "invalid_count", "raw_close", findings)
+    if raw_invalid > 0:
+        raw_entries = {
+            e["ticker"]: e for e in _as_list(raw.get("per_ticker"))
+            if isinstance(e, dict) and e.get("ticker")
+        }
+        accounted = 0
+        # justified: per-ticker classification — each aggregate maps to
+        # one incident decision (ack-suppress / recent SEV2 / SEV3).
+        for t, e in raw_entries.items():  # .items() — exempt
+            cnt = _count_field(e, "invalid_count", "raw_close", findings)
+            if cnt <= 0:
+                continue
+            accounted += cnt
+            first = e.get("first_date")
+            last = e.get("last_date")
+            ev = {
+                "ticker": t, "invalid_count": cnt,
+                "first_date": first, "last_date": last,
+            }
+            if str(t) in ack:
+                findings.append(_Finding(
+                    check="raw_close", detail=t, severity=4,
+                    summary=(f"{t}: {cnt} invalid RawClose row(s) — "
+                             "acknowledged delisted"),
+                    evidence=ev, suggested_action="none",
+                    suppressed=True))
+                continue
+            if _in_window(last, ws, we, latest):
+                findings.append(_Finding(
+                    check="raw_close", detail=t, severity=2,
+                    summary=(f"{t}: {cnt} invalid RawClose row(s) "
+                             f"ending {last} (recent) — reload required"),
+                    evidence=ev,
+                    suggested_action=_refetch_action(t)))
+            else:
+                findings.append(_Finding(
+                    check="raw_close", detail=t, severity=3,
+                    summary=(f"{t}: {cnt} invalid RawClose row(s) "
+                             f"{first}..{last} — historical"),
+                    evidence=ev,
+                    suggested_action=_refetch_action(t)))
+        if raw_invalid > accounted:
+            unattrib = raw_invalid - accounted
+            findings.append(_Finding(
+                check="raw_close", detail=f"count{unattrib}",
+                severity=3,
+                summary=(f"{unattrib} invalid RawClose row(s) not "
+                         "attributable to listed tickers — report "
+                         "truncated or ticker list unavailable"),
+                evidence={"invalid_count": raw_invalid,
+                          "accounted": accounted, "raw_close": raw},
+                suggested_action=(
+                    "Inspect scripts/data_health_report.py --json for "
+                    "the full raw_close detail, then on_request_load "
+                    "for affected tickers.")))
+
     # ---- gaps ----
     # total_missing_days >= 30 -> one group SEV2 covering the run; else
     # per-ticker tickets (>=10 sessions -> SEV2, smaller -> SEV3).
@@ -997,16 +1064,26 @@ def _apply_findings(root: Path, findings, yyyymmdd: str,
             det = stats["suppressed_detail"].setdefault(
                 f.check, {"count": 0})
             det["count"] += 1
-            mdays = _parse_count(f.evidence.get("missing_count")) \
-                if isinstance(f.evidence, dict) else None
-            if mdays:
-                det["missing_days"] = det.get("missing_days", 0) + mdays
+            # Aggregate numeric evidence for the suppressed breakdown:
+            # gap entries expose missing_days; raw_close exposes invalid_count.
+            extra = {}
+            if isinstance(f.evidence, dict):
+                mdays = _parse_count(f.evidence.get("missing_count"))
+                if mdays:
+                    det["missing_days"] = (
+                        det.get("missing_days", 0) + mdays)
+                    extra["missing_days"] = mdays
+                icount = _parse_count(f.evidence.get("invalid_count"))
+                if icount:
+                    det["invalid_count"] = (
+                        det.get("invalid_count", 0) + icount)
+                    extra["invalid_count"] = icount
             _append_event(root, {
                 "ts": now_iso, "event": "suppressed",
                 "incident_key": None, "identity": f.identity,
                 "severity": f"SEV{f.severity}", "check": f.check,
                 "summary": f.summary,
-                **({"missing_days": mdays} if mdays else {})})
+                **extra})
             continue
         # INC-T1b N2 — same-identity findings in ONE run must not mint
         # a `_2` phantom folder: `existing` is a pre-run snapshot, so

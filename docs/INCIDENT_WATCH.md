@@ -29,8 +29,8 @@ Requirements/spec: `docs/incident_management_requirements.md`
 | Level | Trigger examples | Notify |
 |-------|------------------|--------|
 | SEV1 | Flight server unreachable, section CHECK_FAILED | Toast immediately |
-| SEV2 | Broad staleness (≥25), coverage loss, duplicates>0, recent-date integrity violations, large gaps | Toast + ticket |
-| SEV3 | Few stale tickers, small gaps, suspected delisting, section WARN | Ticket (digest only) |
+| SEV2 | Broad staleness (≥25), coverage loss, duplicates>0, recent-date integrity/raw_close violations, large gaps | Toast + ticket |
+| SEV3 | Few stale tickers, small gaps, suspected delisting, section WARN, historical raw_close issues | Ticket (digest only) |
 | SEV4 | Known-benign rows, acknowledged delisted tickers, informational | Log only |
 
 Unacknowledged ≥3 consecutive checks → escalates one level (folder renamed,
@@ -63,6 +63,7 @@ incidents\                        (junction → C:\Intel\incidents\stock-ingesti
    - stale/gap/coverage → `daily_load {"tickers":[...]}` or `on_request_load`
      for the window (idempotent MERGE-upsert)
    - recent-date integrity → targeted `on_request_load` re-fetch
+   - recent raw_close → `on_request_load` for the affected ticker(s)
    - suspected delisting → verify ticker, then add to
      `_config/suppressions.json` `acknowledged_delisted`
    - server unreachable → restart `StockIngestion-FlightServer`
@@ -103,6 +104,11 @@ Note: machine policy is `AllSigned` — `-ExecutionPolicy Bypass` is required.
 
 - **Runs only while logged on** under `-UserPrincipal` (Interactive token);
   `StartWhenAvailable` catches up at next logon after a missed slot.
+- **RawClose semantics:** the watcher classifies one finding per affected
+  ticker aggregate.  Finite zero/negative `RawClose` values (e.g. `^IRX`,
+  `CL=F` Apr-2020) are valid and never raise tickets.  The known 6,507
+  historical NULLs for delisted WBD/QRVO/LESL are suppressed as
+  `acknowledged_delisted`.
 - **DST drift:** during the ~5 wk/yr UK–US DST-mismatch window the task fires
   19:30 ET instead of 18:30 — still safely after the 16:14 ET load.
 - **OneDrive:** the `incidents` junction sits inside the synced repo; the
