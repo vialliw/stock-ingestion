@@ -62,9 +62,11 @@ def manager(request, tmp_path):
 def make_df(ticker, dates, close_prices, volumes):
     """Build a valid daily_close DataFrame with explicit, safe dtypes.
 
-    - Date   -> datetime64 (DuckDB casts to DATE)
-    - Ticker -> object      (avoids pandas 3.x 'str' dtype)
-    - OHLCV  -> float64
+    - Date     -> datetime64 (DuckDB casts to DATE)
+    - Ticker   -> object      (avoids pandas 3.x 'str' dtype)
+    - OHLCV    -> float64
+    - RawClose -> float64     (post-v9 frames carry the unadjusted close;
+                              no corporate actions here so RawClose=Close)
     """
     n = len(dates)
     return pd.DataFrame(
@@ -76,6 +78,7 @@ def make_df(ticker, dates, close_prices, volumes):
             "Low": [float(c) * 0.98 for c in close_prices],
             "Close": [float(c) for c in close_prices],
             "Volume": [float(v) for v in volumes],
+            "RawClose": [float(c) for c in close_prices],
         }
     )
 
@@ -221,6 +224,7 @@ def test_generate_top_20_dollar_volume(manager):
             "Low": [c * 0.98 for c in closes],
             "Close": closes,
             "Volume": volumes,
+            "RawClose": closes,
         }
     )
     manager.upsert_dataframe(df)
@@ -404,6 +408,9 @@ def test_health_integrity_violations(manager):
     # Each statement seeds a distinct violation on its own date.
     _raw_write(
         manager,
+        # NOTE: 7-column literal — db_challenger's daily_close has no
+        # RawClose column; the resulting NULL RawClose adds a raw_close
+        # finding on the executor path but WARN is expected anyway.
         "INSERT INTO daily_close "
         "(Date,Ticker,Open,High,Low,Close,Volume) VALUES "
         "('2026-01-09','AAPL',NULL,105,95,102,1000),"   # NULL Open
@@ -447,6 +454,7 @@ def test_health_duplicate_keys_detected(manager):
     # Same (Ticker, Date) inserted twice — now possible without the PK.
     _raw_write(
         manager,
+        # 7-column literal — see note in test_health_integrity_violations.
         "INSERT INTO daily_close "
         "(Date,Ticker,Open,High,Low,Close,Volume) VALUES "
         "('2026-01-06','AAPL',100,105,95,102,1000),"

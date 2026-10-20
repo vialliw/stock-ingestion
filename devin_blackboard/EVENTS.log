@@ -4787,3 +4787,97 @@ and interim raw-close history work are Orchestrator-owned.
 [2026-10-20T16:39:01.366585+00:00] [EXECUTOR] blocked HRAW-T1 -> Implementation committed (33ce99d) is complete and focused gates pass: AC1 focused 110/110, AC3 strict loops clean (17 files), AC4 watcher self-test PASS; prose ACs verified manually (SQL raw_close section w/ totals+disjoint reason_counts+bounded per_ticker; watcher one-finding-per-ticker SEV2/SEV3/SEV4-suppressed + conservative unattributed count incident + malformed-payload anomalies; suppressed_detail raw_close count; prior-evidence ticker scan; docs JSON shape/severities/6507 limitation). BLOCKER: AC2 full suite has 10 failures in tests/test_db.py health tests asserting health_status=OK after _seed_current, which builds legacy 7-column frames -> RawClose=NULL -> correctly flagged invalid (null_raw) -> WARN. NULL flagging is required by the AC (live 6,507-NULL baseline) and R1A-T1 requires legacy upserts keep NULL RawClose, so the only correct fix is seeding RawClose in test_db.py fixtures (make_df/_seed_current) - test_db.py is NOT in output_files. Needs orchestrator scope amendment to add tests/test_db.py (precedent: fe3921a mechanical compat commit), then respawn B.[2026-10-20] [ORCHESTRATOR] HRAW-T1 scope amendment: added /tests/test_db.py to output_files (mechanical fixture compatibility — legacy 7-col make_df frames produce NULL RawClose -> WARN, breaking 10 health_status==OK asserts; precedent fe3921a). AC set unchanged. Task reset blocked -> todo; respawning B.
 
 [2026-10-20T16:40:19.390273+00:00] [EXECUTOR] claimed HRAW-T1
+[2026-10-20T16:55:40.359269+00:00] [EXECUTOR] completed HRAW-T1 -> Fixture repair only (orchestrator-approved scope amendment adding tests/test_db.py): make_df now emits the post-v9 8-column frame with RawClose=Close (identity ratio, no corporate actions in fixtures) and the inline frame in test_generate_top_20_dollar_volume carries RawClose; the two _raw_write INSERTs intentionally exercising integrity/duplicate violations were left 7-column (db_challenger has no RawClose column; NULL RawClose on executor adds raw_close findings while WARN was already expected). No implementation or RawClose health-test changes. Focused: tests/test_db.py 120/120 PASS; verify: HRAW-AC1 110/110 focused PASS, AC2 full suite 1944/1944 PASS, AC3 strict loops clean (17 files), AC4 watcher self-test PASS -- poll_tasks --verify HRAW-T1 ALL PASS (10/10 criteria).
+Evidence map:
+[
+  {
+    "id": "HRAW-AC1",
+    "check": "health and watcher focused tests",
+    "command": "python -m pytest tests/test_health_check.py tests/test_incident_watch.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "et_ingestion_runs_returns_arrow_table\ntests/test_health_check.py::test_get_ingestion_runs_returns_arrow_table\ntests/test_health_check.py::test_get_run_history_over_wire\n  C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\\src\\db.py:417: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n110 passed, 3 warnings in 18.65s\n"
+  },
+  {
+    "id": "HRAW-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1944 passed, 507 warnings in 200.66s (0:03:20)\n"
+  },
+  {
+    "id": "HRAW-AC3",
+    "check": "strict loop checker",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "HRAW-AC4",
+    "check": "incident watcher self-test",
+    "command": "python scripts/incident_watch.py --self-test",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "incident_watch: health_status=WARN probe=ok root=C:\\Users\\user\\AppData\\Local\\Temp\\incident_watch_selftest_g_kcslmw\n  new=6 updated=0 resolved=0 suppressed=3\n  suppressed_detail={\"integrity\": {\"count\": 2}, \"pending_session\": {\"count\": 1}}\n  + NEW 20261012_sev2_integrity_WBD_2026-10-05\n  + NEW 20261012_sev3_stale_DBRG\n  + NEW 20261012_sev3_gap_QRVO\n  + NEW 20261012_sev3_gap_WBD\n  + NEW 20261012_sev3_gap_LESL\n  + NEW 20261012_sev3_gap_TCBI\n  toasts sent: 1\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]
