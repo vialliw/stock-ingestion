@@ -1,8 +1,24 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-20 (HRAW-T1 blocked)
+Last Updated: 2026-10-20 (HRAW-T1 done — executor B)
 Current Branch: main
 
-## HRAW-T1 — RawClose health + incident watch — BLOCKED (scope amendment needed)
+## HRAW-T1 — RawClose health + incident watch — DONE (executor B, 2026-10-20)
+
+DONE commit 0b9431a. Resume pass after the orchestrator-approved scope
+amendment adding tests/test_db.py to output_files: `make_df` now emits the
+post-v9 8-column frame (RawClose=Close, identity ratio — no corporate
+actions in fixtures), and the inline frame in
+test_generate_top_20_dollar_volume carries RawClose. The two `_raw_write`
+INSERTs that intentionally exercise integrity/duplicate violations stay
+7-column (src/db_challenger.py has no RawClose column; NULL RawClose on the
+executor path adds raw_close findings while WARN was already expected).
+No implementation or RawClose health-test changes. Gates: tests/test_db.py
+120/120 PASS; --verify HRAW-T1 ALL PASS — AC1 focused 110/110, AC2 full
+suite 1944/1944, AC3 strict loops clean (17 files), AC4 watcher self-test
+PASS. Next gates: Challenger C -> Critic D -> live deploy gate (prose AC)
+-> external review, all orchestrator-owned.
+
+Prior history for this task follows below.
 
 Plan approved 2026-10-17. Add a bounded, count-faithful SQL `raw_close`
 section to `data_health`; classify one incident per affected ticker (recent

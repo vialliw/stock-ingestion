@@ -4881,3 +4881,4 @@ Evidence map:
     "output": ""
   }
 ]
+[2026-10-20T18:00:00] [EXECUTOR-B] HRAW-T1 DONE (commit 0b9431a). Resume pass after scope amendment: tests/test_db.py fixtures repaired — make_df emits post-v9 8-col frame (RawClose=Close), inline frame in test_generate_top_20_dollar_volume carries RawClose; the two _raw_write INSERTs intentionally exercising integrity/duplicate violations kept 7-column (db_challenger lacks the column; NULL RawClose on executor only adds raw_close findings where WARN already expected). No impl/RawClose-test changes. Focused test_db.py 120/120; --verify HRAW-T1 ALL PASS: AC1 110/110, AC2 1944/1944, AC3 loops clean (17), AC4 self-test PASS. STATE.md updated. Next: C/D review + deploy gate (orchestrator).
