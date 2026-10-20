@@ -1,8 +1,21 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-20 (HRAW-T1 — Critic D PASS)
+Last Updated: 2026-10-20 (HRAW-T1 — DONE, live gate PASS)
 Current Branch: main
 
-## HRAW-T1 — RawClose health + incident watch — CRITIC-D PASS (2026-10-20)
+## HRAW-T1 — RawClose health + incident watch — DONE (2026-10-20)
+
+**ORCHESTRATOR deployment gate: PASS** (commit f59a2c4). Flight Server
+restarted on final code. Live `data_health` checks.raw_close =
+{total_rows 4,321,731, invalid 0, affected 0, reason_counts all zero,
+per_ticker []} — exact match with independent Flight SQL cross-check.
+8 finite non-positive values (^IRX x7 zero, CL=F x1 negative) present
+and correctly not flagged. Live incident_watch: new=0 updated=0
+resolved=0 suppressed=12; no raw_close findings, no false alerts for
+valid zero/negative. Ack-delisted suppression verified by C/D tests;
+live suppressed set empty (WBD/QRVO/DBRG purged, LESL repaired).
+Remaining: user-side external ChatGPT-style review per original plan.
+
+**CRITIC-D verdict: PASS (code gate)** at HEAD 97ae464. Independent
 
 **CRITIC-D verdict: PASS (code gate)** at HEAD 97ae464. Independent
 re-verification of every criterion (B/C reports not trusted):
