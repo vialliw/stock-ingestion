@@ -1,6 +1,32 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-20 (HRAW-T1 — Challenger C APPROVED)
+Last Updated: 2026-10-20 (HRAW-T1 — Critic D PASS)
 Current Branch: main
+
+## HRAW-T1 — RawClose health + incident watch — CRITIC-D PASS (2026-10-20)
+
+**CRITIC-D verdict: PASS (code gate)** at HEAD 97ae464. Independent
+re-verification of every criterion (B/C reports not trusted):
+`poll_tasks.py --verify HRAW-T1` ALL PASS — AC1 focused 110/110,
+AC2 full suite 1944/1944, AC3 strict loops exit 0 (17 files), AC4
+watcher self-test exit 0; `check_loops.py --src-dir src` exit 0
+(project gate). Own temp-DuckDB probes: 14-row edge matrix gives
+total=14/invalid=9/affected=9 with disjoint reason_counts
+(null_raw=2 incl. NaN-stored-as-NULL, nonfinite_raw=2,
+nonfinite_factor=2, nonpositive_factor=3); zero/zero, zero-raw +
+positive close, and negative-raw/negative-close all VALID — value
+validity correctly separated from factor check (C advisory A1
+confirmed). Truncation: max_items=5 over 50 tickers keeps totals
+50/50/50. Pre-v9 schema -> CHECK_FAILED (Binder Error), no crash.
+WARN rollup works; pure-clean -> OK. Watcher: recent->SEV2,
+historical->SEV3, ack-delisted->SEV4 suppressed, one finding per
+ticker, unattributed->SEV3 count-level, malformed payload/count ->
+SEV2 anomalies no crash, prior-evidence scan sees raw_close,
+suppressed_detail={'raw_close':{count:2,invalid_count:6507}}.
+Docs cover JSON shape/severities/suppression/6,507 limitation;
+README twins byte-identical. Scope diff limited to output_files +
+blackboard. HRAW-AC-live (Flight restart + real data_health +
+watcher run) is ORCHESTRATOR-owned — deferred, not evaluated.
+Next: orchestrator deploy gate -> external review.
 
 ## HRAW-T1 — RawClose health + incident watch — Challenger C APPROVED (2026-10-20)
 
