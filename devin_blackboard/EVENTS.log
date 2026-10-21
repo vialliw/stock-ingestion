@@ -4919,3 +4919,5 @@ Evidence map:
 [2026-10-20][ORCH] Clarified INCIDENT_PLAYBOOK.md scope: it combines incident-handle + incident-writeup skills; the detection layer (incident_watch.py + StockInestion-HealthWatch scheduled task) stays documented in INCIDENT_WATCH.md — playbook starts where the watcher stops.
 
 [2026-10-20][ORCH] Merged incident-writeup into incident-handle (single skill covering handle+record; Step 6 = plain-English writeup rules). Deleted .devin/skills/incident-writeup/. INCIDENT_PLAYBOOK.md re-scoped: human-facing version of the combined skill.
+
+[2026-10-21][ORCH] Incident queue worked per incident-handle: 5 new SEV3 gaps (HTLM/IBOC/LESL/LSE/SMOG — all missing 2026-10-20). Same settle-window pattern (upstream serves the bars; nightly load ran ~2.5h post-close). One on_request_load (10-20->10-21) = 8 rows upserted, verified incl. RawClose; watcher re-run resolved=5, open/ empty. GitHub issues #16-#20 created+closed; resolution_note added to all 5 folders. RECURRING: LESL 3rd settle miss in 5 days (10-16/19/20), HTLM 2nd consecutive — durable fix candidate: move nightly trigger later.
