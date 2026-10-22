@@ -865,6 +865,7 @@ ingestion:
   - QCOM
   - QLYS
   - QQQ
+  - QRVO
   - QTWO
   - QUBT
   - QXO
@@ -1234,6 +1235,7 @@ ingestion:
   - EA
   - EQR
   - HLX
+  - LESL
   - NFBK
   - NCSM
   - QRVO

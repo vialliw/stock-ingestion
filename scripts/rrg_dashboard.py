@@ -146,7 +146,7 @@ RRG_PRESETS: Dict[str, dict] = {
         "tickers": (
             "ADI,ALAB,ALGM,AMAT,AMD,ASML,ASX,AVGO,CDNS,CRDO,ENTG,INTC,"
             "KLAC,LRCX,LSCC,MCHP,MPWR,MRVL,MTSI,MU,NVDA,NVMI,NXPI,OLED,"
-            "ON,POWI,QCOM,QRVO,SLAB,SNPS,STM,SWKS,TER,TSM,TXN"
+            "ON,POWI,QCOM,SLAB,SNPS,STM,SWKS,TER,TSM,TXN"
         ),
         "benchmark": "SMH",
         "lookback_years": 3,
