@@ -5174,3 +5174,80 @@ Evidence map:
     "output": ""
   }
 ][2026-10-22] [EXECUTOR-B] HRAW-T3 DONE (cba4f93): post-window-date misclassification fixed — _provably_historical now returns True only provably-BEFORE window (d < ws; fallback unchanged); new _provably_after_window helper; raw_close listed gate SEV2 on in-window OR after-window, SEV3 provably-before/undatable (N4 preserved); SAME defect found+fixed in integrity _in_window else-branch (scope check). +7 non-vacuous tests; in-place mutation revert -> 5/7 FAIL, restored. --verify ALL PASS: AC1 95/95, AC2 1960/1960 (194.80s), AC3 strict loops 0, AC4 self-test 0. Docs updated; README twins byte-identical; scope = output_files + blackboard.
+
+[2026-10-22T17:28:48.944921+00:00] [EXECUTOR] completed HRAW-T3 -> External-review round-2 BLOCKER fixed: 'historical' now means provably BEFORE the window. (1) _provably_historical: 'not (ws <= d <= we)' -> 'd < ws' — a post-window date is newer than the window and can never be SEV3-historical; latest-only fallback already correct (d < lt - 60d). (2) New _provably_after_window helper (True only when date AND both bounds parse and d > we). (3) raw_close listed-ticker gate: SEV2 when _in_window OR _provably_after_window; SEV3 only provably-before or undatable (INC-T1b N4 quiet policy preserved); ack-delisted SEV4 unchanged. (4) SCOPE CHECK: identical defect found+fixed in integrity section's _in_window else-branch (post-window violation date was misclassified 'historical corrupt row' SEV3 -> now SEV2). Tests: +7 non-vacuous in TestPostWindowHRAW3 — direct gate matrices, listed last_date>we->SEV2, unattributed lid>we->SEV2, unparseable listed->SEV3, severity flip SEV3->SEV2 = ONE renamed incident zero resolves, integrity post-window->SEV2. MUTATION KILL verified: reverting all 3 fixes in-place -> 5/7 new tests FAIL (5 failed, 2 passed), file restored byte-identical. Gates --verify HRAW-T3 ALL PASS: AC1 focused 95/95 (3.64s), AC2 full suite 1960/1960 (194.80s), AC3 strict loops exit 0 (17 files), AC4 self-test exit 0 (new=6 suppressed=3). Docs: INCIDENT_WATCH.md + incident_management_requirements.md state 'historical'=provably before window; in/after-window/undatable-unattributed escalate. README twins byte-identical (cmp exit 0). Note: first --verify attempt failed AC2 on the 300s harness timeout — transient machine load from stacked background pytest processes; clean re-run passed in 194.80s. No deploy/restart (orchestrator-owned).
+Evidence map:
+[
+  {
+    "id": "HRAW3-AC1",
+    "check": "watcher focused tests",
+    "command": "python -m pytest tests/test_incident_watch.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "........................................................................ [ 75%]\n.......................                                                  [100%]\n95 passed in 7.23s\n"
+  },
+  {
+    "id": "HRAW3-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1960 passed, 507 warnings in 207.14s (0:03:27)\n"
+  },
+  {
+    "id": "HRAW3-AC3",
+    "check": "strict loop checker",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "HRAW3-AC4",
+    "check": "incident watcher self-test",
+    "command": "python scripts/incident_watch.py --self-test",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "incident_watch: health_status=WARN probe=ok root=C:\\Users\\user\\AppData\\Local\\Temp\\incident_watch_selftest_xzburpg9\n  new=6 updated=0 resolved=0 suppressed=3\n  suppressed_detail={\"integrity\": {\"count\": 2}, \"pending_session\": {\"count\": 1}}\n  + NEW 20261012_sev2_integrity_WBD_2026-10-05\n  + NEW 20261012_sev3_stale_DBRG\n  + NEW 20261012_sev3_gap_QRVO\n  + NEW 20261012_sev3_gap_WBD\n  + NEW 20261012_sev3_gap_LESL\n  + NEW 20261012_sev3_gap_TCBI\n  toasts sent: 1\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]
