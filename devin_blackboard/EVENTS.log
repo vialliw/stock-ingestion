@@ -5021,3 +5021,51 @@ Evidence map:
     "output": ""
   }
 ]
+[2026-10-22] [CHALLENGER-C] HRAW-T2 adversarial review — APPROVED (HEAD dee34e5; impl 26aead4 + finish dee34e5). Independent probe harness in %TEMP%\hraw_t2_challenger\probe.py (real temp DuckDB, synthetic watcher payloads, injected _config/suppressions.json; never the real C:\Intel store, never Flight). 67 independent probes, 0 FAIL, 1 advisory. Executor tests NOT trusted — re-run independently.
+
+C1 SQL latest_invalid_date correctness (real temp DuckDB, 6 probes):
+  - 1a invalid row 2026-10-14 + later valid rows 2026-10-15 -> latest_invalid_date='2026-10-14' (later VALID rows do NOT move it; MAX(Date) FILTER (WHERE invalid) confirmed).
+  - 1b clean table -> latest_invalid_date is None (not "" or missing); key present in report shape.
+  - 1c all-invalid table (3 rows, max 2026-10-12) -> '2026-10-12' (global MAX over invalid).
+  - 1d 50 tickers truncated (per_ticker bounded) -> total invalid=50, latest_invalid_date='2026-10-08' survives truncation (recency signal not hidden).
+  - 1e all-valid -> None (DuckDB MAX FILTER over empty set -> NULL -> Python None).
+  - 1f pre-v9 schema (DROP RawClose) -> health_status=CHECK_FAILED (Binder Error), no raw_close in checks, no crash.
+
+C2 _provably_historical direct semantics (15 probes — full matrix):
+  - in-window date -> PH False (SEV2); older than window -> PH True (SEV3); newer than WE -> PH True (SEV3).
+  - None/null date -> PH False (SEV2); garbage date -> PH False (SEV2).
+  - unparseable WS or WE -> PH False (SEV2 conservative); unparseable latest -> PH False.
+  - no window, older than latest-60d -> PH True; no window, within 60d -> PH False; no window no latest -> PH False.
+  - 2l mirror: for parseable date+bounds, IW == not PH (exact complement) — confirmed for in-window, older, newer.
+  - No path where a RECENT unattributed defect yields SEV3 (3a in-window lid -> SEV2 confirmed). No path where provably-historical yields SEV2 (over-alert) (3b -> SEV3 confirmed).
+
+C3 classify_health end-to-end on synthetic payloads (14 probes):
+  - 3a in-window lid -> SEV2; 3b provably-historical lid -> SEV3; 3c missing lid (pre-T2 payload, key absent) -> SEV2; 3d null lid -> SEV2; 3e garbage lid -> SEV2; 3f unparseable WS -> SEV2.
+  - 3g listed recent ticker -> SEV2 (unchanged); 3h listed historical ticker -> SEV3 (unchanged); 3i ack-delisted -> SEV4 + suppressed=True (unchanged).
+  - 3k malformed raw_close='query failed' -> anomaly finding, no crash; 3l invalid_count='abc' -> anomaly finding, no crash.
+  - 3m finite zero (^IRX 0/0) + negative (CL=F -37) -> invalid_count=0, latest_invalid_date None (never alert — regression safe).
+
+C4 Incident identity / dedup / severity flip via run_watch (real folder state, 5 scenarios):
+  - 4a drifting count 150->180 (in-window lid) -> SAME fallback folder '20261012_sev2_raw_close_count_unattributed', ZERO new, ZERO auto-resolves; evidence carries invalid_count=180, unattributed=130 (counts in evidence, not identity — BLOCKER 2 killed).
+  - 4b severity flip SEV3->SEV2 (lid 2016-09-02 -> 2026-10-01, count 150->180) -> ONE folder, renamed to _sev2_, ZERO resolves (no resolve+reopen churn; severity upgraded in place).
+  - 4c clean report -> fallback auto-resolved (open empty); 4d resolved-then-recurring -> reopens as NEW event (proper recurrence).
+  - 4e severity upgrade: incident.json severity SEV3->SEV2, folder renamed, still 1 folder (rename/escalation counters interact correctly with stable key).
+
+C5 suppressed_detail aggregation: ack-delisted WBD (2535 invalid) via _config/suppressions.json -> suppressed_detail={'raw_close':{'count':1,'invalid_count':2535}} (invalid_count still exposed; ack-delisted SEV4 suppression unaffected).
+
+C6 _prior_evidence_tickers: ZZZ listed recent ticker -> on clean report ZZZ auto-resolved (prior-evidence scan recognizes raw_close per_ticker; unaffected by T2).
+
+C7 Scope audit: git show --stat 26aead4 = docs/{DATA_SERVICE_API,INCIDENT_WATCH,incident_management_requirements}.md + scripts/incident_watch.py + src/db.py + tests/{test_health_check,test_incident_watch}.py (7 files, all in output_files). dee34e5 = blackboard (EVENTS.log/STATE.md/TASKS.json/HRAW-T2.lock) + tests/test_rrg_dashboard.py (mechanical 35->34). NO out-of-scope files. test_rrg_dashboard.py added by orchestrator amendment 126b62e (precedent fe3921a).
+
+C8 Docs: latest_invalid_date documented in all 3 docs (grep confirmed). README.md == docs/README.md byte-identical (cmp exit 0).
+
+C9 Gates re-run independently:
+  - AC1 focused: tests/test_health_check.py 31 passed (14.33s) + tests/test_incident_watch.py 88 passed (4.30s) = 119/119 PASS.
+  - AC3 check_loops --src-dir src --strict: exit 0 (17 files, no unjustified loops).
+  - AC4 incident_watch.py --self-test: exit 0 (new=6 suppressed=3, toasts 1).
+  - test_rrg_dashboard.py::TestPresets::test_presets_order_and_legacy_verbatim: 1 passed (mechanical 34 count).
+  - AC2 full suite NOT re-run by C (citing B's 1953/1953 in 188.26s; focused + mechanical + scope + gates independently verified — full suite is mechanical regression coverage, not the T2 defect surface).
+
+ADVISORY (non-blocking) A1 — 3j: a real ticker literally named 'count_unattributed' would share the fallback detail key (same check='raw_close' + detail='count_unattributed' => same incident identity), so a listed-ticker finding and the unattributed-remainder finding would collide on one folder. Not a real ticker symbol (NYSE/Nasdaq tickers are uppercase alphanumerics, no underscores); the collision is theoretical. No code change needed; documented here for completeness.
+
+Verdict: APPROVED. Both external-review blockers killed (SEV2-unless-provably-historical + stable count_unattributed key); latest_invalid_date SQL correct on all-invalid/all-valid/truncation/pre-v9; incident identity stable across drifting counts, severity flips, recurrence; listed per-ticker severities + ack-delisted SEV4 + finite zero/negative + malformed-payload anomalies all unchanged; scope clean; gates green. Next: Critic D -> resubmit v2 to external review thread REV-si_hraw_review-g1.

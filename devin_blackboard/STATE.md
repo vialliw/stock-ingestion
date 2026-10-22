@@ -1,6 +1,55 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-22 (HRAW-T2 — DONE, all gates green)
+Last Updated: 2026-10-22 (HRAW-T2 — Challenger C APPROVED, awaiting Critic D)
 Current Branch: main
+
+## HRAW-T2 — Challenger C adversarial review — APPROVED (2026-10-22)
+
+**CHALLENGER-C verdict: APPROVED** (HEAD dee34e5; impl 26aead4 + finish
+dee34e5). Independent probe harness in %TEMP%\hraw_t2_challenger\probe.py
+(real temp DuckDB, synthetic watcher payloads, injected
+_config/suppressions.json; never the real C:\Intel store, never Flight).
+67 independent probes, 0 FAIL, 1 advisory (A1 — theoretical
+'count_unattributed' ticker-name collision, non-blocking). Executor tests
+NOT trusted — re-run independently.
+
+Probe evidence (C1-C9):
+- C1 SQL latest_invalid_date (6 real-DuckDB probes): invalid row + later
+  valid rows -> invalid date only (MAX FILTER confirmed); clean -> None;
+  all-invalid -> global MAX; 50-ticker truncation -> recency signal
+  survives; all-valid -> None; pre-v9 schema -> CHECK_FAILED no crash.
+- C2 _provably_historical (15 probes, full matrix): in-window->False
+  (SEV2); older/newer->True (SEV3); None/null/garbage date->False (SEV2);
+  unparseable bounds/latest->False (SEV2 conservative); no-window paths;
+  IW==not PH exact complement for parseable date+bounds. No path where
+  recent yields SEV3 or historical yields SEV2.
+- C3 classify_health (14 synthetic payloads): SEV2/SEV3/missing/null/
+  garbage/unparseable-bounds matrix; listed recent/historical/ack-delisted
+  severities unchanged; malformed payload + unparseable invalid_count ->
+  anomaly no crash; finite zero/negative never alert.
+- C4 Incident identity via run_watch (5 scenarios): drifting count 150->180
+  -> SAME folder, ZERO new/resolves, counts in evidence (BLOCKER 2 killed);
+  severity flip SEV3->SEV2 -> ONE folder renamed, ZERO resolves; clean ->
+  auto-resolve; resolved-then-recurring -> reopens as NEW; severity
+  upgrade -> incident.json SEV3->SEV2, folder renamed, 1 folder.
+- C5 suppressed_detail: ack-delisted WBD via suppressions.json ->
+  {'raw_close':{'count':1,'invalid_count':2535}} (unchanged).
+- C6 _prior_evidence_tickers: ZZZ auto-resolved on clean (unchanged).
+- C7 Scope audit: 26aead4 = 7 output_files; dee34e5 = blackboard +
+  test_rrg_dashboard.py (mechanical 35->34, orchestrator amendment
+  126b62e). NO out-of-scope files.
+- C8 Docs: latest_invalid_date in all 3 docs; README twins byte-identical.
+- C9 Gates re-run: AC1 focused 119/119 (health 31 + watcher 88); AC3
+  strict loops exit 0 (17 files); AC4 self-test exit 0; rrg_dashboard
+  mechanical test 1 passed. AC2 full suite NOT re-run by C (citing B's
+  1953/1953; focused + mechanical + scope + gates independently verified).
+
+Advisory A1 (non-blocking): a real ticker literally named
+'count_unattributed' would share the fallback detail key (same
+check+detail => same incident identity). Not a real symbol (tickers are
+uppercase alphanumerics, no underscores); theoretical only. No code change.
+
+Next: Critic D -> resubmit v2 to external review thread
+REV-si_hraw_review-g1.
 
 ## HRAW-T2 — External-review round-1 blockers — DONE (2026-10-22)
 
