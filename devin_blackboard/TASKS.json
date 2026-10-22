@@ -4526,7 +4526,7 @@
     "title": "Fix post-window dates misclassified as historical SEV3 (external review round 2)",
     "role": "executor",
     "model": "swe",
-    "status": "todo",
+    "status": "in_progress",
     "assigned_to": "B",
     "depends_on": [
       "HRAW-T2"
