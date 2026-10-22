@@ -1,6 +1,34 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-22 (HRAW-T2 — Challenger C APPROVED, awaiting Critic D)
+Last Updated: 2026-10-22 (HRAW-T2 — Critic D PASS; awaiting orchestrator deploy gate + external resubmit)
 Current Branch: main
+
+## HRAW-T2 — Critic D final verification — PASS (2026-10-22)
+
+**CRITIC-D verdict: PASS (code gate)** at HEAD c7ce3fd. Independent
+re-verification — B/C reports not trusted. `--verify HRAW-T2` ALL PASS
+(AC1 focused 119/119, AC2 full suite 1953/1953, AC3 strict loops exit 0
+17 files, AC4 self-test exit 0); `check_loops.py --src-dir src` and
+`--strict` both exit 0. Own probe harness %TEMP%\hraw_t2_d\probe.py
+(real temp DuckDBs, synthetic watcher payloads, temp incident roots):
+24 probes, 0 FAIL — latest_invalid_date = MAX over INVALID rows only
+(later valid row does not move it), NULL w/ key present when
+invalid_count=0, survives 50-ticker truncation, pre-v9 schema ->
+CHECK_FAILED no crash, report keys unchanged; unattributed remainder
+SEV3 only when provably historical, SEV2 in-window/missing/null/
+garbage lid; listed severities (recent SEV2, historical SEV3,
+ack-delisted SEV4 suppressed) unchanged; fallback detail literally
+'count_unattributed', drifting 150->180 count keeps ONE folder with
+zero resolves and counts in evidence, clean run auto-resolves;
+malformed payloads -> SEV2 anomalies; suppressed_detail unchanged.
+Mutation kill: reverting detail to pre-fix count<N> in a temp copy
+fails 9 tests. Docs: all 3 docs cover latest_invalid_date + stable
+fallback key + can't-rule-out-recency rule; README twins
+byte-identical. Scope: ad1bff4..HEAD limited to output_files +
+blackboard. C advisory A1 confirmed theoretical-only (ticker symbols
+cannot contain underscores). DEFERRED (orchestrator-owned): live
+Flight restart + real data_health/incident_watch deploy gate.
+Next: orchestrator deployment gate -> resubmit v2 to external review
+thread REV-si_hraw_review-g1.
 
 ## HRAW-T2 — Challenger C adversarial review — APPROVED (2026-10-22)
 
