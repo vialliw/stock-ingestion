@@ -1,6 +1,14 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-22 (SEC-T1 — Executor B DONE; Finviz sector/industry classification CSVs)
+Last Updated: 2026-10-22 (SEC-T1 — B done; C spawn BLOCKED on quota)
 Current Branch: main
+
+## BLOCKER — subagent quota exhausted (2026-10-22)
+
+Challenger C spawn for SEC-T1 rejected by run_subagent: weekly usage
+quota exhausted (trace 445d4734). B work is committed and verified;
+C review, D gate, and the orchestrator live Finviz run remain pending.
+Resume: purchase on-demand usage / enable auto-reload, then respawn C.
+Per protocol the orchestrator does not implement or review in place of C.
 
 ## SEC-T1 — Finviz sector/industry classification — DONE (executor B, 2026-10-22)
 
