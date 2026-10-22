@@ -4455,7 +4455,7 @@
     "title": "Fix RawClose watcher unattributed severity and fallback incident identity (external review round 1)",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "blocked",
     "depends_on": [
       "HRAW-T1"
     ],
