@@ -242,6 +242,38 @@ def _in_window(date, window_start, window_end, latest) -> bool:
     return False
 
 
+def _provably_historical(date, window_start, window_end,
+                         latest) -> bool:
+    """SEV3 gate for count-level findings whose ticker attribution is
+    lost to truncation (HRAW-T2).  True ONLY when ``date`` parses AND
+    the applicable recency bounds parse AND the date falls provably
+    outside them — the mirror of ``_in_window``: that helper requires
+    proof of recency, this one requires proof of non-recency.
+
+    A missing, unparseable, or boundless date can never rule recency
+    out, so callers must escalate those cases (the conservative
+    'can't count = can't trust' policy, INC-T1b B3) — an unattributed
+    remainder might hide a recent failure on an omitted ticker."""
+    try:
+        d = _dt.date.fromisoformat(str(date)[:10])
+    except (TypeError, ValueError):
+        return False
+    if window_start and window_end:
+        try:
+            ws = _dt.date.fromisoformat(str(window_start)[:10])
+            we = _dt.date.fromisoformat(str(window_end)[:10])
+        except (TypeError, ValueError):
+            return False
+        return not (ws <= d <= we)
+    if latest:
+        try:
+            lt = _dt.date.fromisoformat(str(latest)[:10])
+        except (TypeError, ValueError):
+            return False
+        return d < lt - _dt.timedelta(days=_INTEGRITY_RECENT_DAYS)
+    return False
+
+
 # ---------------------------------------------------------------------
 # Payload coercion helpers (INC-T1b B2/B3) — the health report is
 # machine-generated but its shape is a contract, not a guarantee: any
@@ -759,12 +791,14 @@ def classify_health(health, *, probe_error=None, benign=None,
                 "keys should be impossible."),
         ))
 
-    # ---- raw_close (HRAW-T1) ----
+    # ---- raw_close (HRAW-T1/T2) ----
     # Aggregate per ticker; never one folder per row.  Recent invalid
     # rows in the gap window are SEV2; historical are SEV3.
     # acknowledged-delisted tickers downgrade to SEV4 suppressed.  Any
-    # invalid_count not covered by the bounded per_ticker list is a
-    # conservative count-level SEV3 incident.  Malformed payloads are
+    # invalid_count not covered by the bounded per_ticker list becomes
+    # ONE incident under the stable `count_unattributed` key: SEV2 when
+    # recency cannot be ruled out via latest_invalid_date, SEV3 only
+    # when provably historical (HRAW-T2).  Malformed payloads are
     # handled by _check_dict / _count_field as SEV2 anomalies.
     raw = _check_dict(checks, "raw_close", findings)
     raw_invalid = _count_field(
@@ -812,14 +846,38 @@ def classify_health(health, *, probe_error=None, benign=None,
                     suggested_action=_refetch_action(t)))
         if raw_invalid > accounted:
             unattrib = raw_invalid - accounted
+            lid = raw.get("latest_invalid_date")
+            # HRAW-T2 blocker 1 — the unattributed remainder is SEV2
+            # whenever recency cannot be ruled out (latest_invalid_date
+            # inside the window, or missing/unparseable on a pre-T2
+            # payload — 'can't count = can't trust'); SEV3 only when it
+            # provably falls outside the window.  A truncated list can
+            # hide a recent failure on an omitted ticker, which must
+            # page.  Listed per-ticker severities above are unchanged.
+            provably_old = _provably_historical(lid, ws, we, latest)
+            # HRAW-T2 blocker 2 — STABLE detail key: the count lives in
+            # evidence, not the identity.  The old `count<N>` key made a
+            # persistent defect with a drifting count spawn a fresh
+            # incident while auto-resolving the still-open old one.
             findings.append(_Finding(
-                check="raw_close", detail=f"count{unattrib}",
-                severity=3,
-                summary=(f"{unattrib} invalid RawClose row(s) not "
-                         "attributable to listed tickers — report "
-                         "truncated or ticker list unavailable"),
+                check="raw_close", detail="count_unattributed",
+                severity=3 if provably_old else 2,
+                summary=(
+                    f"{unattrib} invalid RawClose row(s) not "
+                    "attributable to listed tickers — "
+                    + (
+                        f"latest invalid date {lid} provably outside "
+                        "the trailing window (historical)"
+                        if provably_old else
+                        "recency cannot be ruled out "
+                        f"(latest_invalid_date={lid}); a recent "
+                        "failure on an omitted ticker may be hidden"
+                    )),
                 evidence={"invalid_count": raw_invalid,
-                          "accounted": accounted, "raw_close": raw},
+                          "unattributed": unattrib,
+                          "accounted": accounted,
+                          "latest_invalid_date": lid,
+                          "raw_close": raw},
                 suggested_action=(
                     "Inspect scripts/data_health_report.py --json for "
                     "the full raw_close detail, then on_request_load "

@@ -865,7 +865,31 @@ def test_raw_close_clean_values_report_ok(tmp_path):
             "null_raw": 0, "nonfinite_raw": 0,
             "nonfinite_factor": 0, "nonpositive_factor": 0,
         }
+        # HRAW-T2 — NULL (not "" or missing) when nothing is invalid.
+        assert raw["latest_invalid_date"] is None
         assert raw["per_ticker"] == []
+    finally:
+        db.close()
+
+
+def test_raw_close_latest_invalid_date_filters_invalid_only(tmp_path):
+    """latest_invalid_date = MAX(Date) over INVALID rows only — a valid
+    row dated after the last invalid row must not move it (HRAW-T2)."""
+    db = DatabaseManager(str(tmp_path / "raw_lid.duckdb"))
+    try:
+        _seed_daily_close_raw(db, {
+            "AAPL": [
+                ("2026-10-14", None, 102.0),   # invalid (null_raw)
+                ("2026-10-15", 100.0, 102.0),  # valid, later date
+            ],
+            "MSFT": [("2026-10-15", 200.0, 204.0)],  # valid, later date
+        })
+        report = db.check_daily_close_health(
+            include_gaps=True, gap_days=1,
+            trading_days=["2026-10-15"])
+        raw = report["checks"]["raw_close"]
+        assert raw["invalid_count"] == 1
+        assert raw["latest_invalid_date"] == "2026-10-14"
     finally:
         db.close()
 
@@ -905,6 +929,8 @@ def test_raw_close_null_nonfinite_and_bad_factor(tmp_path):
         assert raw["reason_counts"]["nonpositive_factor"] == 2
         assert raw["reason_counts"]["nonfinite_factor"] == 1
         assert sum(raw["reason_counts"].values()) == raw["invalid_count"]
+        # HRAW-T2 — MAX(Date) across the invalid rows (all six here).
+        assert raw["latest_invalid_date"] == days[-1]
         per = {r["ticker"]: r for r in raw["per_ticker"]}
         assert per["AAPL"]["invalid_count"] == 3
         assert per["BADC"]["invalid_count"] == 3
@@ -952,6 +978,9 @@ def test_raw_close_per_ticker_truncation_keeps_totals(tmp_path):
         assert raw["invalid_count"] == 50
         assert raw["affected_ticker_count"] == 50
         assert len(raw["per_ticker"]) == 5
+        # HRAW-T2 — truncation does not hide the recency signal: the
+        # aggregate still reports the true latest invalid date.
+        assert raw["latest_invalid_date"] == today
     finally:
         db.close()
 
@@ -997,6 +1026,7 @@ def test_data_health_over_wire_raw_close_section(tmp_path):
         raw = health["checks"]["raw_close"]
         assert raw["invalid_count"] == 2
         assert raw["affected_ticker_count"] == 2
+        assert raw["latest_invalid_date"] == "2026-10-16"
         assert {r["ticker"] for r in raw["per_ticker"]} == {"QRVO", "WBD"}
     finally:
         harness.close()

@@ -1688,7 +1688,10 @@ class DatabaseManager:
                                   OR isinf(Close / RawClose)
                               )
                               AND (Close / RawClose) <= 0
-                        ) AS nonpositive_factor
+                        ) AS nonpositive_factor,
+                        CAST(MAX(Date) FILTER (
+                            WHERE ({raw_invalid_condition})
+                        ) AS VARCHAR) AS latest_invalid_date
                     FROM daily_close
                     """
                 ).fetchone()
@@ -1851,6 +1854,12 @@ class DatabaseManager:
                             int(raw_close_row[6]) if raw_close_row else 0
                         ),
                     },
+                    # HRAW-T2 — MAX(Date) over invalid rows only, so the
+                    # watcher can judge recency for tickers omitted by
+                    # per_ticker truncation; NULL when invalid_count=0.
+                    "latest_invalid_date": (
+                        raw_close_row[7] if raw_close_row else None
+                    ),
                     "per_ticker": [
                         {
                             "ticker": r[0],

@@ -109,6 +109,13 @@ Note: machine policy is `AllSigned` — `-ExecutionPolicy Bypass` is required.
   `CL=F` Apr-2020) are valid and never raise tickets.  The known 6,507
   historical NULLs for delisted WBD/QRVO/LESL are suppressed as
   `acknowledged_delisted`.
+- **RawClose truncation fallback:** invalid rows the bounded `per_ticker`
+  list cannot attribute become ONE incident under the stable key
+  `raw_close/count_unattributed` (the row count lives in evidence, not the
+  key — a drifting count updates the same ticket).  Severity is SEV2
+  whenever recency cannot be ruled out — `latest_invalid_date` inside the
+  trailing window, missing (pre-HRAW-T2 payload), or unparseable — and
+  SEV3 only when it provably falls outside the window.
 - **DST drift:** during the ~5 wk/yr UK–US DST-mismatch window the task fires
   19:30 ET instead of 18:30 — still safely after the 16:14 ET load.
 - **OneDrive:** the `incidents` junction sits inside the synced repo; the

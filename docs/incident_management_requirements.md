@@ -43,7 +43,8 @@ daily_close.checks.duplicates       # duplicate_count, duplicates[]
 daily_close.checks.gaps             # tickers_with_gaps, total_missing_days,
                                     #   per_ticker[{ticker,missing_count,missing_days[]}], window_start/end
 daily_close.checks.raw_close        # total_rows, invalid_count, affected_ticker_count,
-                                    #   reason_counts{}, per_ticker[{ticker,invalid_count,first_date,last_date}]
+                                    #   reason_counts{}, latest_invalid_date (null when invalid_count=0),
+                                    #   per_ticker[{ticker,invalid_count,first_date,last_date}]
 fear_greed.health_status            # OK|WARN|CHECK_FAILED|DISABLED (+staleness/integrity/series)
 weekly.health_status                # OK|WARN|CHECK_FAILED (+staleness/parity/stale_tickers/integrity)
 company_metadata.health_status      # OK|WARN|CHECK_FAILED (+coverage/null_fields)
@@ -83,6 +84,11 @@ company_metadata.health_status      # OK|WARN|CHECK_FAILED (+coverage/null_field
 - `raw_close` invalid rows with `last_date` inside the trailing gap window, after
   suppressing acknowledged-delisted tickers — recent missing/unusable RawClose
   means upstream data did not populate or the adjustment factor is broken.
+- `raw_close` invalid rows not attributable to the bounded `per_ticker` list
+  (truncated report) whenever recency **cannot be ruled out** via
+  `latest_invalid_date` — i.e. it falls inside the trailing window, or is
+  missing/unparseable (pre-HRAW-T2 payload).  An omitted ticker may hide a
+  recent failure, so uncertainty pages: `can't count = can't trust`.
 - `gaps.total_missing_days ≥ 30` in one run, or any single ticker missing ≥ 10
   sessions in the window (broad or persistent gap, not a feed blip).
 - Same incident (any level) unacknowledged across ≥ 3 consecutive checks →
@@ -98,8 +104,10 @@ company_metadata.health_status      # OK|WARN|CHECK_FAILED (+coverage/null_field
 - Suspected delisting/corporate action: ticker stale ≥ 5 sessions with no
   integrity error — ticket says "verify ticker status" rather than "re-fetch".
 - `raw_close` invalid rows dated **outside** the trailing window (historical
-  Yahoo-unavailable data), plus any `invalid_count` not attributable to the
-  bounded `per_ticker` list (truncated report).
+  Yahoo-unavailable data), plus `invalid_count` not attributable to the
+  bounded `per_ticker` list (truncated report) **only when**
+  `latest_invalid_date` provably falls outside the window — otherwise the
+  unattributed remainder is SEV2 (see above).
 
 **SEV4 — log only**
 - Integrity violations matching the known-benign list (§3).
@@ -112,7 +120,11 @@ company_metadata.health_status      # OK|WARN|CHECK_FAILED (+coverage/null_field
 
 - **Incident key** = stable hash of (check, sorted affected tickers/dates).
   An identical finding across runs updates `last_seen` on the open ticket —
-  it must NOT open a duplicate.
+  it must NOT open a duplicate.  Count-level fallback keys carry a stable
+  label (e.g. `raw_close/count_unattributed`) — NEVER the volatile count —
+  so a persistent defect with a drifting count updates one ticket instead
+  of spawning a new incident and auto-resolving the still-open old one;
+  the numbers live in the finding evidence (HRAW-T2).
 - Lifecycle: `open → acknowledged → resolved`. Auto-resolve when the next
   check reports the incident key absent; log resolution.
 - Escalation: unacknowledged SEV3 ≥ 3 checks → SEV2; unacknowledged SEV2

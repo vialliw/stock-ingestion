@@ -1159,11 +1159,20 @@ def _write_delisted(root: Path, *tickers) -> None:
 # HRAW-T1: RawClose findings
 # ---------------------------------------------------------------------
 
-def _raw_close_check(per_ticker, invalid_count=None):
-    """Build a raw_close check dict from a list of per-ticker entries."""
+_OMIT = object()  # sentinel: omit latest_invalid_date (pre-HRAW-T2 payload)
+
+
+def _raw_close_check(per_ticker, invalid_count=None,
+                     latest_invalid_date=_OMIT):
+    """Build a raw_close check dict from a list of per-ticker entries.
+
+    ``latest_invalid_date`` mirrors the HRAW-T2 payload field
+    (MAX(Date) over invalid rows).  The default OMITS the key entirely
+    — simulating a pre-HRAW-T2 server payload (recency unknown).
+    """
     if invalid_count is None:
         invalid_count = sum(e.get("invalid_count", 0) for e in per_ticker)
-    return {
+    check = {
         "total_rows": 1000,
         "invalid_count": invalid_count,
         "affected_ticker_count": len(per_ticker),
@@ -1173,6 +1182,9 @@ def _raw_close_check(per_ticker, invalid_count=None):
         },
         "per_ticker": list(per_ticker),
     }
+    if latest_invalid_date is not _OMIT:
+        check["latest_invalid_date"] = latest_invalid_date
+    return check
 
 
 class TestRawClose:
@@ -1222,17 +1234,22 @@ class TestRawClose:
             encoding="utf-8"))
         assert hb["suppressed_detail"]["raw_close"]["invalid_count"] == 6507
 
-    def test_raw_close_count_only_is_sev3(self, tmp_path):
-        """Invalid rows the bounded per_ticker list cannot attribute still
-        produce a single conservative count-level SEV3 finding."""
+    def test_raw_close_count_only_unknown_recency_is_sev2(self, tmp_path):
+        """HRAW-T2: invalid rows the bounded per_ticker list cannot
+        attribute produce ONE count-level finding under the stable
+        `count_unattributed` key.  A pre-T2 payload without
+        latest_invalid_date cannot rule out recency -> SEV2 (kills the
+        pre-fix always-SEV3 + `count<N>` behavior)."""
         h = _health()
         h["daily_close"]["health_status"] = "WARN"
         h["daily_close"]["checks"]["raw_close"] = _raw_close_check(
-            [], invalid_count=42)
+            [], invalid_count=42)  # no latest_invalid_date key
         _run(tmp_path, h)
         names = _open_names(tmp_path)
-        assert any("_sev3_raw_close_count42" in n for n in names)
-        assert not any("_sev2_raw_close" in n for n in names)
+        assert any("_sev2_raw_close_count_unattributed" in n
+                   for n in names)
+        assert not any("count42" in n for n in names)
+        assert not any("_sev3_raw_close" in n for n in names)
 
     def test_raw_close_one_folder_per_ticker_not_per_row(self, tmp_path):
         """2,535 invalid rows for one ticker create exactly one folder."""
@@ -1289,6 +1306,129 @@ class TestRawClose:
         _run(tmp_path, h)
         names = _open_names(tmp_path)
         assert any("_sev2_coverage_QRVO" in n for n in names)
+
+
+# ---------------------------------------------------------------------
+# HRAW-T2: unattributed raw_close remainder — severity + stable identity
+# ---------------------------------------------------------------------
+
+class TestRawCloseUnattributedHRAW2:
+    """External-review blockers: (1) a truncated per_ticker list must
+    not pin the unattributed remainder to SEV3 — recency is judged via
+    checks.raw_close.latest_invalid_date; (2) the fallback incident key
+    must be stable across drifting counts."""
+
+    @staticmethod
+    def _truncated_health(latest_invalid_date=_OMIT, invalid_count=150):
+        """per_ticker lists ONE historical ticker accounting for 50 of
+        ``invalid_count`` invalid rows — 100 rows unattributed."""
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["raw_close"] = _raw_close_check(
+            [{"ticker": "AAA", "invalid_count": 50,
+              "first_date": "2016-09-01", "last_date": "2016-09-02"}],
+            invalid_count=invalid_count,
+            latest_invalid_date=latest_invalid_date)
+        return h
+
+    def test_unattributed_provably_historical_is_sev3(self, tmp_path):
+        """latest_invalid_date provably outside the trailing window ->
+        the unattributed remainder stays SEV3 (the ONLY SEV3 case)."""
+        h = self._truncated_health(latest_invalid_date="2016-09-02")
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev3_raw_close_count_unattributed" in n
+                   for n in names)
+        assert not any("_sev2_raw_close" in n for n in names)
+
+    def test_unattributed_in_window_is_sev2(self, tmp_path):
+        """latest_invalid_date inside the gaps window -> SEV2: a recent
+        failure on an omitted ticker must page."""
+        h = self._truncated_health(latest_invalid_date=_WE)
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_raw_close_count_unattributed" in n
+                   for n in names)
+        # the listed ticker keeps its own (historical) SEV3
+        assert any("_sev3_raw_close_AAA" in n for n in names)
+
+    def test_unattributed_missing_latest_invalid_date_is_sev2(
+            self, tmp_path):
+        """Pre-T2 payload without latest_invalid_date cannot rule out
+        recency -> conservative SEV2 (can't count = can't trust)."""
+        h = self._truncated_health()  # key omitted entirely
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_raw_close_count_unattributed" in n
+                   for n in names)
+
+    def test_unattributed_null_latest_invalid_date_is_sev2(
+            self, tmp_path):
+        """An explicit null latest_invalid_date is equally unknown."""
+        h = self._truncated_health(latest_invalid_date=None)
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_raw_close_count_unattributed" in n
+                   for n in names)
+
+    def test_unattributed_unparseable_latest_invalid_date_is_sev2(
+            self, tmp_path):
+        """A garbage latest_invalid_date cannot prove historical ->
+        SEV2, matching the unparseable-count anomaly policy."""
+        h = self._truncated_health(latest_invalid_date="not-a-date")
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_raw_close_count_unattributed" in n
+                   for n in names)
+
+    def test_unattributed_stable_key_survives_drifting_count(
+            self, tmp_path):
+        """BLOCKER 2 kill: a persistent defect whose unattributed count
+        drifts between runs keeps ONE incident — no second folder, no
+        auto-resolve of the still-unresolved fallback.  Pre-fix, the
+        `count<N>` key opened count130 and resolved count100."""
+        _run(tmp_path, self._truncated_health(
+            latest_invalid_date=_WE, invalid_count=150))
+        names1 = _open_names(tmp_path)
+        fallback = [n for n in names1 if "raw_close_count" in n]
+        assert len(fallback) == 1
+        stats2 = _run(tmp_path, self._truncated_health(
+            latest_invalid_date=_WE, invalid_count=180))
+        names2 = _open_names(tmp_path)
+        assert [n for n in names2 if "raw_close_count" in n] == fallback
+        assert stats2["resolved"] == []
+        assert not any("raw_close" in n for n in stats2["new"])
+        # the drifting numbers live in evidence, not the identity
+        rep = json.loads((tmp_path / "open" / fallback[0]
+                          / "report.json").read_text(encoding="utf-8"))
+        assert rep["invalid_count"] == 180
+        assert rep["unattributed"] == 130
+        assert rep["accounted"] == 50
+
+    def test_unattributed_severity_change_keeps_one_incident(
+            self, tmp_path):
+        """A drift that also flips the severity (latest_invalid_date
+        moves in/out of the window) is one incident with a severity
+        history entry — still not a resolve+reopen."""
+        _run(tmp_path, self._truncated_health(
+            latest_invalid_date="2016-09-02", invalid_count=150))
+        stats2 = _run(tmp_path, self._truncated_health(
+            latest_invalid_date=_WE, invalid_count=180))
+        names = _open_names(tmp_path)
+        fallback = [n for n in names if "raw_close_count" in n]
+        assert len(fallback) == 1
+        assert "_sev2_raw_close_count_unattributed" in fallback[0]
+        assert stats2["resolved"] == []
+
+    def test_unattributed_auto_resolves_on_clean(self, tmp_path):
+        """A clean report still auto-resolves the fallback incident."""
+        _run(tmp_path, self._truncated_health(latest_invalid_date=_WE))
+        assert any("raw_close_count" in n
+                   for n in _open_names(tmp_path))
+        stats = _run(tmp_path, _health())
+        assert _open_names(tmp_path) == []
+        assert any("raw_close_count_unattributed" in n
+                   for n in stats["resolved"])
 
 
 class TestDelistedAggregateExclusion:

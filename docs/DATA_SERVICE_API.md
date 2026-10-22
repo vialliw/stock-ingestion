@@ -314,7 +314,10 @@ result rows. Payloads are optional JSON objects unless noted.
 > **RawClose health (`checks.raw_close`).** Added in schema v9/HRAW-T1.
 > Reports `total_rows`, `invalid_count`, `affected_ticker_count`,
 > disjoint `reason_counts` (`null_raw`, `nonfinite_raw`,
-> `nonfinite_factor`, `nonpositive_factor`), and a bounded `per_ticker`
+> `nonfinite_factor`, `nonpositive_factor`), `latest_invalid_date`
+> (`MAX(Date)` over invalid rows only, JSON `null` when
+> `invalid_count` is 0 — added HRAW-T2 so recency can be judged for
+> tickers omitted by `per_ticker` truncation), and a bounded `per_ticker`
 > list (`ticker`, `invalid_count`, `first_date`, `last_date`).  A row is
 > invalid only when `RawClose` is NULL/non-finite, or when `RawClose` is
 > nonzero and `Close / RawClose` is non-finite or non-positive.  Finite
