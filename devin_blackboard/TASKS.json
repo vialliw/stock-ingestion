@@ -4520,5 +4520,66 @@
       }
     ],
     "assigned_to": "B"
+  },
+  {
+    "id": "HRAW-T3",
+    "title": "Fix post-window dates misclassified as historical SEV3 (external review round 2)",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "assigned_to": "B",
+    "depends_on": [
+      "HRAW-T2"
+    ],
+    "input_files": [
+      "/scripts/incident_watch.py",
+      "/tests/test_incident_watch.py",
+      "/docs/INCIDENT_WATCH.md",
+      "/docs/incident_management_requirements.md"
+    ],
+    "output_files": [
+      "/scripts/incident_watch.py",
+      "/tests/test_incident_watch.py",
+      "/docs/INCIDENT_WATCH.md",
+      "/docs/incident_management_requirements.md"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "HRAW3-AC1",
+        "check": "watcher focused tests",
+        "command": "python -m pytest tests/test_incident_watch.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "HRAW3-AC2",
+        "check": "full suite green",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "HRAW3-AC3",
+        "check": "strict loop checker",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "HRAW3-AC4",
+        "check": "incident watcher self-test",
+        "command": "python scripts/incident_watch.py --self-test",
+        "expected_exit": 0
+      },
+      {
+        "text": "External-review round-2 blocker fixed: a date AFTER window_end is newer than the health window and can never be 'historical'. _provably_historical returns True only when the date provably falls BEFORE the window (before window_start, or before latest_trading_day - _INTEGRITY_RECENT_DAYS in the fallback path); dates after window_end return False so the unattributed remainder escalates SEV2."
+      },
+      {
+        "text": "Listed per-ticker raw_close findings: SEV2 when last_date is inside the window OR provably after window_end; SEV3 only when provably before the window or unparseable (the established 'cannot prove recent' quiet policy for listed entries is preserved). acknowledged_delisted SEV4 suppression unchanged. Applies consistently to the raw_close section; other check sections are out of scope unless the same defect pattern exists in integrity (verify and note)."
+      },
+      {
+        "text": "Non-vacuous regression tests kill the pre-fix behavior: listed ticker with last_date > window_end -> SEV2 (was SEV3); unattributed with latest_invalid_date > window_end -> SEV2 (was SEV3); listed last_date < window_start -> SEV3 still; unparseable listed last_date -> SEV3 still; in-window -> SEV2 still; severity flip across runs keeps ONE incident via rename, no churn."
+      },
+      {
+        "text": "INCIDENT_WATCH.md and incident_management_requirements.md state the refined rule: 'historical' means provably before the recent window; anything in-window, after-window, or undatable-unattributed escalates. README twins remain byte-identical."
+      }
+    ]
   }
 ]

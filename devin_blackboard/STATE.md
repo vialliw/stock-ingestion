@@ -1277,3 +1277,13 @@ persistent defect churns incidents. HRAW-T2 registered: db.py adds
 unattributed remainder SEV2 unless recency is provably ruled out, with a
 stable `count_unattributed` incident identity. After B->C->D + deploy,
 resubmit v2 artifact to the same review thread.
+
+## Active work — HRAW-T3 post-window recency fix (2026-10-22)
+
+chatgpt-review round 2 on the v2 artifact: one blocking finding —
+`_provably_historical`/`_in_window` classify dates AFTER window_end as
+SEV3 'historical', though a post-window date is newer than the health
+window. HRAW-T3 registered (watcher-only): SEV3 only provably before
+window_start (or latest-60d fallback); after-window -> SEV2 both for
+listed tickers and the unattributed fallback. HRAW-T2 deployed live
+(restart + clean watcher run verified). Resubmit v3 after B->C->D.
