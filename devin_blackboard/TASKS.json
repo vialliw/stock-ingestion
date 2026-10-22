@@ -4455,7 +4455,7 @@
     "title": "Fix RawClose watcher unattributed severity and fallback incident identity (external review round 1)",
     "role": "executor",
     "model": "swe",
-    "status": "blocked",
+    "status": "todo",
     "depends_on": [
       "HRAW-T1"
     ],
@@ -4475,7 +4475,8 @@
       "/tests/test_incident_watch.py",
       "/docs/DATA_SERVICE_API.md",
       "/docs/INCIDENT_WATCH.md",
-      "/docs/incident_management_requirements.md"
+      "/docs/incident_management_requirements.md",
+      "/tests/test_rrg_dashboard.py"
     ],
     "acceptance_criteria": [
       {
