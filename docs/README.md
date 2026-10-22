@@ -223,6 +223,22 @@ python scripts/load_company_metadata.py --limit 5 --delay 1.0   # smoke test
 
 `scripts/load_company_metadata.bat` is the double-clickable Windows wrapper (flags pass through, e.g. `load_company_metadata.bat --refresh`).
 
+### Finviz Sector/Industry Classification
+
+`scripts/classify_tickers_finviz.py` classifies every non-ETF ticker into Finviz's sector/industry taxonomy by scraping the screener *overview* view (`screener.ashx?v=111`) in batched multi-ticker URLs (built by `scripts/split_tickers_for_finviz.py`, 20 tickers per batch by default). It writes CSV reports only — no DuckDB writes.
+
+- **Ticker universe** — `SELECT ticker FROM company_metadata WHERE quote_type = 'EQUITY' ORDER BY ticker` via the Flight service's `do_get` JSON `{"sql": ...}` ticket; falls back to the configured `ingestion.tickers` when the server is unreachable, and `--tickers A,B,C` forces an explicit subset.
+- **Rate-limit safety** — browser User-Agent, ~1.2 s + jitter between batches (`--delay`), 30 s timeout, exponential-backoff retry on HTTP 429/403/5xx (max 3 retries), clean abort after 5 consecutive batch failures.
+- **No silent drops** — Finviz drops unknown tickers without error, so each batch's returned rows are cross-checked against the request; leftovers retry once at batch size 10, and anything still unclassified is named in the stdout digest and kept in the detail CSV with empty classification fields. Pages that return exactly the 20-row cap are followed via `&r=21,41,...` pagination.
+- **Outputs** — `finviz_sector_industry_YYYYMMDD.csv` (`ticker,company,sector,industry,country`) and `finviz_sector_summary_YYYYMMDD.csv` (`level,sector,industry,ticker_count` — sector rollups plus sector→industry counts) under `reports.report_dir` (`--output-dir` overrides). The stdout digest reports fetched / batched / unclassified / excluded-non-equity counts.
+
+```bash
+python scripts/classify_tickers_finviz.py                      # all EQUITY tickers
+python scripts/classify_tickers_finviz.py --tickers AAPL,MSFT  # explicit subset
+python scripts/classify_tickers_finviz.py --dry-run            # print URLs, no HTTP
+python scripts/classify_tickers_finviz.py --delay 2.0          # slower pacing
+```
+
 ### Weekly Layer
 
 `weekly_close` and `weekly_indicators` persist the legacy weekly aggregation + indicator stack (ported verbatim from `libs/vw_pipe_data_duckdb.py`: `aggregate_to_weekly` and `update_weekly_indicators_01`) directly inside `stock_ingestion.duckdb`.

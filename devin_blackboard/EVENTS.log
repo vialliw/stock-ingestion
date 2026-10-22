@@ -5254,3 +5254,97 @@ Evidence map:
 [2026-10-22] [ORCHESTRATOR] Registered SEC-T1 (user-approved plan): scrape Finviz screener (v=111, batched via split_tickers_for_finviz) to classify all non-ETF tickers into Finviz sector/industry taxonomy -> CSV-only output to C:\Intel\parquet (no DB writes). Scope: split script __main__ guard, new scripts/classify_tickers_finviz.py, new tests/test_classify_finviz.py, README twins. Gates: B -> C -> D -> orchestrator live run (~1,115 EQUITY tickers, ~56 batches @1.2s delay).
 
 [2026-10-22T18:49:34.809402+00:00] [EXECUTOR] claimed SEC-T1
+[2026-10-22T19:40:05.845682+00:00] [EXECUTOR] completed SEC-T1 -> SEC-T1 implemented: split_tickers_for_finviz mock-demo moved under __main__ guard (module importable, function behavior unchanged); NEW scripts/classify_tickers_finviz.py — Flight do_get JSON {'sql'} ticket for company_metadata EQUITY tickers (config.yaml fallback + --tickers subset), batches via split_tickers_for_finviz(batch_size=20), browser UA, ~1.2s+jitter pacing, 30s timeout, exp-backoff retry on 429/403/5xx (max 3), abort after 5 consecutive failures, v=111 overview parse via pandas.read_html, &r= pagination at 20-row cap, unclassified cross-check + one retry at batch_size 10, unclassified named in digest + kept in detail CSV; outputs finviz_sector_industry_YYYYMMDD.csv + finviz_sector_summary_YYYYMMDD.csv to reports.report_dir. NEW tests/test_classify_finviz.py: 23 mocked-HTTP tests (parser fields/missing-cols/empty/error pages, retry/backoff, 429/403/5xx+transport retries, pagination guard, cross-check+size-10 retry, abort, pacing, CSV values, dry-run, Flight fallback/excluded count). README twins document usage, byte-identical (cmp clean). Gates: --verify SEC-T1 ALL PASS — AC1 23/23 focused, AC2 1983/1983 full suite (289s standalone), AC3 strict loops exit 0 (17 files), AC4 dry-run exit 0 prints URLs only. First two verify attempts hit the 300s harness timeout on AC2 from stacked background pytest contention (HRAW-T3 precedent); clean re-run ALL PASS.
+Evidence map:
+[
+  {
+    "id": "SEC-AC1",
+    "check": "focused tests",
+    "command": "python -m pytest tests/test_classify_finviz.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ".......................                                                  [100%]\n23 passed in 3.50s\n"
+  },
+  {
+    "id": "SEC-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1983 passed, 507 warnings in 263.80s (0:04:23)\n"
+  },
+  {
+    "id": "SEC-AC3",
+    "check": "strict loop checker",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "SEC-AC4",
+    "check": "dry-run prints URLs only",
+    "command": "python scripts/classify_tickers_finviz.py --dry-run --tickers AAPL,MSFT",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "Total Tickers: 2\nBatch Size: 20\nTotal Batches Generated: 1\n==================================================\nBatch 1 (2 tickers):\nTickers: AAPL,MSFT\nFinviz URL: https://finviz.com/screener.ashx?v=111&t=AAPL,MSFT\n\nDRY-RUN: 2 tickers (source=--tickers); no requests made.\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

@@ -4587,7 +4587,7 @@
     "title": "Finviz sector/industry classification CSV for all non-ETF tickers",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "assigned_to": "B",
     "depends_on": [],
     "input_files": [

@@ -43,10 +43,11 @@ def split_tickers_for_finviz(ticker_list, batch_size=25):
         
     return batch_results
 
-# --- Example Usage ---
-# Simulate a large list (replace this with your 1,200 tickers from a CSV/file)
-# e.g., mock_1200_tickers = ['AAPL', 'MSFT', 'NVDA', ...] 
-mock_1200_tickers = [f"TICK{i}" for i in range(1, 1201)] 
+if __name__ == "__main__":
+    # --- Example Usage ---
+    # Simulate a large list (replace this with your 1,200 tickers from a CSV/file)
+    # e.g., mock_1200_tickers = ['AAPL', 'MSFT', 'NVDA', ...]
+    mock_1200_tickers = [f"TICK{i}" for i in range(1, 1201)]
 
-# Run the function
-finviz_batches = split_tickers_for_finviz(mock_1200_tickers, batch_size=30)
+    # Run the function
+    finviz_batches = split_tickers_for_finviz(mock_1200_tickers, batch_size=30)
