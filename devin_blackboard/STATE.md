@@ -1,6 +1,38 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-20 (HRAW-T1 — DONE, live gate PASS)
+Last Updated: 2026-10-22 (HRAW-T2 — BLOCKED on out-of-scope pre-existing test failure)
 Current Branch: main
+
+## HRAW-T2 — External-review round-1 blockers — implementation DONE (commit 26aead4), task BLOCKED on AC2 scope
+
+Both external-review blockers implemented and green on every in-scope gate:
+(1) `checks.raw_close.latest_invalid_date` = `CAST(MAX(Date) FILTER (WHERE
+invalid) AS VARCHAR)`, NULL when invalid_count=0; the unattributed remainder
+is SEV2 whenever recency cannot be ruled out (in-window / missing /
+unparseable latest_invalid_date — new `_provably_historical` helper mirrors
+`_in_window`), SEV3 only when provably outside the window; listed per-ticker
+severities unchanged. (2) fallback detail key is now the STABLE
+`raw_close/count_unattributed` — counts live in evidence — killing the
+drifting-count resolve+reopen churn. Tests +10 non-vacuous (real temp DuckDB
+filter/truncation correctness; synthetic watcher SEV2/SEV3/missing/null/
+unparseable matrix, drifting-count single-incident, severity-flip keeps one
+incident, clean auto-resolve); the old count-only test was rewritten to kill
+both pre-fix behaviors. Docs updated (DATA_SERVICE_API field, INCIDENT_WATCH
+fallback-key caveat, incident_management_requirements SEV2/SEV3/dedup rules).
+Gates: AC1 focused 119/119 PASS, AC3 strict loops exit 0 (17 files), AC4
+watcher self-test exit 0.
+
+**BLOCKER (B, 2026-10-22):** AC2 `pytest tests/ -q` exits 1 — ONE failure,
+`tests/test_rrg_dashboard.py::TestPresets::test_presets_order_and_legacy_verbatim`
+(assert 34 == 35 on the Semi preset). Root cause is orchestrator commit
+`ad1bff4` (2026-10-22, "drop QRVO from RRG semis preset") which removed QRVO
+without updating the test — PRE-EXISTING at HEAD, unrelated to HRAW-T2 (my
+diff touches neither file; `git diff HEAD` empty for both). Fix requires
+editing `tests/test_rrg_dashboard.py`, which is NOT in HRAW-T2 output_files.
+REQUIRED ORCHESTRATOR ACTION: add `tests/test_rrg_dashboard.py` to HRAW-T2
+output_files (scope amendment; precedent fe3921a / HRAW-T1 mechanical
+compatibility tests), reset task to todo, respawn B to update the expected
+count 35→34 and re-run verify→done.
+
 
 ## HRAW-T1 — RawClose health + incident watch — DONE (2026-10-20)
 
@@ -528,7 +560,11 @@ Canonical workflow doc remains `docs/MULTI_AGENT_WORKFLOW_PLAYBOOK.md`.
 
 ## Active Blocker
 
-None.
+**HRAW-T2 (B, 2026-10-22):** AC2 full suite fails on pre-existing unrelated
+`test_rrg_dashboard.py::TestPresets::test_presets_order_and_legacy_verbatim`
+(Semi preset 34 vs expected 35 — orchestrator commit ad1bff4 dropped QRVO
+without updating the test). Fix file is outside HRAW-T2 output_files; needs
+orchestrator scope amendment + respawn (see HRAW-T2 section above).
 
 ## Active work — Request 1 Option A raw close (2026-10-17)
 
