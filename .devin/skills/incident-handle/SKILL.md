@@ -85,23 +85,19 @@ the watcher will keep flagging the old symbol until then.
 repeats (flagged more than once in a week), or where upstream went silent,
 verify against the web BEFORE calling it a fetch miss or a dead feed:
 
-1. `web_search "<TICKER> delisted"` (primary — fast, no session needed).
+1. `web_search "<TICKER> delisted"` — fast, no session needed.
    SEC-filing/8-K and news hits about a Nasdaq/NYSE delisting notice,
-   trading suspension, or Chapter-11 delist are authoritative.
-2. Optional second opinion via the ChatGPT relay (domain-restricted to
-   chatgpt.com — it can only send prompts, NOT fetch web pages; works
-   because ChatGPT itself has browsing):
-   `python C:\Users\user\.devin\external_review\chatgpt_relay.py --send
-   "Has ticker <T> been delisted or suspended? Answer with exchange, date,
-   and source."` — smoke-tested OK 2026-10-22 (`--smoke`: allowlist +
-   live Edge CDP PASS). Skip if the Edge window isn't signed in.
-3. **Upstream data does NOT rule out delisting.** A Nasdaq/NYSE suspension
+   trading suspension, or Chapter-11 delist are authoritative; a
+   matching SEC-derived source + news coverage counts as confirmed.
+   (Do NOT use the ChatGPT relay for this — it is domain-locked to
+   chatgpt.com and cannot fetch web pages.)
+2. **Upstream data does NOT rule out delisting.** A Nasdaq/NYSE suspension
    moves the stock to OTC (often a renamed ticker like LESL→LESLQ); Yahoo
    may keep serving delayed/partial bars under the old symbol — so
    recurring single-day gap misses are a signature, not proof of a live
    feed. Real case: LESL "settle-window misses" on 10-19/20/21 were
    actually its 10-06 Nasdaq suspension playing out on the OTC feed.
-4. If confirmed delisted:
+3. If confirmed delisted:
    - add the ticker to `acknowledged_delisted` in
      `incidents/_config/suppressions.json` (suppresses stale/gap even
      while spotty OTC bars keep arriving — data continues, noise stops);
