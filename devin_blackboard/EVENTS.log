@@ -5173,4 +5173,4 @@ Evidence map:
     "passed": true,
     "output": ""
   }
-]
+][2026-10-22] [EXECUTOR-B] HRAW-T3 DONE (cba4f93): post-window-date misclassification fixed — _provably_historical now returns True only provably-BEFORE window (d < ws; fallback unchanged); new _provably_after_window helper; raw_close listed gate SEV2 on in-window OR after-window, SEV3 provably-before/undatable (N4 preserved); SAME defect found+fixed in integrity _in_window else-branch (scope check). +7 non-vacuous tests; in-place mutation revert -> 5/7 FAIL, restored. --verify ALL PASS: AC1 95/95, AC2 1960/1960 (194.80s), AC3 strict loops 0, AC4 self-test 0. Docs updated; README twins byte-identical; scope = output_files + blackboard.

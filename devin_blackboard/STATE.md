@@ -1,6 +1,39 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-22 (HRAW-T2 — Critic D PASS; awaiting orchestrator deploy gate + external resubmit)
+Last Updated: 2026-10-22 (HRAW-T3 — Executor B DONE; post-window dates no longer misclassified 'historical')
 Current Branch: main
+
+## HRAW-T3 — Post-window dates -> SEV2 — DONE (executor B, 2026-10-22)
+
+DONE commit cba4f93. External-review round-2 BLOCKER fixed:
+'historical' now means provably BEFORE the window. (1)
+`_provably_historical`: `not (ws <= d <= we)` -> `d < ws` — a date
+after `window_end` is newer than the health window and can never be
+SEV3-historical; the latest-only fallback (`d < lt -
+_INTEGRITY_RECENT_DAYS`) was already correct. (2) New
+`_provably_after_window` helper: True only when date AND both bounds
+parse and `d > we`. (3) raw_close listed-ticker gate: SEV2 when
+`_in_window` OR `_provably_after_window`; SEV3 only provably-before or
+undatable (INC-T1b N4 quiet policy preserved); ack-delisted SEV4
+unchanged. (4) SCOPE CHECK: the identical defect existed in the
+integrity section's `_in_window` else-branch — a post-window violation
+date fell to SEV3 'historical corrupt row'; fixed the same way.
+Tests: +7 non-vacuous (`TestPostWindowHRAW3`) — direct gate matrices,
+listed `last_date > we` -> SEV2, unattributed `latest_invalid_date >
+we` -> SEV2, unparseable listed -> SEV3, severity flip SEV3->SEV2 =
+ONE renamed incident with zero resolves, integrity post-window ->
+SEV2. Mutation kill verified in-place: reverting all three fixes ->
+5/7 new tests FAIL; file restored byte-identical. Gates `--verify
+HRAW-T3` ALL PASS: AC1 focused 95/95 (3.64s), AC2 full suite
+1960/1960 (194.80s), AC3 strict loops exit 0 (17 files), AC4 watcher
+self-test exit 0. Note: first --verify attempt hit the 300s harness
+timeout on AC2 due to transient load from stacked background pytest
+processes; clean re-run passed. Docs: INCIDENT_WATCH.md +
+incident_management_requirements.md state 'historical' = provably
+before the window; in-window/after-window/undatable-unattributed
+escalate; README twins byte-identical (cmp exit 0). Scope: output_files
++ blackboard only; no deploy/restart (orchestrator-owned). Next:
+Challenger C -> Critic D -> resubmit to external review thread
+REV-si_hraw_review-g2.
 
 ## HRAW-T2 — Critic D final verification — PASS (2026-10-22)
 
