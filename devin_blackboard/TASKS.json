@@ -4449,5 +4449,74 @@
         "text": "Deployment gate: restart Flight Server, call real data_health, verify raw_close counts match direct Flight SQL; run incident_watch and verify known acknowledged delisted RawClose history is suppressed while any unsuppressed affected ticker creates one bounded incident, with no false incident for finite zero/negative values."
       }
     ]
+  },
+  {
+    "id": "HRAW-T2",
+    "title": "Fix RawClose watcher unattributed severity and fallback incident identity (external review round 1)",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "depends_on": [
+      "HRAW-T1"
+    ],
+    "input_files": [
+      "/src/db.py",
+      "/scripts/incident_watch.py",
+      "/tests/test_health_check.py",
+      "/tests/test_incident_watch.py",
+      "/docs/DATA_SERVICE_API.md",
+      "/docs/INCIDENT_WATCH.md",
+      "/docs/incident_management_requirements.md"
+    ],
+    "output_files": [
+      "/src/db.py",
+      "/scripts/incident_watch.py",
+      "/tests/test_health_check.py",
+      "/tests/test_incident_watch.py",
+      "/docs/DATA_SERVICE_API.md",
+      "/docs/INCIDENT_WATCH.md",
+      "/docs/incident_management_requirements.md"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "HRAW2-AC1",
+        "check": "health and watcher focused tests",
+        "command": "python -m pytest tests/test_health_check.py tests/test_incident_watch.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "HRAW2-AC2",
+        "check": "full suite green",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "HRAW2-AC3",
+        "check": "strict loop checker",
+        "command": "python scripts/check_loops.py --src-dir src --strict",
+        "expected_exit": 0
+      },
+      {
+        "id": "HRAW2-AC4",
+        "check": "incident watcher self-test",
+        "command": "python scripts/incident_watch.py --self-test",
+        "expected_exit": 0
+      },
+      {
+        "text": "checks.raw_close gains latest_invalid_date = CAST(MAX(Date) FILTER (invalid) AS VARCHAR), NULL when invalid_count=0, so recency can be judged for tickers omitted by per_ticker truncation. total_rows/invalid_count/reason_counts/per_ticker shape unchanged; pre-v9 schema still fails CHECK_FAILED report-only."
+      },
+      {
+        "text": "External-review blocker 1 fixed: the unattributed-remainder incident is SEV2 whenever recency cannot be ruled out — latest_invalid_date inside the health window, or missing/unparseable — and SEV3 only when it provably falls outside the window. Listed per-ticker severities (ack-delisted SEV4 suppressed / recent SEV2 / historical SEV3) are unchanged."
+      },
+      {
+        "text": "External-review blocker 2 fixed: the fallback incident uses a STABLE detail key independent of the row count (e.g. 'count_unattributed'); counts remain in evidence. Tests prove a persistent defect with drifting counts yields one stable incident (no spurious auto-resolve + new-open churn) and that clean reports still auto-resolve it."
+      },
+      {
+        "text": "Non-vacuous regression coverage on real temp DuckDB and synthetic watcher payloads: truncated list with provably-historical unattributed -> SEV3; truncated list with in-window or unknown latest_invalid_date -> SEV2; drifting invalid_count keeps one incident; finite zero/negative values never alert; malformed-payload anomalies and suppressed_detail aggregation unchanged."
+      },
+      {
+        "text": "DATA_SERVICE_API.md, INCIDENT_WATCH.md, and incident_management_requirements.md document latest_invalid_date, the stable fallback key, and the can't-rule-out-recency severity rule. README twins remain byte-identical."
+      }
+    ]
   }
 ]

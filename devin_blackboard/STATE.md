@@ -1135,3 +1135,15 @@ efresh_fear_greed.py %*`). `requirements.txt` + `requests>=2.31`.
 - All 7 round-1 findings verified FIXED with own probes (46/46 + 10/10 adversarial, %TEMP% only): B1 rename+history+toast on re-classified-worse / no auto-downgrade / acked-ticket path correct / dedup survives rename; B2 coercion + SEV2 malformed_* anomalies + CHECK_FAILED still SEV1; B3 count junk -> SEV2 unparseable_* anomalies; N1 count<N> fallback keys (stale/coverage/duplicates, SEV2+SEV3 paths); N2 same-run identity dedup kills _2 phantom; N3 composite CHECK_FAILED -> SEV1; N4 unparseable dates/bounds uniformly SEV3. Gates: pytest 55/55, --self-test exit 0.
 - NEW blocker NB1: _count_field (:324-330) + _safe_int (:304-311) raise uncaught OverflowError on inf (int(float('inf'))); json.loads accepts Infinity/1e999 so a malformed count crashes classify -> exit 1, zero folders — same blast radius as original B3. One-line fix: add OverflowError to both excepts.
 - Non-blocking: double toast+history when re-classification coincides with unacked%3==0; bool counts parse silently (true->1); old-B1-damaged folders (json/folder sev mismatch) never self-heal; rename-collision _unique_dir path verified safe.
+
+## Active work — HRAW-T2 RawClose watcher fallback fix (2026-10-22)
+
+External chatgpt-review (REV-si_hraw_review-g1) round 1 on the deployed
+HRAW-T1 implementation: NEEDS_REVISION, 2 blocking concerns — truncated
+per_ticker leaves unattributed invalid rows at SEV3 even when they may be
+recent; and the `raw_close/count<N>` fallback key embeds the count so a
+persistent defect churns incidents. HRAW-T2 registered: db.py adds
+`latest_invalid_date` to checks.raw_close; watcher classifies the
+unattributed remainder SEV2 unless recency is provably ruled out, with a
+stable `count_unattributed` incident identity. After B->C->D + deploy,
+resubmit v2 artifact to the same review thread.
