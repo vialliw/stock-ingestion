@@ -247,8 +247,10 @@ def _provably_historical(date, window_start, window_end,
     """SEV3 gate for count-level findings whose ticker attribution is
     lost to truncation (HRAW-T2).  True ONLY when ``date`` parses AND
     the applicable recency bounds parse AND the date falls provably
-    outside them — the mirror of ``_in_window``: that helper requires
-    proof of recency, this one requires proof of non-recency.
+    BEFORE them — 'historical' strictly means older than the window
+    (HRAW-T3): a date after ``window_end`` is NEWER than the health
+    window and can never be historical, so it returns False and
+    callers escalate instead of quieting to SEV3.
 
     A missing, unparseable, or boundless date can never rule recency
     out, so callers must escalate those cases (the conservative
@@ -264,7 +266,7 @@ def _provably_historical(date, window_start, window_end,
             we = _dt.date.fromisoformat(str(window_end)[:10])
         except (TypeError, ValueError):
             return False
-        return not (ws <= d <= we)
+        return d < ws
     if latest:
         try:
             lt = _dt.date.fromisoformat(str(latest)[:10])
@@ -272,6 +274,27 @@ def _provably_historical(date, window_start, window_end,
             return False
         return d < lt - _dt.timedelta(days=_INTEGRITY_RECENT_DAYS)
     return False
+
+
+def _provably_after_window(date, window_start, window_end) -> bool:
+    """HRAW-T3 — True ONLY when ``date`` parses, both window bounds
+    parse, and the date falls strictly after ``window_end``.  A
+    post-window date is newer than the health window, so the finding
+    is certainly NOT historical and must take the SEV2 branch even
+    though ``_in_window`` returns False for it.
+
+    The latest-only fallback needs no counterpart: ``_in_window``
+    already treats every ``d >= lt - _INTEGRITY_RECENT_DAYS`` (which
+    includes post-latest dates) as recent."""
+    if not (window_start and window_end):
+        return False
+    try:
+        d = _dt.date.fromisoformat(str(date)[:10])
+        _dt.date.fromisoformat(str(window_start)[:10])
+        we = _dt.date.fromisoformat(str(window_end)[:10])
+    except (TypeError, ValueError):
+        return False
+    return d > we
 
 
 # ---------------------------------------------------------------------
@@ -747,7 +770,10 @@ def classify_health(health, *, probe_error=None, benign=None,
                 summary=f"{t} {d}: {reason} — known-benign (suppressed)",
                 evidence=v, suggested_action="none", suppressed=True))
             continue
-        if _in_window(d, ws, we, latest):
+        # HRAW-T3: a date provably AFTER window_end is newer than the
+        # window — never 'historical' — so it takes the SEV2 branch too.
+        if (_in_window(d, ws, we, latest)
+                or _provably_after_window(d, ws, we)):
             findings.append(_Finding(
                 check="integrity", detail=f"{t}_{d}", severity=2,
                 summary=(f"{t} {d}: {reason} — recent corrupt row "
@@ -791,9 +817,12 @@ def classify_health(health, *, probe_error=None, benign=None,
                 "keys should be impossible."),
         ))
 
-    # ---- raw_close (HRAW-T1/T2) ----
+    # ---- raw_close (HRAW-T1/T2/T3) ----
     # Aggregate per ticker; never one folder per row.  Recent invalid
-    # rows in the gap window are SEV2; historical are SEV3.
+    # rows in the gap window are SEV2; provably-historical (before the
+    # window) and undatable last_dates are SEV3.  HRAW-T3: a last_date
+    # provably AFTER window_end is newer than the window — never
+    # 'historical' — so it escalates to SEV2, not the SEV3 branch.
     # acknowledged-delisted tickers downgrade to SEV4 suppressed.  Any
     # invalid_count not covered by the bounded per_ticker list becomes
     # ONE incident under the stable `count_unattributed` key: SEV2 when
@@ -830,7 +859,8 @@ def classify_health(health, *, probe_error=None, benign=None,
                     evidence=ev, suggested_action="none",
                     suppressed=True))
                 continue
-            if _in_window(last, ws, we, latest):
+            if (_in_window(last, ws, we, latest)
+                    or _provably_after_window(last, ws, we)):
                 findings.append(_Finding(
                     check="raw_close", detail=t, severity=2,
                     summary=(f"{t}: {cnt} invalid RawClose row(s) "
@@ -851,9 +881,10 @@ def classify_health(health, *, probe_error=None, benign=None,
             # whenever recency cannot be ruled out (latest_invalid_date
             # inside the window, or missing/unparseable on a pre-T2
             # payload — 'can't count = can't trust'); SEV3 only when it
-            # provably falls outside the window.  A truncated list can
-            # hide a recent failure on an omitted ticker, which must
-            # page.  Listed per-ticker severities above are unchanged.
+            # provably falls BEFORE the window (HRAW-T3: a post-window
+            # lid is newer than the window, so it escalates too).  A
+            # truncated list can hide a recent failure on an omitted
+            # ticker, which must page.
             provably_old = _provably_historical(lid, ws, we, latest)
             # HRAW-T2 blocker 2 — STABLE detail key: the count lives in
             # evidence, not the identity.  The old `count<N>` key made a
@@ -866,7 +897,7 @@ def classify_health(health, *, probe_error=None, benign=None,
                     f"{unattrib} invalid RawClose row(s) not "
                     "attributable to listed tickers — "
                     + (
-                        f"latest invalid date {lid} provably outside "
+                        f"latest invalid date {lid} provably before "
                         "the trailing window (historical)"
                         if provably_old else
                         "recency cannot be ruled out "

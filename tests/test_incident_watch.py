@@ -1565,3 +1565,136 @@ class TestDelistedAggregateExclusion:
         _run(tmp_path, h)
         names = _open_names(tmp_path)
         assert any("_sev2_stale_count25" in n for n in names)
+
+
+# ---------------------------------------------------------------------
+# HRAW-T3: post-window dates are NEWER than the window — never SEV3
+# ---------------------------------------------------------------------
+
+_POST_WE = "2026-10-20"  # strictly after _WE — newer than the window
+
+
+class TestPostWindowHRAW3:
+    """External-review round-2 blocker: 'historical' means provably
+    BEFORE the window.  Pre-fix, ``_provably_historical`` returned True
+    for ANY out-of-window date (``not (ws <= d <= we)``), and the
+    listed-ticker ``_in_window`` else-branch sent a post-window
+    last_date to SEV3 — a date newer than the window was classed
+    'historical'."""
+
+    def test_provably_historical_gate_matrix(self):
+        """Direct gate: True only provably-before-window; in-window,
+        after-window, unparseable, missing, and unboundable all False
+        (kills the pre-fix ``not (ws <= d <= we)`` on _POST_WE)."""
+        ph = incident_watch._provably_historical
+        assert ph("2016-09-02", _WS, _WE, _LATEST) is True
+        assert ph(_WS, _WS, _WE, _LATEST) is False   # window start edge
+        assert ph(_WE, _WS, _WE, _LATEST) is False   # in-window
+        assert ph(_POST_WE, _WS, _WE, _LATEST) is False  # POST-window
+        assert ph("not-a-date", _WS, _WE, _LATEST) is False
+        assert ph(None, _WS, _WE, _LATEST) is False
+        assert ph(_POST_WE, "junk", "junk", _LATEST) is False
+        # latest-only fallback: strictly before lt-60d only
+        assert ph("2016-09-02", None, None, _LATEST) is True
+        assert ph(_POST_WE, None, None, _LATEST) is False
+        assert ph(None, None, None, None) is False
+
+    def test_provably_after_window_gate_matrix(self):
+        """Direct gate: True only when date AND both bounds parse and
+        date > window_end."""
+        pa = incident_watch._provably_after_window
+        assert pa(_POST_WE, _WS, _WE) is True
+        assert pa(_WE, _WS, _WE) is False            # in-window edge
+        assert pa("2016-09-02", _WS, _WE) is False   # before window
+        assert pa("not-a-date", _WS, _WE) is False
+        assert pa(None, _WS, _WE) is False
+        assert pa(_POST_WE, "junk", "junk") is False
+        assert pa(_POST_WE, None, _WE) is False      # no full window
+
+    def test_listed_post_window_last_date_is_sev2(self, tmp_path):
+        """Listed ticker last_date > window_end -> SEV2.  Pre-fix this
+        fell through ``_in_window`` to the SEV3 'historical' branch."""
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["raw_close"] = _raw_close_check([
+            {"ticker": "WBD", "invalid_count": 42,
+             "first_date": "2026-10-15", "last_date": _POST_WE},
+        ])
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_raw_close_WBD" in n for n in names)
+        assert not any("_sev3_raw_close_WBD" in n for n in names)
+
+    def test_listed_unparseable_last_date_is_sev3(self, tmp_path):
+        """N4 quiet policy preserved for LISTED entries: an undatable
+        last_date can prove neither recent nor post-window -> SEV3."""
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["raw_close"] = _raw_close_check([
+            {"ticker": "WBD", "invalid_count": 7,
+             "first_date": "2026-10-15", "last_date": "not-a-date"},
+        ])
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev3_raw_close_WBD" in n for n in names)
+        assert not any("_sev2_raw_close_WBD" in n for n in names)
+
+    def test_unattributed_post_window_latest_invalid_date_is_sev2(
+            self, tmp_path):
+        """latest_invalid_date > window_end is newer than the window —
+        recency cannot be ruled out -> SEV2 (pre-fix returned True for
+        'outside the window' -> SEV3)."""
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["raw_close"] = _raw_close_check(
+            [{"ticker": "AAA", "invalid_count": 50,
+              "first_date": "2016-09-01", "last_date": "2016-09-02"}],
+            invalid_count=150, latest_invalid_date=_POST_WE)
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any("_sev2_raw_close_count_unattributed" in n
+                   for n in names)
+        assert not any("_sev3_raw_close_count_unattributed" in n
+                       for n in names)
+
+    def test_listed_severity_flip_post_window_keeps_one_incident(
+            self, tmp_path):
+        """Severity flip across runs (before-window SEV3 -> post-window
+        SEV2) is ONE incident renamed in place — no resolve+reopen
+        churn, zero auto-resolves."""
+
+        def h_for(last):
+            hh = _health()
+            hh["daily_close"]["health_status"] = "WARN"
+            hh["daily_close"]["checks"]["raw_close"] = \
+                _raw_close_check([
+                    {"ticker": "WBD", "invalid_count": 42,
+                     "first_date": "2016-09-01", "last_date": last}])
+            return hh
+
+        _run(tmp_path, h_for("2016-09-02"))
+        assert any("_sev3_raw_close_WBD" in n
+                   for n in _open_names(tmp_path))
+        stats2 = _run(tmp_path, h_for(_POST_WE))
+        names2 = _open_names(tmp_path)
+        assert stats2["resolved"] == []
+        wbd = [n for n in names2 if "raw_close_WBD" in n]
+        assert len(wbd) == 1
+        assert "_sev2_raw_close_WBD" in wbd[0]
+
+    def test_integrity_post_window_violation_is_sev2(self, tmp_path):
+        """HRAW-T3 scope check — the identical defect lived in the
+        integrity ``_in_window`` else-branch: a violation dated after
+        window_end is newer than the window (the loader just accepted
+        bad data) -> SEV2, not 'historical' SEV3."""
+        h = _health()
+        h["daily_close"]["health_status"] = "WARN"
+        h["daily_close"]["checks"]["integrity"] = {
+            "violation_count": 1, "reason_counts": {},
+            "violations": [{"ticker": "WBD", "date": _POST_WE,
+                            "reason": "high_lt_low"}]}
+        _run(tmp_path, h)
+        names = _open_names(tmp_path)
+        assert any(f"_sev2_integrity_WBD_{_POST_WE}" in n
+                   for n in names)
+        assert not any("_sev3_integrity_WBD" in n for n in names)

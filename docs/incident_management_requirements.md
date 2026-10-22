@@ -78,17 +78,19 @@ company_metadata.health_status      # OK|WARN|CHECK_FAILED (+coverage/null_field
   ticker loss). New-ticker absences right after a config change are SEV3.
 - `duplicates.duplicate_count > 0` — violates the (Ticker, Date) PK contract;
   indicates an upsert-path defect, always actionable.
-- `integrity` violations dated **within the trailing 30-session window** after
-  suppressing the known-benign list (§3) — recent corrupt rows mean the loader
-  accepted bad data.
-- `raw_close` invalid rows with `last_date` inside the trailing gap window, after
-  suppressing acknowledged-delisted tickers — recent missing/unusable RawClose
-  means upstream data did not populate or the adjustment factor is broken.
+- `integrity` violations dated **within or after the trailing 30-session
+  window** after suppressing the known-benign list (§3) — recent corrupt
+  rows mean the loader accepted bad data.  A date after `window_end` is
+  newer than the window and can never be 'historical' (HRAW-T3).
+- `raw_close` invalid rows with `last_date` inside the trailing gap window
+  **or provably after `window_end`**, after suppressing acknowledged-delisted
+  tickers — recent (or newer-than-window) missing/unusable RawClose means
+  upstream data did not populate or the adjustment factor is broken.
 - `raw_close` invalid rows not attributable to the bounded `per_ticker` list
   (truncated report) whenever recency **cannot be ruled out** via
-  `latest_invalid_date` — i.e. it falls inside the trailing window, or is
-  missing/unparseable (pre-HRAW-T2 payload).  An omitted ticker may hide a
-  recent failure, so uncertainty pages: `can't count = can't trust`.
+  `latest_invalid_date` — i.e. it falls inside or after the trailing window,
+  or is missing/unparseable (pre-HRAW-T2 payload).  An omitted ticker may
+  hide a recent failure, so uncertainty pages: `can't count = can't trust`.
 - `gaps.total_missing_days ≥ 30` in one run, or any single ticker missing ≥ 10
   sessions in the window (broad or persistent gap, not a feed blip).
 - Same incident (any level) unacknowledged across ≥ 3 consecutive checks →
@@ -103,11 +105,14 @@ company_metadata.health_status      # OK|WARN|CHECK_FAILED (+coverage/null_field
 - `company_metadata` coverage WARN.
 - Suspected delisting/corporate action: ticker stale ≥ 5 sessions with no
   integrity error — ticket says "verify ticker status" rather than "re-fetch".
-- `raw_close` invalid rows dated **outside** the trailing window (historical
-  Yahoo-unavailable data), plus `invalid_count` not attributable to the
-  bounded `per_ticker` list (truncated report) **only when**
-  `latest_invalid_date` provably falls outside the window — otherwise the
-  unattributed remainder is SEV2 (see above).
+- `raw_close` invalid rows dated **before** the trailing window (historical
+  Yahoo-unavailable data) or with an unparseable `last_date` (the INC-T1b
+  N4 quiet policy for undatable listed entries), plus `invalid_count` not
+  attributable to the bounded `per_ticker` list (truncated report) **only
+  when** `latest_invalid_date` provably falls **before** the window —
+  otherwise the unattributed remainder is SEV2 (see above).  'Historical'
+  means provably before `window_start`; a post-`window_end` date is newer
+  than the window and escalates (HRAW-T3).
 
 **SEV4 — log only**
 - Integrity violations matching the known-benign list (§3).
