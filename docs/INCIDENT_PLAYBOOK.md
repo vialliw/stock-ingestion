@@ -70,6 +70,7 @@ tbl = c.do_get(fl.Ticket(json.dumps({"sql": "<SQL>"}).encode())).read_all()
 | Signal | Upstream shows… | Verdict | Fix |
 |--------|-----------------|---------|-----|
 | stale/gap | nothing after DB last_date | Delisted / corporate action | `acknowledged_delisted` |
+| stale/gap — recurring (same ticker repeatedly) | bars still arrive but news says suspended | **Delisted → moved to OTC** (upstream bars do NOT prove listed; OTC keeps quoting, often renamed e.g. LESL→LESLQ) | `web_search` to verify → `acknowledged_delisted` + toast user |
 | stale/gap | data exists for the missing days | Fetch miss | `on_request_load` |
 | coverage / metadata warn | upstream empty entirely | Bad symbol in config | Fix `src/config.yaml` (user decision) — never suppress |
 | coverage + metadata warn | upstream healthy | New ticker, never backfilled | `on_request_load` from data floor + `metadata_load` |
@@ -170,10 +171,16 @@ bar); the same style rules live in `incident-handle` Step 6.
 
 ## Recurring patterns (learned)
 
-- **Settle-window misses** — a same-day session flagged ~2.5h after close
-  is usually Yahoo still settling; the trailing lookback or a targeted
-  `on_request_load` resolves it. Recurring → move the nightly trigger
-  later rather than re-handling.
+- **Recurring single-day misses** — a same-day session flagged ~2.5h after
+  close is often Yahoo still settling (self-heals via lookback). BUT if
+  the *same ticker* keeps re-flagging, run `web_search "<TICKER> delisted"`
+  before treating it as a fetch miss — a suspended ticker keeps quoting on
+  OTC under the old symbol, so arriving bars do not prove it's still
+  listed (real case: LESL's 10-19/20/21 "settle misses" were its 10-06
+  Nasdaq suspension). Confirmed → `acknowledged_delisted` + toast
+  ("<T> is delisted — suggest append the exclude_tickers list"; removal is
+  the user's call — `exclude_tickers` also purges history when upstream
+  goes empty).
 - **`pending_session`** is never a finding — inside the +2h grace, expected.
 - **Report-level WARN is fine** while delisted/known items exist —
   suppression operates at incident level; `open\` empty is what matters.

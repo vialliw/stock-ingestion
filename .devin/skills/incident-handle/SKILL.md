@@ -49,6 +49,7 @@ tbl = c.do_get(fl.Ticket(json.dumps({"sql": "<SQL>"}).encode())).read_all()
 | Signal | Upstream `yf.download` shows… | Verdict | Action |
 |--------|------------------------------|---------|--------|
 | stale/gap | nothing after DB last_date | **Delisted/corporate action** | `acknowledged_delisted` (see below) |
+| stale/gap — recurring misses (same ticker flagged repeatedly) OR news confirms delisting | upstream may STILL serve bars — a suspended ticker keeps quoting on OTC (real case 2026-10: LESL suspended from Nasdaq 10-06, kept producing bars via OTC/LESLQ) | **Delisted (moved to OTC)** — upstream bars do NOT prove listed | Web-verify (below), then `acknowledged_delisted` + toast user (below) |
 | stale/gap | data exists for missing days | **Fetch miss** | Re-fetch (below) |
 | coverage `missing_tickers` | upstream serves nothing at all | **Invalid/mis-configured symbol** | Check `git log src/config.yaml` for a recent add; correct or remove the symbol (user decision), never suppress |
 | coverage + metadata warn | upstream healthy | **Newly configured, never backfilled** | `on_request_load` from the data floor + `metadata_load` (below) |
@@ -79,6 +80,40 @@ upstream-empty probe is almost always a bad symbol, not a data problem
 index is `DX-Y.NYB`; fixed by replacing with `UUP`). A config change needs
 a **`Flight Server` task restart** — the server holds config in memory;
 the watcher will keep flagging the old symbol until then.
+
+**Internet delisting check** — for ANY stale/gap finding where the ticker
+repeats (flagged more than once in a week), or where upstream went silent,
+verify against the web BEFORE calling it a fetch miss or a dead feed:
+
+1. `web_search "<TICKER> delisted"` (primary — fast, no session needed).
+   SEC-filing/8-K and news hits about a Nasdaq/NYSE delisting notice,
+   trading suspension, or Chapter-11 delist are authoritative.
+2. Optional second opinion via the ChatGPT relay (domain-restricted to
+   chatgpt.com — it can only send prompts, NOT fetch web pages; works
+   because ChatGPT itself has browsing):
+   `python C:\Users\user\.devin\external_review\chatgpt_relay.py --send
+   "Has ticker <T> been delisted or suspended? Answer with exchange, date,
+   and source."` — smoke-tested OK 2026-10-22 (`--smoke`: allowlist +
+   live Edge CDP PASS). Skip if the Edge window isn't signed in.
+3. **Upstream data does NOT rule out delisting.** A Nasdaq/NYSE suspension
+   moves the stock to OTC (often a renamed ticker like LESL→LESLQ); Yahoo
+   may keep serving delayed/partial bars under the old symbol — so
+   recurring single-day gap misses are a signature, not proof of a live
+   feed. Real case: LESL "settle-window misses" on 10-19/20/21 were
+   actually its 10-06 Nasdaq suspension playing out on the OTC feed.
+4. If confirmed delisted:
+   - add the ticker to `acknowledged_delisted` in
+     `incidents/_config/suppressions.json` (suppresses stale/gap even
+     while spotty OTC bars keep arriving — data continues, noise stops);
+   - toast the user:
+     `powershell -NoProfile -File "C:\Users\user\.devin\scripts\notify_done.ps1"
+     -Message "<TICKER> is delisted — suggest append the exclude_tickers list"`
+     (the exclude_tickers/removal decision is the user's — OTC bars may
+     still have value; `exclude_tickers` also triggers history purge when
+     upstream goes empty, so it's a deliberate choice);
+   - record the finding in the incident's `resolution_note` + GitHub issue
+     naming the suspension date, the new OTC symbol if known, and the
+     source (8-K / news).
 
 Real 2026-10-17 precedent: DBRG/QRVO/WBD confirmed delisted this way.
 **Correction to earlier handling:** WBD 2026-10-05 `Open=0, Vol=40` is NOT
