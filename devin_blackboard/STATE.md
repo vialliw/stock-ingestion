@@ -1,6 +1,42 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-22 (HRAW-T3 — Executor B DONE; post-window dates no longer misclassified 'historical')
+Last Updated: 2026-10-22 (SEC-T1 — Executor B DONE; Finviz sector/industry classification CSVs)
 Current Branch: main
+
+## SEC-T1 — Finviz sector/industry classification — DONE (executor B, 2026-10-22)
+
+DONE commit ab5a2f5 (+ artifact cleanup 2746bb0). `split_tickers_for_finviz.py`'s
+mock-1200 demo moved under `if __name__ == "__main__"` — module is now
+import-safe, function behavior unchanged. NEW `scripts/classify_tickers_finviz.py`:
+universe = `SELECT ticker FROM company_metadata WHERE quote_type='EQUITY' ORDER BY
+ticker` via Flight do_get JSON `{"sql"}` ticket (short wait_for_available probe;
+config.yaml ingestion.tickers fallback when unreachable; `--tickers` explicit
+subset); batches via `split_tickers_for_finviz(batch_size=20)`; browser UA,
+~1.2s+jitter pacing (`--delay`), 30s timeout, exponential backoff on 429/403/5xx
+(max 3 retries), abort after 5 consecutive batch failures; v=111 overview parsed
+via pandas.read_html (best-overlap table with a Ticker column, optional columns
+→ empty strings); `&r=21,41,...` pagination when a page returns exactly the
+20-row cap; returned-vs-requested cross-check with ONE retry pass at
+batch_size=10; unclassified tickers are named in the stdout digest AND kept in
+the detail CSV (never dropped). Outputs to `reports.report_dir`
+(C:\Intel\parquet): `finviz_sector_industry_YYYYMMDD.csv`
+(ticker,company,sector,industry,country) + `finviz_sector_summary_YYYYMMDD.csv`
+(level,sector,industry,ticker_count — sector rollups + sector→industry counts +
+`(unclassified)` row). Digest prints fetched/batched/unclassified/
+excluded-non-equity counts. NEW tests/test_classify_finviz.py — 23 mocked-HTTP
+tests (synthetic v=111 parser incl. missing-column/empty/error pages,
+429/403/5xx + transport retry matrix with exponential-backoff delay asserts,
+exhaustion → FetchError, 404 no-retry, &r= pagination guard, unclassified
+cross-check + size-10 retry, 5-failure abort, inter-batch pacing, CSV value
+asserts, --dry-run no-HTTP, Flight fallback + excluded count). README twins
+document usage; byte-identical (cmp clean). Gates: `--verify SEC-T1` ALL PASS —
+AC1 focused 23/23 (5.89s), AC2 full suite 1983/1983, AC3 strict loops exit 0
+(17 files), AC4 dry-run exit 0 printing URLs only. NOTE: the full suite now runs
+~289s vs the poll_tasks 300s per-AC cap — thin margin; first two verify
+attempts hit the cap under stacked background pytest contention (HRAW-T3
+precedent), clean re-run passed. Scope: output_files + blackboard only; no live
+Finviz run (orchestrator-owned deployment gate: ~1,115 equities / ~56 batches,
+expected ~98 excluded non-equity). Next: Challenger C -> Critic D ->
+orchestrator live gate.
 
 ## HRAW-T3 — Post-window dates -> SEV2 — DONE (executor B, 2026-10-22)
 
