@@ -4936,3 +4936,88 @@ Evidence map:
 [2026-10-22T15:41:23.797824+00:00] [EXECUTOR] blocked HRAW-T2 -> AC2 (pytest tests/ -q) fails on a PRE-EXISTING, unrelated failure: tests/test_rrg_dashboard.py::TestPresets::test_presets_order_and_legacy_verbatim asserts Semi preset count 35 == actual 34 — orchestrator commit ad1bff4 (2026-10-22, 'drop QRVO from RRG semis preset') removed QRVO without updating the test. My diff touches neither file (verified: git diff HEAD empty for both; failure reproduces at HEAD). Fix requires editing tests/test_rrg_dashboard.py — NOT in HRAW-T2 output_files. REQUIRED ORCHESTRATOR ACTION: add tests/test_rrg_dashboard.py to HRAW-T2 output_files (scope amendment, precedent fe3921a/HRAW-T1 mechanical compatibility tests), reset task to todo, respawn B to update the expected count 35->34 and re-run verify->done. Implementation committed 26aead4: AC1 119/119, AC3 exit 0 (17 files), AC4 exit 0 all PASS.[2026-10-22] [ORCHESTRATOR] HRAW-T2 scope amendment: added /tests/test_rrg_dashboard.py to output_files — orchestrator commit ad1bff4 (QRVO removed from RRG semis preset) left a mechanical count assertion (35) stale; precedent fe3921a / HRAW-T1 fixture amendment. B's implementation (26aead4) untouched: latest_invalid_date + _provably_historical SEV2-unless-provably-historical + stable count_unattributed key, AC1 119/119, AC3/AC4 PASS. Task reset blocked -> todo; respawning B for the one-line expected-count fix + verify->done.
 
 [2026-10-22T15:43:07.695027+00:00] [EXECUTOR] claimed HRAW-T2
+[2026-10-22T15:56:14.819335+00:00] [EXECUTOR] completed HRAW-T2 -> Round-2 finish: fixed stale Semi preset expected count 35->34 in tests/test_rrg_dashboard.py (orchestrator ad1bff4 removed QRVO; verified ticker string now 34 tickers: ADI..TXN, no QRVO). All gates re-run green: AC1 focused 119/119 PASS (15.96s), AC2 full suite 1953/1953 PASS (203.33s) incl. test_presets_order_and_legacy_verbatim, AC3 strict loops exit 0 (17 files), AC4 watcher self-test exit 0. Implementation unchanged since 26aead4: checks.raw_close.latest_invalid_date (MAX FILTER invalid, NULL when 0), _provably_historical severity (SEV2 unless provably outside window), stable raw_close/count_unattributed key, +10 non-vacuous tests, 3 docs updated.
+Evidence map:
+[
+  {
+    "id": "HRAW2-AC1",
+    "check": "health and watcher focused tests",
+    "command": "python -m pytest tests/test_health_check.py tests/test_incident_watch.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "et_ingestion_runs_returns_arrow_table\ntests/test_health_check.py::test_get_ingestion_runs_returns_arrow_table\ntests/test_health_check.py::test_get_run_history_over_wire\n  C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion\\src\\db.py:417: DeprecationWarning: fetch_arrow_table() is deprecated, use to_arrow_table() instead.\n    return conn.execute(query).fetch_arrow_table()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n119 passed, 3 warnings in 18.90s\n"
+  },
+  {
+    "id": "HRAW2-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1953 passed, 507 warnings in 188.26s (0:03:08)\n"
+  },
+  {
+    "id": "HRAW2-AC3",
+    "check": "strict loop checker",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "HRAW2-AC4",
+    "check": "incident watcher self-test",
+    "command": "python scripts/incident_watch.py --self-test",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "incident_watch: health_status=WARN probe=ok root=C:\\Users\\user\\AppData\\Local\\Temp\\incident_watch_selftest_4wtaf0xj\n  new=6 updated=0 resolved=0 suppressed=3\n  suppressed_detail={\"integrity\": {\"count\": 2}, \"pending_session\": {\"count\": 1}}\n  + NEW 20261012_sev2_integrity_WBD_2026-10-05\n  + NEW 20261012_sev3_stale_DBRG\n  + NEW 20261012_sev3_gap_QRVO\n  + NEW 20261012_sev3_gap_WBD\n  + NEW 20261012_sev3_gap_LESL\n  + NEW 20261012_sev3_gap_TCBI\n  toasts sent: 1\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

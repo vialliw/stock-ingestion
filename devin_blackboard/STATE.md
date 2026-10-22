@@ -1,10 +1,26 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-22 (HRAW-T2 — BLOCKED on out-of-scope pre-existing test failure)
+Last Updated: 2026-10-22 (HRAW-T2 — DONE, all gates green)
 Current Branch: main
 
-## HRAW-T2 — External-review round-1 blockers — implementation DONE (commit 26aead4), task BLOCKED on AC2 scope
+## HRAW-T2 — External-review round-1 blockers — DONE (2026-10-22)
 
-Both external-review blockers implemented and green on every in-scope gate:
+Round-2 finish after orchestrator scope amendment (126b62e added
+tests/test_rrg_dashboard.py to output_files): fixed the stale
+mechanical count assertion — Semi preset expected 35 -> 34 in
+test_presets_order_and_legacy_verbatim (orchestrator ad1bff4 dropped
+QRVO; verified ticker string is 34 tickers ADI..TXN, no QRVO). No
+other change to that file; implementation untouched since 26aead4.
+Final gates: --done internal verify ALL PASS (4/4 structured ACs) —
+AC1 focused 119/119, AC2 full suite 1953/1953 in 188.26s incl.
+test_presets_order_and_legacy_verbatim, AC3 strict loops exit 0
+(17 files), AC4 watcher self-test exit 0. Evidence map recorded in
+EVENTS.log. Prose ACs: latest_invalid_date, SEV2-unless-provably-
+historical, stable count_unattributed key, +10 non-vacuous tests,
+3 docs updated (README twins byte-identical). Next: Challenger C ->
+Critic D -> resubmit v2 to external review thread REV-si_hraw_review-g1.
+
+Prior history: both external-review blockers implemented and green on
+every in-scope gate:
 (1) `checks.raw_close.latest_invalid_date` = `CAST(MAX(Date) FILTER (WHERE
 invalid) AS VARCHAR)`, NULL when invalid_count=0; the unattributed remainder
 is SEV2 whenever recency cannot be ruled out (in-window / missing /
@@ -21,7 +37,8 @@ fallback-key caveat, incident_management_requirements SEV2/SEV3/dedup rules).
 Gates: AC1 focused 119/119 PASS, AC3 strict loops exit 0 (17 files), AC4
 watcher self-test exit 0.
 
-**BLOCKER (B, 2026-10-22):** AC2 `pytest tests/ -q` exits 1 — ONE failure,
+**BLOCKER (B, 2026-10-22) — RESOLVED same day by orchestrator amendment
+126b62e + this round-2 pass:** AC2 `pytest tests/ -q` exits 1 — ONE failure,
 `tests/test_rrg_dashboard.py::TestPresets::test_presets_order_and_legacy_verbatim`
 (assert 34 == 35 on the Semi preset). Root cause is orchestrator commit
 `ad1bff4` (2026-10-22, "drop QRVO from RRG semis preset") which removed QRVO

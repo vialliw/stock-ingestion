@@ -162,7 +162,7 @@ class TestPresets:
                 "Relative_Rotation_Dashboard_sector3",
                 7,
             ),
-            "Semi": ("SMH", 3, "Relative_Rotation_Dashboard_Semi", 35),
+            "Semi": ("SMH", 3, "Relative_Rotation_Dashboard_Semi", 34),
             "AI": ("XLK", 3, "Relative_Rotation_Dashboard_AI", 41),
         }
         for name, (bench, years, prefix, count) in expected.items():
