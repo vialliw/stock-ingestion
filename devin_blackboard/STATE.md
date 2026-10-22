@@ -1320,3 +1320,10 @@ window. HRAW-T3 registered (watcher-only): SEV3 only provably before
 window_start (or latest-60d fallback); after-window -> SEV2 both for
 listed tickers and the unattributed fallback. HRAW-T2 deployed live
 (restart + clean watcher run verified). Resubmit v3 after B->C->D.
+
+## Active Blocker (2026-10-22)
+
+Challenger C spawn for HRAW-T3 failed — weekly subagent quota exhausted.
+HRAW-T3 impl is committed (cba4f93). Remaining: C review -> D gate ->
+deploy gate (watcher-only, no Flight restart needed) -> v3 resubmit to
+REV-si_hraw_review-g2. Awaiting user direction.

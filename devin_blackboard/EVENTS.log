@@ -5250,4 +5250,4 @@ Evidence map:
     "passed": true,
     "output": ""
   }
-]
+][2026-10-22] [ORCHESTRATOR] BLOCKER — Challenger C spawn for HRAW-T3 failed: run_subagent rejected with weekly-usage-quota exhaustion (trace 0d8241fba0a5dd565c27a8ef5a58840c). HRAW-T3 implementation (cba4f93, executor done, 1960/1960 + mutation kill) is complete and committed; C/D review cannot run until quota resets or the user directs an alternative (e.g. wait for reset, Devin Cloud session, or explicit override). Cycle paused before C.
