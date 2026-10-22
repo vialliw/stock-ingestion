@@ -4927,3 +4927,5 @@ Evidence map:
 [2026-10-22][ORCH] incident-handle enhanced: added Internet delisting check for recurring stale/gap misses (web_search primary; chatgpt_relay.py optional second opinion — domain-restricted chatgpt.com only, --smoke PASS). Key encoded lesson: upstream bars do NOT rule out delisting — suspended tickers keep quoting OTC (LESL suspended Nasdaq 2026-10-06, trades as LESLQ; its 10-19/20/21 "settle misses" were actually the delisting). LESL added to acknowledged_delisted; correction comments posted on GH issues #15/#18/#21; playbook updated. Toast sent suggesting exclude_tickers.
 
 [2026-10-22][ORCH] incident-handle: removed ChatGPT relay option from the delisting check (domain-locked to chatgpt.com, can't fetch pages — web_search is the sole verification path; note left in-skill explaining why).
+
+[2026-10-22][ORCH] Corrected root cause on 20261021_sev3_gap_LESL (incident.json resolution_note + GH issue #21): settle-window → LESL delisted (Nasdaq suspended 2026-10-06, OTC/LESLQ; Yahoo still serves OTC bars → recurring misses).
