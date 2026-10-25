@@ -4653,7 +4653,7 @@
     "title": "RRG backdate compat: adopt bundle tests, Streamlit as-of picker, docs",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "blocked",
     "assigned_to": "B",
     "depends_on": [],
     "input_files": [

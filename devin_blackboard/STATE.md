@@ -1,6 +1,49 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-22 (SEC-T1 — B done; C spawn BLOCKED on quota)
+Last Updated: 2026-10-25 (RRG-T1 — B BLOCKED on output_files scope)
 Current Branch: main
+
+## RRG-T1 — BLOCKER (B, 2026-10-25) — needs scope amendment
+
+All in-scope work is implemented and green; `--verify RRG-T1` fails
+ONLY on two stale assertions in `tests/test_rrg_dashboard.py`, which
+is an input_file but NOT an output_file (HRAW-T2 / amendment-126b62e
+precedent — the same file, same mechanical-stale-assert pattern).
+
+Root causes (both pre-date B's work, both in the user's own revisions
+committed via claim commit 5fbf7d3):
+1. `TestPresets::test_presets_order_and_legacy_verbatim` expects
+   ETFs ticker count 85; the user's ETF universe refresh (already in
+   `rrg_dashboard_orig.py`, the "pre-revision" backup) raised it to
+   96. At prior commit accbf3e the test was green (85); the assertion
+   is stale vs HEAD.
+2. `TestMain::test_overrides_forwarded` asserts the exact kwargs dict
+   `{period, trail, lookback_years, benchmark}`; the user's revised
+   `main()` now also forwards `as_of=None` and `json_only=False`.
+   The AC forbids changing main()'s forwarding, so the assertion
+   must gain `"as_of": None, "json_only": False`.
+
+REQUIRED ORCHESTRATOR ACTION: add `tests/test_rrg_dashboard.py` to
+RRG-T1 output_files, reset task to todo, respawn B for the two-line
+mechanical fix + re-verify -> done.
+
+Verify map: AC1 FAIL (2 failed / 65 passed focused — all 18 new
+backdate tests pass), AC2 FAIL (2 failed / 2007 passed, 201.70s),
+AC3 PASS (strict loops exit 0, 17 files), AC4 PASS (bad-date exit 2).
+
+In-scope work committed to working tree (uncommitted pending
+resolution): rrg_dashboard.py main() print fix (only diff vs bundle
+— HTML path now printed in normal mode); NEW
+tests/test_rrg_dashboard_backdate.py (18 tests, repo-convention
+imports, no sys.modules stubs); report_app.py _render_rrg_tab as-of
+picker (checkbox + date_input max=today, parse_as_of -> build_rrg_sql
+cutoff, last-valid-date caption, <12-week persistence warning,
+requested_as_of_date + historical_reconstruction injected into
+displayed/downloaded JSON, _{YYYY-MM-DD} download filename);
+tests/test_report_app.py (6 existing RRG tests pinned
+checkbox=False + 3 new as-of widget tests); README twins document
+--as-of/--date/--json-only, filename convention, analysis_date vs
+requested_as_of_date, 12-week minimum, picker, limitation
+(byte-identical; preset counts corrected 85->96, 35->34).
 
 ## BLOCKER — subagent quota exhausted (2026-10-22)
 

@@ -939,7 +939,10 @@ def main(argv: Optional[list] = None) -> int:
             failed.append(name)
             continue
         succeeded.append(name)
-        print(f"Generated {name}: {paths['json']}")
+        if paths.get("html") is not None:
+            print(f"Generated {name}: {paths['json']} + {paths['html']}")
+        else:
+            print(f"Generated {name}: {paths['json']}")
 
     print(
         f"\n{len(succeeded)}/{len(names)} preset(s) generated"

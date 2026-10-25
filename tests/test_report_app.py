@@ -1264,6 +1264,7 @@ class TestRrgTab:
         # 14 each leaves 60 - (2*14+4) = 28 clean rows > trail 14.
         st.number_input.return_value = 14
         st.text_input.return_value = "SPY"
+        st.checkbox.return_value = False  # as-of picker disabled
         st.button.return_value = False
         st.columns.return_value = (MagicMock(), MagicMock())
 
@@ -1291,6 +1292,7 @@ class TestRrgTab:
         st.selectbox.return_value = "sector3"
         st.number_input.return_value = 14
         st.text_input.return_value = "SPY"
+        st.checkbox.return_value = False
         st.button.return_value = False
         st.columns.return_value = (MagicMock(), MagicMock())
 
@@ -1322,6 +1324,7 @@ class TestRrgTab:
         st.text_input.side_effect = self._keyed_text_input(
             "XLK, dia ,xlf"
         )
+        st.checkbox.return_value = False
         st.button.return_value = False
         st.columns.return_value = (MagicMock(), MagicMock())
 
@@ -1352,6 +1355,7 @@ class TestRrgTab:
         st.selectbox.return_value = "Custom"
         st.number_input.return_value = 14
         st.text_input.side_effect = self._keyed_text_input("   , ,")
+        st.checkbox.return_value = False
         st.button.return_value = False
         st.columns.return_value = (MagicMock(), MagicMock())
 
@@ -1376,6 +1380,7 @@ class TestRrgTab:
         st.text_input.side_effect = self._keyed_text_input(
             "X;DROP TABLE"
         )
+        st.checkbox.return_value = False
         st.button.return_value = False
         st.columns.return_value = (MagicMock(), MagicMock())
 
@@ -1404,6 +1409,7 @@ class TestRrgTab:
         st.text_input.side_effect = self._keyed_text_input(
             "XLK,DIA,XLF"
         )
+        st.checkbox.return_value = False
         st.button.return_value = False
         st.columns.return_value = (MagicMock(), MagicMock())
 
@@ -1412,6 +1418,153 @@ class TestRrgTab:
         st.warning.assert_called_once()
         assert "XLF" in str(st.warning.call_args)
         st.plotly_chart.assert_called_once()
+
+    @staticmethod
+    def _keyed_number_input(period=14, trail=3, years=3):
+        """``st.number_input`` side_effect — period / trail / lookback
+        widgets share one MagicMock; dispatch on the widget ``key``."""
+
+        def fake_number_input(label, *args, **kwargs):
+            return {
+                "rrg_period": period,
+                "rrg_trail": trail,
+                "rrg_years": years,
+            }[kwargs["key"]]
+
+        return fake_number_input
+
+    def test_render_asof_picker_routes_cutoff_into_sql(
+        self, tmp_path, monkeypatch
+    ):
+        """Enabled 'Historical snapshot (as-of)' picker: the chosen
+        date reaches ``build_rrg_sql`` as an inclusive ``Date <=``
+        bound, the JSON payload gains the historical fields, and the
+        download filename gets the ``_{YYYY-MM-DD}`` suffix matching
+        the standalone artifacts."""
+        pytest.importorskip("scipy")
+        pytest.importorskip("plotly")
+        df = self._weekly_long_df()
+        seen_sql = []
+
+        def fake_fetch(st, sql, config):
+            seen_sql.append(sql)
+            return df
+
+        monkeypatch.setattr(
+            report_app, "cached_fetch_dataframe", fake_fetch
+        )
+        st = MagicMock()
+        st.selectbox.return_value = "sector3"
+        st.number_input.return_value = 14
+        st.text_input.return_value = "SPY"
+        st.checkbox.return_value = True  # as-of picker enabled
+        st.date_input.return_value = date(2024, 6, 19)
+        st.button.return_value = False
+        st.columns.return_value = (MagicMock(), MagicMock())
+
+        report_app._render_rrg_tab(st, _config(tmp_path))
+
+        assert len(seen_sql) == 1
+        assert "Date <= '2024-06-19'" in seen_sql[0]
+        st.error.assert_not_called()
+        st.plotly_chart.assert_called_once()
+        # The historical-cutoff caption names the requested date.
+        assert any(
+            "2024-06-19" in str(c) for c in st.caption.call_args_list
+        )
+        # Displayed + downloaded payload carries the injected fields.
+        payload = json.loads(
+            st.download_button.call_args.kwargs["data"]
+        )
+        snap = payload["market_snapshot"]
+        assert snap["requested_as_of_date"] == "2024-06-19"
+        assert snap["historical_reconstruction"] is True
+        assert st.download_button.call_args.kwargs["file_name"] == (
+            "Relative_Rotation_Dashboard_sector3_2024-06-19"
+            "_analysis_prompt.json"
+        )
+        # 28 valid weeks >= 12 -> no persistence caveat.
+        assert not any(
+            "persistence" in str(c) for c in st.warning.call_args_list
+        )
+
+    def test_render_asof_disabled_keeps_default_sql_and_filename(
+        self, tmp_path, monkeypatch
+    ):
+        """Disabled picker is byte-for-byte the old behaviour: no
+        ``Date <=`` bound, no injected payload fields, plain
+        filename."""
+        pytest.importorskip("scipy")
+        pytest.importorskip("plotly")
+        df = self._weekly_long_df()
+        seen_sql = []
+
+        def fake_fetch(st, sql, config):
+            seen_sql.append(sql)
+            return df
+
+        monkeypatch.setattr(
+            report_app, "cached_fetch_dataframe", fake_fetch
+        )
+        st = MagicMock()
+        st.selectbox.return_value = "sector3"
+        st.number_input.return_value = 14
+        st.text_input.return_value = "SPY"
+        st.checkbox.return_value = False
+        st.button.return_value = False
+        st.columns.return_value = (MagicMock(), MagicMock())
+
+        report_app._render_rrg_tab(st, _config(tmp_path))
+
+        assert len(seen_sql) == 1
+        assert "Date <=" not in seen_sql[0]
+        st.date_input.assert_not_called()
+        st.error.assert_not_called()
+        payload = json.loads(
+            st.download_button.call_args.kwargs["data"]
+        )
+        snap = payload["market_snapshot"]
+        assert "requested_as_of_date" not in snap
+        assert "historical_reconstruction" not in snap
+        assert (
+            st.download_button.call_args.kwargs["file_name"]
+            == "Relative_Rotation_Dashboard_sector3_analysis_prompt.json"
+        )
+
+    def test_render_asof_under_12_weeks_warns(
+        self, tmp_path, monkeypatch
+    ):
+        """An as-of snapshot with fewer than 12 complete RRG weeks
+        still renders, but warns that the 12-week persistence metrics
+        are computed on fewer observations."""
+        pytest.importorskip("scipy")
+        pytest.importorskip("plotly")
+        # 40 - (2*14+4) = 8 valid weeks: above the 3-week minimum and
+        # above trail=3, below the 12-week persistence depth.
+        df = self._weekly_long_df(n=40)
+        monkeypatch.setattr(
+            report_app,
+            "cached_fetch_dataframe",
+            lambda st, sql, config: df,
+        )
+        st = MagicMock()
+        st.selectbox.return_value = "sector3"
+        st.number_input.side_effect = self._keyed_number_input(
+            period=14, trail=3, years=3
+        )
+        st.text_input.return_value = "SPY"
+        st.checkbox.return_value = True
+        st.date_input.return_value = date(2024, 6, 19)
+        st.button.return_value = False
+        st.columns.return_value = (MagicMock(), MagicMock())
+
+        report_app._render_rrg_tab(st, _config(tmp_path))
+
+        st.error.assert_not_called()
+        st.plotly_chart.assert_called_once()
+        assert any(
+            "persistence" in str(c) for c in st.warning.call_args_list
+        )
 
 
 class TestFearGreedTab:

@@ -1966,6 +1966,8 @@ def _render_rrg_tab(st, config: PipelineConfig) -> None:
     reaches the query text, and requested tickers absent from the
     fetched data are dropped with an ``st.warning``.
     """
+    from datetime import date
+
     import rrg_dashboard
 
     with st.expander("Parameters", expanded=True):
@@ -2018,6 +2020,31 @@ def _render_rrg_tab(st, config: PipelineConfig) -> None:
                 value=defaults["benchmark"],
                 key="rrg_benchmark",
             )
+        as_of_enabled = st.checkbox(
+            "Historical snapshot (as-of)",
+            value=False,
+            key="rrg_as_of_enabled",
+            help=(
+                "Reconstruct the dashboard as of a past date — the "
+                "weekly_close query and the JSON payload are bounded "
+                "at the chosen inclusive cutoff (same as the "
+                "standalone script's --as-of)."
+            ),
+        )
+        as_of_raw = None
+        if as_of_enabled:
+            as_of_raw = st.date_input(
+                "As-of date (inclusive)",
+                value=date.today(),
+                max_value=date.today(),
+                key="rrg_as_of_date",
+                help=(
+                    "Inclusive observation-date cutoff. Weekly rows "
+                    "after this date are excluded; the last valid "
+                    "weekly observation may precede it (a mid-week "
+                    "cutoff lands on the prior Friday)."
+                ),
+            )
         custom_raw = ""
         if preset is None:
             custom_raw = st.text_input(
@@ -2055,8 +2082,13 @@ def _render_rrg_tab(st, config: PipelineConfig) -> None:
             return
 
     try:
+        # ``parse_as_of`` normalizes/validates the widget value (None
+        # when the picker is disabled) — the Date<= bound rides inside
+        # the SQL text, so the shared cached fetch keys on it and no
+        # stale latest-data frame can be reused.
+        cutoff = rrg_dashboard.parse_as_of(as_of_raw)
         sql = rrg_dashboard.build_rrg_sql(
-            tickers, benchmark, int(lookback_years)
+            tickers, benchmark, int(lookback_years), cutoff
         )
     except (TypeError, ValueError) as exc:
         st.error(f"Invalid parameters: {exc}")
@@ -2107,6 +2139,20 @@ def _render_rrg_tab(st, config: PipelineConfig) -> None:
         )
         return
 
+    if cutoff is not None:
+        last_valid = pd.Timestamp(rrg["dates"][-1]).date()
+        st.caption(
+            f"Historical cutoff: {cutoff.isoformat()}; last valid "
+            f"weekly observation: {last_valid.isoformat()}"
+        )
+        if len(rrg["dates"]) < 12:
+            st.warning(
+                f"Only {len(rrg['dates'])} complete RRG weeks are "
+                f"available as of {cutoff.isoformat()} — the JSON's "
+                "12-week persistence metrics are computed on fewer "
+                "than 12 observations."
+            )
+
     fig = rrg_dashboard.build_rrg_figure(
         rrg["clean_ratio"],
         rrg["clean_momo"],
@@ -2138,15 +2184,26 @@ def _render_rrg_tab(st, config: PipelineConfig) -> None:
     payload = rrg_dashboard.gen_ai_prompt(
         rrg["clean_ratio"], rrg["clean_momo"], benchmark
     )
+    if cutoff is not None:
+        # Same fields the standalone historical JSON carries —
+        # requested_as_of_date is the requested calendar cutoff while
+        # analysis_date stays the actual last valid weekly date.
+        payload_obj = json.loads(payload)
+        payload_obj["market_snapshot"]["requested_as_of_date"] = (
+            cutoff.isoformat()
+        )
+        payload_obj["market_snapshot"]["historical_reconstruction"] = True
+        payload = json.dumps(payload_obj, indent=2)
     with st.expander("LLM analysis prompt (JSON payload)"):
         st.json(payload)
+    file_suffix = f"_{cutoff.isoformat()}" if cutoff is not None else ""
     st.download_button(
         label="Download analysis prompt (JSON)",
         data=payload,
         file_name=(
-            f"{preset['prefix']}_analysis_prompt.json"
+            f"{preset['prefix']}{file_suffix}_analysis_prompt.json"
             if preset is not None
-            else "RRG_Custom_analysis_prompt.json"
+            else f"RRG_Custom{file_suffix}_analysis_prompt.json"
         ),
         mime="application/json",
         key="rrg_download",
