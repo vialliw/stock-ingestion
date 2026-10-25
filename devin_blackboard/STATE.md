@@ -1,6 +1,39 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-25 (SEC-T1 — Critic D PASS (code gate); awaiting orchestrator live gate)
+Last Updated: 2026-10-25 (SEC-T2 — executor B DONE; awaiting Challenger C)
 Current Branch: main
+
+## SEC-T2 — Finviz redesigned-screener parser — DONE (executor B, 2026-10-25)
+
+DONE commit 1df026d. `classify_tickers_finviz.py` migrated to the
+redesigned screener: batch URLs rewritten to canonical
+`/screener/stocks` via `_canonical_finviz_url` (screener.ashx ->
+screener/stocks; helper script untouched — not in output_files).
+Parser: `_extract_ssr_data` regex
+`data-ssr-props="ssr-island-1">(.*?)</script>` (DOTALL) -> html.unescape
+-> json.loads -> `data["rows"][i]["text"]` keys
+ticker/company/sector/industry/securityType/country/www/type; missing/
+renamed island, absent data/rows, malformed JSON, missing row keys all
+yield empty records (no crash). Pagination driven by
+`data.totalCount`/`firstRow`/`pageSize` (exact-cap totalCount==20 -> no
+page 2; totalCount>20 -> `&r=21,41,...`; 64-page sanity bound +
+no-same-window guard). Unchanged: pacing/backoff/abort, set-based
+cross-check + size-10 retry pass, named unclassified, CSV schemas,
+digest, --dry-run (now prints canonical URLs; helper stdout suppressed).
+tests/test_classify_finviz.py rewritten to SSR-island fixtures — 33
+tests (was 23): escaped+raw JSON islands, entities, missing/malformed/
+renamed island, missing data/rows/keys, totalCount pagination
+(24-ticker r=21, exact-20 no-page-2, island-loss mid-pagination,
+missing totalCount), set-based cross-check vs request order,
+canonical-URL assertion, plus unchanged retry/abort/pacing/CSV/dry-run;
+C advisory A1 fixed (failure-reset assert now non-vacuous). README
+twins updated, cmp byte-identical. Gates `--verify SEC-T2` ALL PASS:
+AC1 33/33 (1.40s), AC2 full suite 2019/2019 (184.83s), AC3 strict
+loops exit 0 (17 files), AC4 dry-run exit 0 printing screener/stocks
+URL. NOTE: verify had to be re-run once — two concurrent verifies
+contended the 300s AC cap; the heavy pytest processes were killed and a
+single clean run passed (HRAW-T3/SEC-T1 precedent). NO live Finviz
+requests — deployment gate is orchestrator-owned.
+Next: Challenger C -> Critic D -> orchestrator live Finviz gate.
 
 ## SEC-T1 — Critic D final verification — PASS (2026-10-25)
 
