@@ -4791,7 +4791,7 @@
     "title": "metadata_load overrides (Finviz corrections) + quarterly classify scheduled task",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "assigned_to": "B",
     "depends_on": [
       "SEC-T2"
