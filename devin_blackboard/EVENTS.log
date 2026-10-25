@@ -5535,3 +5535,99 @@ Verdict: APPROVED. Next: Critic D -> orchestrator live Finviz deploy gate (~1,11
 Prose ACs independently verified: (1) split_tickers diff 912ffa9..ab5a2f5 = ONLY demo moved under __main__ (function body byte-identical; import probe zero stdout, batches/URLs correct). (2) classify_tickers_finviz.py: JSON {"sql"} Flight ticket + 5s wait_for_available, config.yaml fallback on Exception, --tickers subset, batch_size=20 via helper, browser UA, 1.2s+jitter pacing, 30s timeout, exp-backoff on 429/403/5xx max 3, abort at 5 consecutive failures, &r= pagination only at ROW_CAP=20, best-overlap Ticker-table parser, cross-check + ONE retry at size 10, unclassified named + kept in detail CSV, --dry-run no-HTTP. (3) CSVs: detail [ticker,company,sector,industry,country] + summary [level,sector,industry,ticker_count] rollups + (unclassified) row, to reports.report_dir w/ --output-dir override; stdout digest counts. (4) 23 tests all FakeSession-mocked, value-level asserts. (5) README twins cmp-identical, script documented L228-239. Scope: 912ffa9~1..2746bb0 = 5 output_files + blackboard; 7c850a1 blackboard only. C advisory A1 (tautological `or` in test_failure_counter_resets_on_success L370-372) confirmed non-blocking — core assert `aborted is False` is non-vacuous.
 DEFERRED (orchestrator-owned): live Finviz run + CSV artifacts + ~98 excluded non-equity. Next: orchestrator deployment gate.
 [2026-10-25] [ORCHESTRATOR] SEC-T1 deployment gate FAIL — upstream change found: Finviz redesigned the screener. screener.ashx 301-redirects to /screener/stocks; results table is no longer HTML — data lives in SSR island <script data-ssr-props=ssr-island-1> JSON at data.rows[].text {ticker,company,sector,industry,country,...}. Live run: 168 requests all HTTP 200 but zero rows parsed -> 1118/1118 unclassified, no abort (correct conservative behavior). Pagination still &r= (verified totalCount/firstRow/pageSize=20). Registered SEC-T2: migrate parser to SSR-JSON island + canonical /screener/stocks URL + totalCount-driven pagination; then re-run live gate.
+
+[2026-10-25T20:51:05.767836+00:00] [EXECUTOR] claimed SEC-T2
+[2026-10-25T21:04:01.760974+00:00] [EXECUTOR] completed SEC-T2 -> SEC-T2 complete: Finviz parser migrated to redesigned screener. (1) URL: canonical /screener/stocks via _canonical_finviz_url (screener.ashx->screener/stocks rewrite applied to helper-built batch URLs; split_tickers_for_finviz untouched/out-of-scope). (2) Parser: SSR island extraction via _SSR_ISLAND_RE regex data-ssr-props=ssr-island-1>(.*?)</script> DOTALL -> html.unescape -> json.loads -> props['data']['rows'][i]['text'] (keys ticker/company/sector/industry/securityType/country/www/type). Tolerant of missing/renamed island, absent data/rows, malformed JSON, missing row keys -> empty records, no crash. (3) Pagination driven by data.totalCount vs rows consumed (firstRow/pageSize); exact-cap edge totalCount==20 -> no page 2; totalCount>20 -> &r=21,41,...; MAX_PAGES_PER_BATCH=64 sanity bound; defensive never-request-same-window guard. (4) Unchanged: pacing/backoff/abort, set-based cross-check + size-10 retry pass, unclassified naming, CSV schemas, digest, --dry-run (now prints canonical URLs, helper stdout suppressed). Tests: 33 mocked-HTTP tests covering island extraction (escaped+raw JSON, entities), missing/malformed/renamed island, missing data/rows, missing row keys, totalCount-driven pagination (24-ticker r=21, exact-20 no-page-2, missing island mid-pagination, missing totalCount), set-based cross-check vs request order, canonical-URL assertion, retry/abort/pacing/CSV/dry-run. Advisory A1 fixed: failure-reset test now non-vacuous. Gates --verify SEC-T2 ALL PASS: AC1 33/33 (1.40s), AC2 full suite 2019/2019 (184.83s), AC3 strict loops exit 0 (17 files), AC4 dry-run exit 0 printing screener/stocks URL. README twins updated (.ashx->/screener/stocks, SSR-island parser, totalCount pagination), byte-identical cmp clean. NO live Finviz requests - deployment gate is orchestrator-owned.
+Evidence map:
+[
+  {
+    "id": "SEC2-AC1",
+    "check": "focused tests",
+    "command": "python -m pytest tests/test_classify_finviz.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ".................................                                        [100%]\n33 passed in 1.86s\n"
+  },
+  {
+    "id": "SEC2-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n2019 passed, 507 warnings in 205.32s (0:03:25)\n"
+  },
+  {
+    "id": "SEC2-AC3",
+    "check": "strict loop checker",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "SEC2-AC4",
+    "check": "dry-run prints URLs only",
+    "command": "python scripts/classify_tickers_finviz.py --dry-run --tickers AAPL,MSFT",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "Batch 1 (2 tickers): https://finviz.com/screener/stocks?v=111&t=AAPL,MSFT\nDRY-RUN: 2 tickers (source=--tickers); no requests made.\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

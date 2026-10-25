@@ -225,11 +225,11 @@ python scripts/load_company_metadata.py --limit 5 --delay 1.0   # smoke test
 
 ### Finviz Sector/Industry Classification
 
-`scripts/classify_tickers_finviz.py` classifies every non-ETF ticker into Finviz's sector/industry taxonomy by scraping the screener *overview* view (`screener.ashx?v=111`) in batched multi-ticker URLs (built by `scripts/split_tickers_for_finviz.py`, 20 tickers per batch by default). It writes CSV reports only — no DuckDB writes.
+`scripts/classify_tickers_finviz.py` classifies every non-ETF ticker into Finviz's sector/industry taxonomy by scraping the redesigned screener *overview* view (`/screener/stocks?v=111` — the legacy `screener.ashx` path 301-redirects there; results live in the page's `ssr-island-1` JSON island, not an HTML table) in batched multi-ticker URLs (built by `scripts/split_tickers_for_finviz.py`, 20 tickers per batch by default). It writes CSV reports only — no DuckDB writes.
 
 - **Ticker universe** — `SELECT ticker FROM company_metadata WHERE quote_type = 'EQUITY' ORDER BY ticker` via the Flight service's `do_get` JSON `{"sql": ...}` ticket; falls back to the configured `ingestion.tickers` when the server is unreachable, and `--tickers A,B,C` forces an explicit subset.
 - **Rate-limit safety** — browser User-Agent, ~1.2 s + jitter between batches (`--delay`), 30 s timeout, exponential-backoff retry on HTTP 429/403/5xx (max 3 retries), clean abort after 5 consecutive batch failures.
-- **No silent drops** — Finviz drops unknown tickers without error, so each batch's returned rows are cross-checked against the request; leftovers retry once at batch size 10, and anything still unclassified is named in the stdout digest and kept in the detail CSV with empty classification fields. Pages that return exactly the 20-row cap are followed via `&r=21,41,...` pagination.
+- **No silent drops** — Finviz drops unknown tickers without error, so each batch's returned rows are cross-checked against the request; leftovers retry once at batch size 10, and anything still unclassified is named in the stdout digest and kept in the detail CSV with empty classification fields. Pagination follows `&r=21,41,...` while the island's `totalCount` reports more rows than served (page size 20) — an exactly-20-row batch still stops at one page when `totalCount` is 20.
 - **Outputs** — `finviz_sector_industry_YYYYMMDD.csv` (`ticker,company,sector,industry,country`) and `finviz_sector_summary_YYYYMMDD.csv` (`level,sector,industry,ticker_count` — sector rollups plus sector→industry counts) under `reports.report_dir` (`--output-dir` overrides). The stdout digest reports fetched / batched / unclassified / excluded-non-equity counts.
 
 ```bash

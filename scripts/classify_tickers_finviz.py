@@ -1,8 +1,10 @@
 """Classify all non-ETF tickers into the Finviz sector/industry taxonomy.
 
-SEC-T1: scrapes the Finviz screener *overview* view (``v=111``) in
-batches built by ``scripts/split_tickers_for_finviz.py`` and writes two
-CSV reports to ``reports.report_dir`` (``C:\\Intel\\parquet``):
+SEC-T2: scrapes the redesigned Finviz screener *overview* view
+(``https://finviz.com/screener/stocks?v=111&t=...`` — the legacy
+``screener.ashx`` path now 301-redirects there) in batches built by
+``scripts/split_tickers_for_finviz.py`` and writes two CSV reports to
+``reports.report_dir`` (``C:\\Intel\\parquet``):
 
 * ``finviz_sector_industry_YYYYMMDD.csv`` — per-ticker detail rows
   ``ticker,company,sector,industry,country``.  Requested tickers that
@@ -24,10 +26,16 @@ HTTP behaviour: browser User-Agent, ~1.2 s + jitter between batches,
 30 s timeout, exponential-backoff retry on HTTP 429/403/5xx (max 3
 retries), clean abort after 5 consecutive batch failures.  Finviz
 silently drops unknown tickers, so every batch's returned rows are
-cross-checked against the requested list and the leftovers are retried
-once at ``batch_size=10``.  The ``v=111`` overview paginates at 20
-rows/page — when a page comes back exactly at the row cap the
-``&r=21,41,...`` pages are followed defensively.
+cross-checked against the requested list (set-based — Finviz returns
+its own sort order, not request order) and the leftovers are retried
+once at ``batch_size=10``.
+
+The redesigned page carries no HTML results table; rows are embedded in
+the SSR island ``<script data-ssr-props="ssr-island-1">`` JSON at
+``data["rows"][i]["text"]``.  Pagination follows ``&r=21,41,...`` driven
+by the island's ``data.totalCount`` / ``data.firstRow`` /
+``data.pageSize`` — a batch whose valid-ticker count equals the page
+size may still need page 2 when ``totalCount`` says more rows exist.
 
 Usage:
     python scripts/classify_tickers_finviz.py                      # all equities
@@ -39,10 +47,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import html
 import io
 import json
 import os
 import random
+import re
 import sys
 import time
 from datetime import datetime
@@ -70,20 +81,27 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
-# v=111 overview shows at most 20 rows per page; a page that comes back
-# exactly at the cap may have more rows behind &r=21,41,...
+# The v=111 overview serves at most ~20 rows per page (data.pageSize);
+# when the island's data.totalCount exceeds the rows consumed so far the
+# batch continues at &r=21,41,...
 ROW_CAP = 20
+# Sanity bound on followed pages — batches hold <=20 tickers so a
+# handful of pages is the realistic maximum.
+MAX_PAGES_PER_BATCH = 64
 
-REQUIRED_COLUMN = "Ticker"
 DETAIL_COLUMNS = ["company", "sector", "industry", "country"]
-# Finviz header -> output field name.
-_OVERVIEW_FIELD_MAP = {
-    "Ticker": "ticker",
-    "Company": "company",
-    "Sector": "sector",
-    "Industry": "industry",
-    "Country": "country",
-}
+
+# The redesigned screener embeds results in a server-side-rendered
+# "island": <script type="application/json"
+# data-ssr-props="ssr-island-1">{...props JSON...}</script>.
+_SSR_ISLAND_RE = re.compile(
+    r'data-ssr-props="ssr-island-1">(.*?)</script>', re.DOTALL
+)
+
+# The legacy screener.ashx endpoint 301-redirects to /screener/stocks;
+# hitting the canonical URL directly avoids the hop.
+_LEGACY_SCREENER_MARKER = "screener.ashx"
+_CANONICAL_SCREENER_PATH = "screener/stocks"
 
 DEFAULT_BATCH_SIZE = 20
 RETRY_BATCH_SIZE = 10
@@ -147,65 +165,105 @@ def _request_with_retries(
     )
 
 
-def parse_overview_page(html: str) -> Dict[str, dict]:
-    """Parse one Finviz ``v=111`` overview page.
+def _canonical_finviz_url(url: str) -> str:
+    """Rewrite a legacy ``screener.ashx`` URL to the canonical
+    ``/screener/stocks`` path (the .ashx form now 301-redirects)."""
+    return url.replace(
+        _LEGACY_SCREENER_MARKER, _CANONICAL_SCREENER_PATH, 1
+    )
 
-    Returns ``{ticker: {company, sector, industry, country}}`` for every
-    data row of the overview table.  Pages with no usable table — error
-    pages, empty bodies, or a table missing the ``Ticker`` column —
-    return ``{}`` so the caller's cross-check names the requested
-    tickers as unclassified instead of crashing.  Missing *optional*
-    columns (Company/Sector/Industry/Country) yield empty strings.
+
+def _extract_ssr_data(page_html: str) -> Optional[dict]:
+    """Pull the decoded ``data`` object out of the ssr-island-1 script.
+
+    Returns ``None`` when the island is missing/renamed, the JSON is
+    malformed, or ``data`` is absent/not an object — callers treat every
+    one of those as "no rows on this page" instead of crashing.
     """
-    if not html or not html.strip():
-        return {}
+    if not page_html or not page_html.strip():
+        return None
+    match = _SSR_ISLAND_RE.search(page_html)
+    if match is None:
+        return None
     try:
-        tables = pd.read_html(io.StringIO(html))
-    except (ValueError, ImportError):
-        # No <table> at all (Finviz error/rate-limit page), or a missing
-        # HTML parser backend.
-        return {}
-    best = None
-    best_overlap = -1
-    # justified: inspect each parsed table's header to find the overview
-    # table; page table count is tiny (~2-4) and selection needs a
-    # per-table column intersection.
-    for table in tables:
-        cols = [str(c).strip() for c in table.columns]
-        if REQUIRED_COLUMN not in cols:
-            continue
-        overlap = sum(1 for c in cols if c in _OVERVIEW_FIELD_MAP)
-        if overlap > best_overlap:
-            best = (table, cols)
-            best_overlap = overlap
-    if best is None:
-        return {}
-    table, cols = best
-    table = table.copy()
-    table.columns = cols
+        props = json.loads(html.unescape(match.group(1)))
+    except ValueError:
+        return None
+    if not isinstance(props, dict):
+        return None
+    data = props.get("data")
+    return data if isinstance(data, dict) else None
+
+
+def _parse_rows(data: Optional[dict]) -> tuple:
+    """Return ``({ticker: fields}, served_row_count)`` for one decoded
+    island ``data`` object.
+
+    Rows live at ``data["rows"][i]["text"]`` with keys
+    ticker/company/sector/industry/securityType/country/www/type.
+    Rows missing ``text`` or a usable ``ticker`` are skipped; missing
+    optional fields yield empty strings.  ``served_row_count`` is the
+    raw ``rows`` list length — it counts toward ``totalCount`` even for
+    rows we could not shape.
+    """
     records: Dict[str, dict] = {}
-    rows = table.to_dict("records")
-    # justified: per-row dict shaping of the parsed HTML table; row
-    # count is bounded by ROW_CAP (20) per page and needs per-row Ticker
+    if not isinstance(data, dict):
+        return records, 0
+    rows = data.get("rows")
+    if not isinstance(rows, list):
+        return records, 0
+    # justified: per-row dict shaping of the SSR payload; a page holds
+    # at most ~pageSize (20) rows and needs per-row ticker
     # normalization + first-wins dedup.
     for row in rows:
-        raw = row.get(REQUIRED_COLUMN)
-        if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+        text = row.get("text") if isinstance(row, dict) else None
+        if not isinstance(text, dict):
+            continue
+        raw = text.get("ticker")
+        if raw is None:
             continue
         ticker = str(raw).strip().upper()
         if not ticker or ticker == "NAN":
             continue
         if ticker in records:
             continue
-        rec = {}
-        for finviz_col, field in _OVERVIEW_FIELD_MAP.items():  # .items() exempt; fixed 5-entry column map
-            if field == "ticker":
-                continue
-            val = row.get(finviz_col)
-            rec[field] = (
-                "" if val is None or pd.isna(val) else str(val).strip()
+        records[ticker] = {
+            field: (
+                "" if text.get(field) is None
+                else str(text.get(field)).strip()
             )
-        records[ticker] = rec
+            for field in DETAIL_COLUMNS
+        }
+    return records, len(rows)
+
+
+def _page_window(data: dict) -> tuple:
+    """``(first_row, page_size, total_count)`` ints from the island
+    ``data`` object, tolerant of missing/non-numeric values."""
+    def _as_int(value, default):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    return (
+        _as_int(data.get("firstRow"), 1),
+        _as_int(data.get("pageSize"), ROW_CAP),
+        _as_int(data.get("totalCount"), 0),
+    )
+
+
+def parse_overview_page(page_html: str) -> Dict[str, dict]:
+    """Parse one Finviz ``v=111`` screener page.
+
+    The redesigned page has no parseable HTML results table — rows are
+    embedded in the ``ssr-island-1`` JSON island.  Returns
+    ``{ticker: {company, sector, industry, country}}``.  Pages with a
+    missing/renamed island, malformed JSON, or no ``rows`` list return
+    ``{}`` so the caller's cross-check names the requested tickers as
+    unclassified instead of crashing.
+    """
+    records, _served = _parse_rows(_extract_ssr_data(page_html))
     return records
 
 
@@ -218,12 +276,15 @@ def fetch_batch_rows(
     backoff_base: float = DEFAULT_BACKOFF_BASE_S,
     sleep: Callable[[float], None] = time.sleep,
 ) -> Dict[str, dict]:
-    """Fetch all overview rows behind a batch URL, following ``&r=``
-    pagination when a page returns exactly ``ROW_CAP`` rows."""
+    """Fetch all rows behind a batch URL, following ``&r=`` pagination
+    while the island reports more rows (``data.totalCount``) than the
+    windows served so far."""
     records: Dict[str, dict] = {}
     page_url = url
-    offset = 1
-    while True:
+    # justified: sequential I/O-bound HTTP pagination — each &r= window
+    # must be fetched in turn and the bound depends on the remote
+    # totalCount; range() caps it at a sanity maximum.
+    for _page in range(MAX_PAGES_PER_BATCH):
         resp = _request_with_retries(
             session,
             page_url,
@@ -232,13 +293,19 @@ def fetch_batch_rows(
             backoff_base=backoff_base,
             sleep=sleep,
         )
-        page_rows = parse_overview_page(resp.text)
-        for ticker, rec in page_rows.items():  # .items() exempt; merging a <=20-row page dict, first wins.
+        data = _extract_ssr_data(resp.text)
+        page_rows, served = _parse_rows(data)
+        for ticker, rec in page_rows.items():  # .items() exempt; merging a <=page-size dict, first wins.
             records.setdefault(ticker, rec)
-        if len(page_rows) < ROW_CAP:
+        if data is None or served == 0:
             break
-        offset += ROW_CAP
-        page_url = f"{url}&r={offset}"
+        first_row, page_size, total = _page_window(data)
+        if (first_row - 1) + served >= total:
+            break
+        next_offset = first_row + page_size
+        if next_offset <= first_row:
+            break  # defensive: never re-request the same window
+        page_url = f"{url}&r={next_offset}"
     return records
 
 
@@ -288,7 +355,7 @@ def classify_tickers(
             try:
                 rows = fetch_batch_rows(
                     session,
-                    batch["url"],
+                    _canonical_finviz_url(batch["url"]),
                     timeout=timeout,
                     max_retries=max_retries,
                     backoff_base=backoff_base,
@@ -475,7 +542,7 @@ def _parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Classify non-ETF tickers into the Finviz sector/industry "
-            "taxonomy via batched screener.ashx?v=111 scrapes; writes "
+            "taxonomy via batched screener/stocks?v=111 scrapes; writes "
             "detail + summary CSVs to reports.report_dir."
         )
     )
@@ -543,8 +610,22 @@ def main(argv=None) -> int:
         return 1
 
     if args.dry_run:
-        # split_tickers_for_finviz prints every batch's URL; no HTTP.
-        split_tickers_for_finviz(tickers, batch_size=args.batch_size)
+        # split_tickers_for_finviz still emits legacy screener.ashx
+        # URLs; suppress its printing and show the canonical
+        # /screener/stocks form instead.  Still zero HTTP.
+        sink = io.StringIO()
+        with contextlib.redirect_stdout(sink):
+            batches = split_tickers_for_finviz(
+                tickers, batch_size=args.batch_size
+            )
+        # justified: one stdout line per batch URL; sequential printing
+        # is inherently I/O, bounded by ceil(len(tickers)/batch_size).
+        for batch in batches:
+            print(
+                f"Batch {batch['batch_number']} "
+                f"({len(batch['tickers'])} tickers): "
+                f"{_canonical_finviz_url(batch['url'])}"
+            )
         print(
             f"DRY-RUN: {len(tickers)} tickers (source={source}); "
             "no requests made."

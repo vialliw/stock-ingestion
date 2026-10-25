@@ -1,14 +1,18 @@
-"""Tests for scripts/classify_tickers_finviz.py (SEC-T1).
+"""Tests for scripts/classify_tickers_finviz.py (SEC-T2).
 
 All HTTP is mocked via a FakeSession — no live Finviz requests.  Covers
-the v=111 overview parser (synthetic HTML, missing columns, empty and
-error pages), the returned-vs-requested cross-check with the
-batch_size=10 retry pass, the &r= pagination guard, exponential-backoff
-retries, the 5-consecutive-failure abort, --dry-run, and CSV outputs.
+the redesigned-screener parser (SSR ``ssr-island-1`` JSON extraction,
+missing/malformed island, missing row keys), totalCount-driven ``&r=``
+pagination, the set-based returned-vs-requested cross-check with the
+batch_size=10 retry pass, exponential-backoff retries, the
+5-consecutive-failure abort, --dry-run (canonical /screener/stocks
+URLs), and CSV outputs.
 """
 
 from __future__ import annotations
 
+import html
+import json
 import os
 import sys
 from pathlib import Path
@@ -56,22 +60,44 @@ class FakeSession:
         return self.responses.pop(0)
 
 
-def make_page(rows):
-    """Build synthetic v=111 overview HTML for rows of
-    (ticker, company, sector, industry, country)."""
-    trs = "".join(
-        f"<tr><td>{i}</td><td>{t}</td><td>{c}</td><td>{s}</td>"
-        f"<td>{ind}</td><td>{cty}</td><td>1B</td><td>10.5</td>"
-        f"<td>100.00</td><td>1.0%</td><td>1000</td></tr>"
-        for i, (t, c, s, ind, cty) in enumerate(rows, start=1)
-    )
+def make_ssr_rows(rows):
+    """Build the island ``rows`` list for
+    (ticker, company, sector, industry, country) tuples."""
+    return [
+        {
+            "text": {
+                "ticker": t,
+                "company": c,
+                "sector": s,
+                "industry": ind,
+                "securityType": "Stock",
+                "country": cty,
+                "www": "",
+                "type": "",
+            }
+        }
+        for (t, c, s, ind, cty) in rows
+    ]
+
+
+def make_page(rows, *, total_count=None, first_row=1, page_size=20,
+              escape=True):
+    """Build synthetic redesigned-screener HTML: an ssr-island-1 script
+    tag embedding the props JSON (HTML-escaped, as served)."""
+    data = {
+        "rows": make_ssr_rows(rows),
+        "pageSize": page_size,
+        "totalCount": len(rows) if total_count is None else total_count,
+        "firstRow": first_row,
+    }
+    payload = json.dumps({"data": data})
+    if escape:
+        payload = html.escape(payload, quote=True)
     return (
-        "<html><body><table class='screener'>"
-        "<tr><th>No.</th><th>Ticker</th><th>Company</th>"
-        "<th>Sector</th><th>Industry</th><th>Country</th>"
-        "<th>Market Cap</th><th>P/E</th><th>Price</th>"
-        "<th>Change</th><th>Volume</th></tr>"
-        f"{trs}</table></body></html>"
+        "<html><body><div id='app'></div>"
+        '<script type="application/json" '
+        'data-ssr-props="ssr-island-1">'
+        f"{payload}</script></body></html>"
     )
 
 
@@ -80,12 +106,12 @@ def no_sleep(_seconds):
 
 
 # ------------------------------------------------------------------
-# Parser
+# Parser — SSR island extraction
 # ------------------------------------------------------------------
 
 class TestParseOverviewPage:
     def test_extracts_all_fields(self):
-        html = make_page(
+        page = make_page(
             [
                 ("AAPL", "Apple Inc", "Technology",
                  "Consumer Electronics", "USA"),
@@ -93,7 +119,7 @@ class TestParseOverviewPage:
                  "Software - Application", "Germany"),
             ]
         )
-        recs = cf.parse_overview_page(html)
+        recs = cf.parse_overview_page(page)
         assert set(recs) == {"AAPL", "SAP"}
         assert recs["AAPL"] == {
             "company": "Apple Inc",
@@ -104,14 +130,41 @@ class TestParseOverviewPage:
         assert recs["SAP"]["country"] == "Germany"
         assert recs["SAP"]["industry"] == "Software - Application"
 
-    def test_missing_optional_columns_yield_empty_strings(self):
-        html = (
-            "<html><body><table>"
-            "<tr><th>No.</th><th>Ticker</th><th>Company</th></tr>"
-            "<tr><td>1</td><td>XYZ</td><td>Xyz Corp</td></tr>"
-            "</table></body></html>"
+    def test_unescaped_json_island_also_parses(self):
+        """The parser unescapes entities, so raw (unescaped) JSON works
+        too — be tolerant of either serving form."""
+        page = make_page(
+            [("MSFT", "Microsoft", "Technology",
+              "Software - Infrastructure", "USA")],
+            escape=False,
         )
-        recs = cf.parse_overview_page(html)
+        recs = cf.parse_overview_page(page)
+        assert recs["MSFT"]["sector"] == "Technology"
+
+    def test_html_entities_in_values_are_unescaped(self):
+        page = make_page(
+            [("PG", "Procter &amp; Gamble", "Consumer Defensive",
+              "Household Products", "USA")],
+            escape=False,
+        )
+        recs = cf.parse_overview_page(page)
+        assert recs["PG"]["company"] == "Procter & Gamble"
+
+    def test_missing_optional_fields_yield_empty_strings(self):
+        island = {
+            "data": {
+                "rows": [{"text": {"ticker": "XYZ", "company": "Xyz Corp"}}],
+                "pageSize": 20,
+                "totalCount": 1,
+                "firstRow": 1,
+            }
+        }
+        page = (
+            '<script type="application/json" '
+            'data-ssr-props="ssr-island-1">'
+            f"{json.dumps(island)}</script>"
+        )
+        recs = cf.parse_overview_page(page)
         assert recs == {
             "XYZ": {
                 "company": "Xyz Corp",
@@ -121,34 +174,79 @@ class TestParseOverviewPage:
             }
         }
 
-    def test_error_page_returns_empty(self):
-        html = "<html><body><h1>403 Forbidden</h1></body></html>"
-        assert cf.parse_overview_page(html) == {}
+    def test_row_without_text_or_ticker_is_skipped(self):
+        island = {
+            "data": {
+                "rows": [
+                    {"text": {"ticker": "OK", "sector": "Tech"}},
+                    {"notext": True},
+                    {"text": {"company": "No ticker"}},
+                    {"text": {"ticker": "   "}},
+                ],
+                "totalCount": 4,
+            }
+        }
+        page = (
+            'data-ssr-props="ssr-island-1">'
+            f"{json.dumps(island)}</script>"
+        )
+        recs = cf.parse_overview_page(page)
+        assert set(recs) == {"OK"}
+
+    def test_error_page_without_island_returns_empty(self):
+        page = "<html><body><h1>403 Forbidden</h1></body></html>"
+        assert cf.parse_overview_page(page) == {}
 
     def test_empty_and_blank_html_return_empty(self):
         assert cf.parse_overview_page("") == {}
         assert cf.parse_overview_page("   \n  ") == {}
 
-    def test_table_without_ticker_column_returns_empty(self):
-        html = (
-            "<html><body><table>"
-            "<tr><th>One</th><th>Two</th></tr>"
-            "<tr><td>a</td><td>b</td></tr>"
-            "</table></body></html>"
+    def test_malformed_island_json_returns_empty(self):
+        page = (
+            '<script type="application/json" '
+            'data-ssr-props="ssr-island-1">'
+            '{"data": {"rows": [TRUNCATED'
+            "</script></body></html>"
         )
-        assert cf.parse_overview_page(html) == {}
+        assert cf.parse_overview_page(page) == {}
 
-    def test_picks_overview_table_among_layout_tables(self):
-        html = (
-            "<html><body>"
-            "<table><tr><th>Filter</th><th>Value</th></tr>"
-            "<tr><td>x</td><td>y</td></tr></table>"
-            + make_page([("MSFT", "Microsoft", "Technology",
-                          "Software - Infrastructure", "USA")])
-            + "</body></html>"
+    def test_island_without_data_or_rows_returns_empty(self):
+        for payload in (
+            {},
+            {"data": {}},
+            {"data": {"rows": "not-a-list"}},
+            {"data": None},
+        ):
+            page = (
+                'data-ssr-props="ssr-island-1">'
+                f"{json.dumps(payload)}</script>"
+            )
+            assert cf.parse_overview_page(page) == {}
+
+    def test_renamed_island_is_ignored(self):
+        """A differently-named island must not be parsed."""
+        payload = html.escape(json.dumps({"data": {"rows": [
+            {"text": {"ticker": "WRONG"}}
+        ]}}), quote=True)
+        page = (
+            '<script type="application/json" '
+            f'data-ssr-props="ssr-island-2">{payload}</script>'
         )
-        recs = cf.parse_overview_page(html)
-        assert recs["MSFT"]["sector"] == "Technology"
+        assert cf.parse_overview_page(page) == {}
+
+    def test_other_scripts_do_not_confuse_extraction(self):
+        """Only the ssr-island-1 script is read; neighbours ignored."""
+        other = (
+            '<script type="application/json" '
+            'data-ssr-props="ssr-island-2">'
+            f"{json.dumps({'data': {'rows': []}})}</script>"
+        )
+        page = other + make_page(
+            [("MSFT", "Microsoft", "Technology",
+              "Software - Infrastructure", "USA")]
+        )
+        recs = cf.parse_overview_page(page)
+        assert set(recs) == {"MSFT"}
 
 
 # ------------------------------------------------------------------
@@ -224,34 +322,56 @@ class TestRequestWithRetries:
 
 
 # ------------------------------------------------------------------
-# Pagination
+# Pagination — driven by totalCount / firstRow / pageSize
 # ------------------------------------------------------------------
 
 class TestPagination:
-    def test_full_page_follows_r_offsets(self):
-        full_rows = [
+    def test_totalcount_over_cap_follows_r_offsets(self):
+        """24 valid tickers: page 1 serves 20 rows (totalCount=24), so
+        &r=21 is followed for the remaining 4."""
+        page1_rows = [
             (f"T{i:02d}", f"Co{i}", "Tech", "Soft", "USA")
-            for i in range(cf.ROW_CAP)
+            for i in range(20)
         ]
         page2_rows = [
-            ("EXTRA1", "E1", "Finance", "Banks", "USA"),
-            ("EXTRA2", "E2", "Energy", "Oil", "USA"),
+            (f"T{i:02d}", f"Co{i}", "Finance", "Banks", "USA")
+            for i in range(20, 24)
         ]
 
         def handler(url):
             if "&r=21" in url:
-                return FakeResponse(200, make_page(page2_rows))
-            return FakeResponse(200, make_page(full_rows))
+                return FakeResponse(200, make_page(
+                    page2_rows, total_count=24, first_row=21
+                ))
+            return FakeResponse(200, make_page(
+                page1_rows, total_count=24, first_row=1
+            ))
 
         session = FakeSession(handler=handler)
         recs = cf.fetch_batch_rows(
-            session, "https://finviz.com/screener.ashx?v=111&t=X",
+            session, "https://finviz.com/screener/stocks?v=111&t=X",
             sleep=no_sleep,
         )
-        assert len(recs) == cf.ROW_CAP + 2
-        assert recs["EXTRA1"]["industry"] == "Banks"
+        assert len(recs) == 24
+        assert recs["T20"]["industry"] == "Banks"
         assert session.calls[1].endswith("&r=21")
-        assert len(session.calls) == 2  # stopped: page 2 below the cap
+        assert len(session.calls) == 2  # consumed 20+4 >= totalCount 24
+
+    def test_exact_cap_batch_does_not_paginate(self):
+        """totalCount == pageSize == rows served -> no page 2, even
+        though the page is exactly at the 20-row cap."""
+        rows = [
+            (f"T{i:02d}", f"Co{i}", "Tech", "Soft", "USA")
+            for i in range(20)
+        ]
+        session = FakeSession(
+            responses=[FakeResponse(200, make_page(rows, total_count=20))]
+        )
+        recs = cf.fetch_batch_rows(
+            session, "http://x", sleep=no_sleep
+        )
+        assert len(recs) == 20
+        assert len(session.calls) == 1  # totalCount drove the stop
 
     def test_below_cap_page_does_not_paginate(self):
         session = FakeSession(
@@ -267,12 +387,60 @@ class TestPagination:
         assert set(recs) == {"A"}
         assert len(session.calls) == 1
 
+    def test_missing_island_stops_pagination(self):
+        """Page 1 parses but reports more rows; page 2 loses the island
+        -> stop cleanly with what page 1 gave."""
+        rows = [
+            (f"T{i:02d}", f"Co{i}", "Tech", "Soft", "USA")
+            for i in range(20)
+        ]
+
+        def handler(url):
+            if "&r=21" in url:
+                return FakeResponse(200, "<html><body>oops</body></html>")
+            return FakeResponse(200, make_page(rows, total_count=40))
+
+        session = FakeSession(handler=handler)
+        recs = cf.fetch_batch_rows(session, "http://x", sleep=no_sleep)
+        assert len(recs) == 20
+        assert len(session.calls) == 2
+
+    def test_missing_totalcount_defaults_to_single_page(self):
+        """No totalCount in the island -> parsed rows kept, no page 2."""
+        payload = html.escape(json.dumps({"data": {
+            "rows": make_ssr_rows([("A", "Ac", "T", "S", "USA")]),
+            "pageSize": 20,
+            "firstRow": 1,
+        }}), quote=True)
+        page = (
+            'data-ssr-props="ssr-island-1">'
+            f"{payload}</script>"
+        )
+        session = FakeSession(responses=[FakeResponse(200, page)])
+        recs = cf.fetch_batch_rows(session, "http://x", sleep=no_sleep)
+        assert set(recs) == {"A"}
+        assert len(session.calls) == 1
+
 
 # ------------------------------------------------------------------
-# classify_tickers — cross-check, retry pass, abort
+# classify_tickers — canonical URL, cross-check, retry pass, abort
 # ------------------------------------------------------------------
 
 class TestClassifyTickers:
+    def test_requests_use_canonical_screener_stocks_url(self):
+        def handler(url):
+            assert "screener/stocks" in url
+            assert "screener.ashx" not in url
+            return FakeResponse(200, make_page(
+                [("A", "Ac", "Tech", "Soft", "USA")]
+            ))
+
+        session = FakeSession(handler=handler)
+        result = cf.classify_tickers(
+            ["A"], session=session, batch_size=20, sleep=no_sleep
+        )
+        assert set(result["records"]) == {"A"}
+
     def test_cross_check_retries_unclassified_at_size_10(self):
         """Finviz silently drops POISON from the 3-ticker batch; the
         retry pass at batch_size=10 fetches it alone and classifies it."""
@@ -305,6 +473,30 @@ class TestClassifyTickers:
         assert result["batches_total"] == 2
         assert "t=POISON" in session.calls[-1]
         assert "GOOD1" not in session.calls[-1]
+
+    def test_finviz_sort_order_is_set_based_not_request_order(self):
+        """Finviz returns alphabetical order, not request order —
+        cross-check must not flag reordered tickers as unclassified."""
+        def handler(url):
+            # Request order ZETA,ALPHA -> Finviz returns ALPHA,ZETA.
+            return FakeResponse(200, make_page(
+                [
+                    ("ALPHA", "A Co", "Tech", "Soft", "USA"),
+                    ("ZETA", "Z Co", "Energy", "Oil", "USA"),
+                ]
+            ))
+
+        session = FakeSession(handler=handler)
+        result = cf.classify_tickers(
+            ["ZETA", "ALPHA"],
+            session=session,
+            batch_size=20,
+            sleep=no_sleep,
+        )
+        assert result["unclassified"] == []
+        assert set(result["records"]) == {"ZETA", "ALPHA"}
+        # No retry pass needed: only the initial batch was fetched.
+        assert len(session.calls) == 1
 
     def test_permanently_unclassified_ticker_is_named(self):
         def handler(url):
@@ -367,9 +559,7 @@ class TestClassifyTickers:
             sleep=no_sleep,
         )
         assert result["aborted"] is False
-        assert result["unclassified"] == ["A", "B"] or set(
-            result["records"]
-        ) == {"A", "B", "C", "D"}
+        assert set(result["records"]) == {"A", "B", "C", "D"}
 
     def test_pacing_sleeps_between_batches(self):
         def handler(url):
@@ -455,7 +645,8 @@ class TestDryRunAndResolve:
         rc = cf.main(["--dry-run", "--tickers", "AAPL,MSFT"])
         assert rc == 0
         out = capsys.readouterr().out
-        assert "screener.ashx?v=111&t=AAPL,MSFT" in out
+        assert "screener/stocks?v=111&t=AAPL,MSFT" in out
+        assert "screener.ashx" not in out
         assert "DRY-RUN" in out
 
     def test_tickers_arg_subset(self):
