@@ -1,6 +1,21 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-25 (SEC-T3 — Critic D PASS)
+Last Updated: 2026-10-25 (SEC-T3 — DONE, deployed + skill executed)
 Current Branch: main
+
+## SEC-T3 — DONE (2026-10-25)
+
+**ORCHESTRATOR deployment gate: PASS** (commit 5a4a03b). Flight Server
+restarted on overrides code. `StockIngestion-FinvizClassify` registered
+under -UserPrincipal (SYSTEM needs elevation): day 1 of JAN,APR,JUL,OCT
+08:00 local, Interactive/Limited, 2h limit — schtasks /v confirms
+Months=JAN,APR,JUL,OCT Days=01 (C advisory satisfied). New skill
+`.devin/skills/finviz_classification_update/SKILL.md` committed. Skill
+executed: 165 overrides applied via metadata_load — 162 'Financial
+Services'->'Financial' naming renames + 3 real corrections (GPN, NBIS
+-> Technology/Software - Infrastructure; HHH -> Real Estate -
+Diversified, industry only). Read-back verified; merge semantics
+preserved untouched fields (NBIS company_name still NULL). Cycle
+B->C(APPROVED)->D(PASS) complete.
 
 ## SEC-T3 — Critic D final verification — PASS (2026-10-25)
 
