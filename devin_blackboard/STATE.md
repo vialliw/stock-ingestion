@@ -1,6 +1,86 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-25 (SEC-T2 — Challenger C APPROVED; awaiting Critic D)
+Last Updated: 2026-10-25 (SEC-T2 — Critic D PASS (code gate); orchestrator live Finviz gate next)
 Current Branch: main
+
+## SEC-T2 — Critic D final verification — PASS (2026-10-25)
+
+**CRITIC-D verdict: PASS (code gate)** at HEAD d04c91e (impl 1df026d +
+blackboard 0cbc120). Independent re-verification — B/C self-reports NOT
+trusted; re-ran every gate and probed parser/pagination directly (all
+probes in %TEMP%, no live Finviz HTTP).
+
+`--verify SEC-T2` re-run by D (clean single run): **ALL PASS**.
+- SEC2-AC1 focused: 33 passed in 1.70s, exit 0.
+- SEC2-AC2 full suite: 2019 passed in 194.27s, exit 0.
+- SEC2-AC3 strict loops: "No unjustified loops found. (17 files
+  checked)" exit 0; own `check_loops.py --src-dir src` also exit 0.
+- SEC2-AC4 dry-run: exit 0, printed
+  `https://finviz.com/screener/stocks?v=111&t=AAPL,MSFT` + "DRY-RUN: 2
+  tickers (source=--tickers); no requests made." — canonical URL, no
+  .ashx, helper stdout suppressed.
+- 6 prose ACs auto-pass placeholders; independently verified below.
+
+Prose ACs (independently verified in source + direct probes):
+- SSR-island parser: `_SSR_ISLAND_RE` =
+  `data-ssr-props="ssr-island-1">(.*?)</script>` (DOTALL) L97-99 ->
+  `html.unescape` -> `json.loads` -> `props["data"]["rows"][i]["text"]`
+  (L176-237) fields company/sector/industry/country (+ticker);
+  securityType/www/type read but only DETAIL_COLUMNS persisted. Own
+  probes: happy path extracts fields; missing/blank/None HTML, renamed
+  ssr-island-2, malformed JSON, missing data, non-list rows, captcha
+  page -> {} no crash; row without text/ticker, NAN ticker, non-dict
+  row skipped; missing optional fields -> ""; lowercase -> upper;
+  first-wins dedup.
+- Canonical URL: `_canonical_finviz_url` replaces screener.ashx ->
+  screener/stocks once (L168-173); applied at fetch site L358 and
+  dry-run L627; already-canonical passes through (probe).
+- Pagination: `fetch_batch_rows` L270-309 follows `&r=` while
+  `(firstRow-1)+served < totalCount` — totalCount/firstRow/pageSize-
+  driven via `_page_window` (defaults 1/20/0). Own probes: total=24 ->
+  2 calls, calls[1] endswith &r=21, 24 recs; exact-cap totalCount==20
+  -> 1 call; missing island on page 2 -> 20 recs, 2 calls, stops;
+  missing totalCount -> 1 call; pageSize=0 -> same-window guard
+  `next_offset <= first_row` breaks (1 call); unbounded totalCount ->
+  MAX_PAGES_PER_BATCH=64 cap stops at exactly 64 calls.
+- Cross-check/pacing/retry/CSV unchanged: requested set vs returned
+  set, unclassified sorted(requested - records) L388-389; ONE retry
+  pass at retry_batch_size=10 when unclassified and not aborted
+  L391-405; unclassified kept in detail CSV rows (write_reports
+  L479-495) + "(unclassified)" summary row L513-530. Detail CSV
+  columns [ticker,company,sector,industry,country] exact order L490;
+  summary [level,sector,industry,ticker_count] L510-512 with sector
+  rollups + sector->industry rows. Pacing 1.2s+jitter, 30s timeout,
+  429/403/5xx exp-backoff max 3, abort at 5 consecutive — all intact
+  (L107-165, 339-383).
+- Tests mock NEW shape: make_page builds
+  `<script type="application/json" data-ssr-props="ssr-island-1">` with
+  html.escape(json.dumps({"data":{rows,pageSize,totalCount,firstRow}}))
+  L83-101 — realistic escaped-entity fixtures; 33 tests, no read_html
+  references remain (grep: only two negative "screener.ashx not in"
+  asserts L433/L649). C's prior advisory A1 (tautological `or` clause)
+  FIXED: test_failure_counter_resets_on_success now asserts
+  `set(result["records"]) == {"A","B","C","D"}` L561-562 — non-vacuous.
+- README twins byte-identical (cmp exit 0); Finviz section L228
+  references `/screener/stocks`, ssr-island-1 island, no stale
+  .ashx/HTML-table guidance (mentions .ashx only as "legacy ...
+  301-redirects").
+- Scope audit: `git diff --name-status 1df026d~1..d04c91e` = 4
+  output_files (README.md, docs/README.md,
+  scripts/classify_tickers_finviz.py, tests/test_classify_finviz.py) +
+  3 blackboard (EVENTS.log, STATE.md, TASKS.json). NO out-of-scope.
+
+C advisory A1 (this task) assessed — NON-BLOCKING, agreed: the island
+regex requires `>` immediately after `data-ssr-props="ssr-island-1"`;
+a future Finviz attribute insertion would silently yield {} (safe
+degradation — batch surfaces as unclassified, no crash). Matches
+orchestrator's live-probe page shape today. Recommend
+`data-ssr-props="ssr-island-1"[^>]*>(.*?)</script>` in a future
+hardening pass.
+
+DEFERRED (orchestrator-owned, not failed): live Finviz deployment
+gate — ~1,115 equities / ~56 batches, small named unclassified set,
+both CSVs to C:\Intel\parquet.
+Next: orchestrator live Finviz deployment gate.
 
 ## SEC-T2 — Challenger C adversarial review — APPROVED (2026-10-25)
 
