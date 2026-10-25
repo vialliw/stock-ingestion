@@ -5473,3 +5473,39 @@ focused 67/67 (5.91s), TestRrgTab 10/10, combined RRG 159/159 (14.68s),
 AC3 strict loops exit 0 (17 files), AC4 bad-date exit 2. AC2 full suite NOT
 re-run by C (focused+widget+edge+scope+gates independently verified).
 Next: Critic D -> orchestrator live --as-of deploy gate.
+
+[2026-10-25] [CRITIC] RRG-T1 final independent verification — PASS (code gate) at HEAD 5575c16.
+B/C reports NOT trusted; every AC re-run/re-verified directly.
+Structured: poll_tasks.py --verify RRG-T1 -> ALL PASS (4/4):
+AC1 focused 67/67 (5.57s; own re-run 6.10s); AC2 full suite 2009/2009
+(168.93s, 507 warnings); AC3 strict loops "No unjustified loops found.
+(17 files checked)" exit 0; AC4 --as-of not-a-date exit 2 with parser
+error "Invalid as_of date 'not-a-date'; use YYYY-MM-DD". Project gate
+check_loops --src-dir src exit 0 (17 files).
+Prose: (1) rrg_dashboard.py vs bundle copy — ONLY diff is main()
+print fix L942-945 (html path visible in normal mode); backdate surface
+(parse_as_of L191, Date<= L256, <12 guard L785, requested_as_of_date/
+historical_reconstruction L804-805, --as-of/--date/--json-only
+L887-894) unchanged; report_app-facing API signatures intact. (2)
+tests/test_rrg_dashboard_backdate.py non-vacuous — asserts real values
+(Date >= '2023-06-20', analysis_date '2024-06-14', byte-identical JSON
+before/after 500x post-cutoff mutation, SystemExit on bad date); full
+AC-mandated coverage list present across 4 test classes. (3)
+_render_rrg_tab verified: checkbox+date_input(max=today) L2023-2047 ->
+parse_as_of -> build_rrg_sql L2089-2092; disabled = cutoff=None ->
+no bound/no caption/no warning/no injection/no suffix; <12 warning
+L2148-2154; last-valid-date caption L2143-2147; injection into
+displayed st.json AND download data L2187-2202; _{YYYY-MM-DD} filename
+L2199-2206; compute_rrg ValueError still caught L2121. (4) 3 widget
+tests test_report_app.py:1436/1491/1534 assert real SQL bound,
+injected JSON fields, filename suffix. (5) test_rrg_dashboard.py:
+ETFs expected 96 == actual RRG_PRESETS count (verified live);
+overrides_forwarded kwargs assert includes as_of=None +
+json_only=False. (6) README twins byte-identical (cmp exit 0); all
+required elements at README L939-949 + Streamlit picker L887.
+Scope: git diff --name-status 2c2f9e1~1..HEAD = 7 output_files +
+blackboard only. Claim-commit sweep (5fbf7d3) contained user's own
+pre-existing worktree changes (config.yaml tickers, bundle inputs,
+rrg_dashboard_orig.py) — baseline, not executor scope.
+DEFERRED (orchestrator-owned, not failed): live --as-of run + Streamlit
+picker deploy gate.

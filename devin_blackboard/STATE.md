@@ -1,6 +1,32 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-25 (RRG-T1 — Challenger C APPROVED)
+Last Updated: 2026-10-25 (RRG-T1 — Critic D PASS)
 Current Branch: main
+
+## RRG-T1 — Critic D final verification — PASS (2026-10-25)
+
+**CRITIC-D verdict: PASS (code gate)** at HEAD 5575c16. Independent
+re-verification — B/C self-reports not trusted. `--verify RRG-T1`
+ALL PASS (4/4 structured): AC1 focused 67/67 (5.57s), AC2 full suite
+2009/2009 (168.93s), AC3 strict loops exit 0 (17 files), AC4 bad-date
+exit 2 ("Invalid as_of date 'not-a-date'; use YYYY-MM-DD"). Project
+gate `check_loops.py --src-dir src` exit 0.
+Prose ACs: rrg_dashboard.py diff vs bundle copy = ONLY the main()
+print fix (L942-945; html path now printed in normal mode) — backdate
+surface and report_app-facing API signatures unchanged. Backdate test
+file non-vacuous (asserts 2023-06-20 lookback, analysis_date
+2024-06-14, byte-identical JSON under 500x post-cutoff mutation,
+SystemExit on bad date; full mandated coverage). _render_rrg_tab
+verified end-to-end (picker -> parse_as_of -> build_rrg_sql Date<=;
+disabled path identical; <12 warning; last-valid-date caption;
+injection into displayed + downloaded JSON; _{YYYY-MM-DD} filename;
+compute_rrg ValueError still caught). 3 widget tests assert real
+behavior. test_rrg_dashboard.py: ETFs 96 matches live preset count;
+kwargs assert includes as_of/json_only. README twins byte-identical
+(cmp exit 0) with all required doc elements. Scope: 2c2f9e1~1..HEAD =
+7 output_files + blackboard only.
+DEFERRED (orchestrator-owned): live `--as-of` run + Streamlit picker
+deployment gate.
+Next: orchestrator live --as-of deploy gate.
 
 ## RRG-T1 — Challenger C adversarial review — APPROVED (2026-10-25)
 
