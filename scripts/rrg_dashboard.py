@@ -36,12 +36,16 @@ Six presets mirror the legacy ``__main__`` block verbatim (``ETFs``,
 ``Mag7`` (the Magnificent-7 mega-caps vs SPY), is a project
 addition.  All use ``period=14``, ``trail=3`` and write
 ``{report_dir}/{prefix}.html`` plus
-``{prefix}_analysis_prompt.json``.
+``{prefix}_analysis_prompt.json`` by default.  Historical ``--as-of`` runs
+apply a data cutoff in both the query and in-memory input, and write
+separate date-stamped artifacts.  ``--json-only`` skips HTML construction.
 
 Usage:
     python scripts/rrg_dashboard.py                    # all 7 presets
     python scripts/rrg_dashboard.py --dashboard sector1
     python scripts/rrg_dashboard.py --dashboard Semi --trail 5 --years 1
+    python scripts/rrg_dashboard.py --dashboard sector1 --as-of 2024-06-19 --json-only
+    python scripts/rrg_dashboard.py --dashboard Mag7 --date 2024-06-19
 
     from rrg_dashboard import generate_rrg_dashboard
     paths = generate_rrg_dashboard(config, "ETFs")
@@ -63,7 +67,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional, Sequence
 
@@ -99,12 +103,12 @@ RRG_PRESETS: Dict[str, dict] = {
     "ETFs": {
         "tickers": (
             "AMLP,ARKK,AWAY,BATT,BCD,CANE,CIBR,CLOU,COMT,COPX,CORN,"
-            "CPER,DBB,DBC,DIA,EFA,EWA,EWC,EWZ,FCG,FTGC,GDX,GLD,GRID,"
-            "HERO,HYG,IAI,IBB,ICLN,IEO,IFRA,IHI,INDA,ITB,ITEQ,IYF,IYT,"
-            "JETS,JNK,KRE,LIT,NANR,PALL,PBW,PLTM,QCLN,REMX,SCHH,SGOV,"
-            "SLV,SLX,SMH,SMOG,SOYB,TAN,UNG,USO,VBK,VBR,VDE,VHT,VNM,"
-            "VOE,VOT,VT,VTV,WEAT,XAR,XBI,XES,XLB,XLC,XLF,XLI,XLK,XLP,"
-            "XLRE,XLU,XLV,XLY,XME,XPH,XRT,XSW,XTN"
+            "CPER,DBB,DBC,DIA,EEM,EFA,EWA,EWC,EWJ,EWY,EWZ,FCG,FTGC,FXI,GDX,GLD,GRID,"
+            "HERO,HYG,IAI,IBB,ICLN,IEO,IFRA,IHI,INDA,ITB,IWD,IWF,IWM,IYF,IYR,IYT,"
+            "JETS,JNK,KRE,LIT,NANR,PALL,PBW,PLTM,QCLN,QQQ,REMX,SCHH,SGOV,"
+            "SLV,SLX,SMH,SMOG,SOYB,TAN,TLT,UNG,USO,VBK,VBR,VDE,VGK,VHT,VNM,"
+            "VOE,VOT,VXUS,VTV,WEAT,XAR,XBI,XES,XLB,XLC,XLE,XLF,XLI,XLK,XLP,"
+            "XLU,XLV,XLY,XME,XOP,XPH,XRT,XSW,XTN"
         ),
         "benchmark": "SPY",
         "lookback_years": 1,
@@ -184,18 +188,41 @@ RRG_PRESETS: Dict[str, dict] = {
 # ------------------------------------------------------------------
 
 
-def build_rrg_sql(
-    tickers: Sequence[str], benchmark: str, lookback_years: int
-) -> str:
-    """Weekly-close query for one RRG preset — legacy semantics.
+def parse_as_of(value: Optional[str | date]) -> Optional[date]:
+    """Parse a strict calendar cutoff (YYYY-MM-DD) for historical reports.
 
-    Emits ``SELECT Date, Ticker, "Close" FROM weekly_close WHERE
-    Ticker IN (...) AND Date >= '<today - years*365d>' ORDER BY Date
-    ASC`` — the legacy query verbatim except that the ticker list is a
-    safe quoted join (``'A','B'``) instead of ``tuple(all_t)`` repr.
-    Every symbol (tickers *and* benchmark — the benchmark is always
-    appended to the IN list, as in the legacy ``all_t``) must match
-    ``^[A-Z0-9.\\-]+$`` or ``ValueError`` is raised.
+    ``None`` retains the existing latest-data behaviour.  Reject future
+    dates so a mistaken date cannot be described as a historical snapshot.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        raise ValueError("as_of must be a date, not a datetime")
+    if isinstance(value, date):
+        parsed = value
+    elif isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        try:
+            parsed = date.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError(f"Invalid as_of date {value!r}; use YYYY-MM-DD") from exc
+    else:
+        raise ValueError(f"Invalid as_of date {value!r}; use YYYY-MM-DD")
+    if parsed > date.today():
+        raise ValueError(f"as_of {parsed.isoformat()} is in the future")
+    return parsed
+
+
+def build_rrg_sql(
+    tickers: Sequence[str],
+    benchmark: str,
+    lookback_years: int,
+    as_of: Optional[str | date] = None,
+) -> str:
+    """Read weekly closes; historical runs are bounded at both ends.
+
+    The default latest-data query is deliberately unchanged.  For a
+    historical report the lookback is measured backwards from ``as_of``
+    and rows dated after that cutoff cannot be fetched.
     """
     if isinstance(lookback_years, bool) or int(lookback_years) != lookback_years:
         raise TypeError(
@@ -206,24 +233,28 @@ def build_rrg_sql(
         raise ValueError(f"lookback_years must be >= 1, got {lookback_years}")
 
     all_t = list(tickers) + [benchmark]
-    # justified: fixed-size symbol universe (a preset config list, not
-    # table rows) — every symbol must be regex-validated before it is
-    # quoted into the SQL text.
     for t in all_t:
-        if not isinstance(t, str) or not _TICKER_RE.match(t):
-            raise ValueError(
-                f"Invalid ticker symbol for the SQL IN-list: {t!r}"
-            )
+        if not isinstance(t, str) or not _TICKER_RE.fullmatch(t):
+            raise ValueError(f"Invalid ticker symbol for the SQL IN-list: {t!r}")
 
-    lookback_start = (
-        datetime.today() - timedelta(days=lookback_years * 365)
-    ).strftime("%Y-%m-%d")
+    cutoff = parse_as_of(as_of)
+    if cutoff is None:
+        lookback_start = (
+            datetime.today() - timedelta(days=lookback_years * 365)
+        ).strftime("%Y-%m-%d")
+    else:
+        lookback_start = (
+            cutoff - timedelta(days=lookback_years * 365)
+        ).isoformat()
+
     in_list = ",".join(f"'{t}'" for t in all_t)
-    return (
+    sql = (
         f'SELECT Date, Ticker, "Close" FROM weekly_close '
-        f"WHERE Ticker IN ({in_list}) AND Date >= '{lookback_start}' "
-        f"ORDER BY Date ASC"
+        f"WHERE Ticker IN ({in_list}) AND Date >= '{lookback_start}'"
     )
+    if cutoff is not None:
+        sql += f" AND Date <= '{cutoff.isoformat()}'"
+    return sql + " ORDER BY Date ASC"
 
 
 def pivot_closes(df: pd.DataFrame) -> pd.DataFrame:
@@ -295,10 +326,18 @@ def compute_rrg(
     clean_ratio = rs_ratio[valid_mask]
     clean_momo = rs_momentum[valid_mask]
     dates = clean_ratio.index.tolist()
+    if len(dates) < 3:
+        raise ValueError(
+            "Not enough complete RRG weeks for the snapshot: need at least "
+            "3 valid observations after indicator warm-up. "
+            "Choose a later date, more lookback years, or a smaller ticker set."
+        )
 
     # 3. Dynamic Scaling (verbatim)
     all_vals = np.concatenate([clean_ratio.values, clean_momo.values])
     all_vals = all_vals[np.isfinite(all_vals)]
+    if not len(all_vals):
+        raise ValueError("RRG series has no finite ratio or momentum observations")
     max_dev = max(abs(all_vals.max() - 100), abs(all_vals.min() - 100)) / 0.9
     limit = [100 - max_dev, 100 + max_dev]
 
@@ -671,27 +710,20 @@ def generate_rrg_dashboard(
     lookback_years: Optional[int] = None,
     benchmark: Optional[str] = None,
     output_dir: Optional[str] = None,
+    as_of: Optional[str | date] = None,
+    json_only: bool = False,
 ) -> dict:
-    """Generate one RRG dashboard preset; return its artifact paths.
+    """Generate a current or historical RRG snapshot.
 
-    Args:
-        config: ``PipelineConfig`` — Flight endpoint, DB path
-            (read-only fallback only) and ``reports.report_dir``.
-        preset_name: Key into :data:`RRG_PRESETS`.
-        period / trail / lookback_years / benchmark: ``None`` falls
-            back to the preset's values (14 / 3 / preset / preset).
-        output_dir: Target directory; defaults to
-            ``config.reports.report_dir``.
+    ``as_of`` is the requested inclusive observation-date cutoff.  The
+    reported ``analysis_date`` is the most recent *valid weekly RRG date*
+    on or before the cutoff, not necessarily the requested calendar date.
+    Historical filenames receive a YYYY-MM-DD suffix to avoid replacing
+    the normal latest-data outputs.  ``json_only`` avoids plotting work.
 
-    Returns:
-        dict: ``{"html": ..., "json": ...}`` — paths of the written
-        ``{prefix}.html`` and ``{prefix}_analysis_prompt.json``.
-
-    Raises:
-        ValueError: Unknown preset, no data returned, missing
-            benchmark, or no requested tickers present.
-        RuntimeError: The query failed on both the Flight path and the
-            read-only DuckDB fallback.
+    This is a historical reconstruction from the currently persisted
+    weekly_close table, not proof of point-in-time vendor data or
+    contemporaneous universe membership.
     """
     if preset_name not in RRG_PRESETS:
         raise ValueError(
@@ -699,7 +731,7 @@ def generate_rrg_dashboard(
             f"{sorted(RRG_PRESETS)}"
         )
     preset = RRG_PRESETS[preset_name]
-
+    cutoff = parse_as_of(as_of)
     period = preset["period"] if period is None else period
     trail = preset["trail"] if trail is None else trail
     lookback_years = (
@@ -714,16 +746,13 @@ def generate_rrg_dashboard(
         if output_dir is not None
         else Path(config.reports.report_dir)
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    html_path = out_dir / f"{prefix}.html"
-    json_path = out_dir / f"{prefix}_analysis_prompt.json"
+    suffix = f"_{cutoff.isoformat()}" if cutoff is not None else ""
+    html_path = out_dir / f"{prefix}{suffix}.html"
+    json_path = out_dir / f"{prefix}{suffix}_analysis_prompt.json"
 
-    print(f"📁 Output: {html_path}")
-
-    # Fetch — Flight do_get first, direct READ-ONLY DuckDB fallback
-    # (never a writable connection); ``None`` means both paths failed.
+    # Flight do_get first, direct READ-ONLY DuckDB fallback.
     df = report_app.fetch_dataframe(
-        build_rrg_sql(tickers, benchmark, lookback_years), config
+        build_rrg_sql(tickers, benchmark, lookback_years, cutoff), config
     )
     if df is None:
         raise RuntimeError(
@@ -732,42 +761,73 @@ def generate_rrg_dashboard(
         )
     if df.empty:
         raise ValueError(
-            f"No weekly_close data returned for preset "
-            f"{preset_name!r} (benchmark {benchmark!r}, "
-            f"{lookback_years}y lookback)."
+            f"No weekly_close data returned for preset {preset_name!r} "
+            f"(benchmark {benchmark!r}, {lookback_years}y lookback, "
+            f"as_of={cutoff})."
         )
 
-    print(f"✅ weekly_close data: {len(df)} rows")
+    # Defensive bounds: protect the requested historical window even
+    # if a Flight implementation or test fetcher ignores SQL predicates.
+    if cutoff is not None:
+        dates = pd.to_datetime(df["Date"], errors="raise")
+        lower = pd.Timestamp(cutoff - timedelta(days=lookback_years * 365))
+        df = df.loc[(dates >= lower) & (dates <= pd.Timestamp(cutoff))].copy()
+        if df.empty:
+            raise ValueError(
+                f"No weekly_close observations on or before {cutoff.isoformat()} "
+                f"for preset {preset_name!r}."
+            )
 
+    print(f"weekly_close data: {len(df)} rows")
     df_pivot = pivot_closes(df)
     rrg = compute_rrg(df_pivot, tickers, benchmark, period)
-    fig = build_rrg_figure(
-        rrg["clean_ratio"],
-        rrg["clean_momo"],
-        df_pivot,
-        rrg["tickers"],
-        benchmark,
-        trail,
-    )
+    valid_weeks = len(rrg["clean_ratio"])
+    if cutoff is not None and valid_weeks < 12:
+        raise ValueError(
+            f"Only {valid_weeks} complete RRG weeks as of {cutoff.isoformat()}; "
+            "12 are needed for the JSON's 12-week persistence measures. "
+            "Choose a later date, increase --years, or narrow the ticker set."
+        )
+    actual_date = rrg["clean_ratio"].index[-1].date()
+    if cutoff is not None:
+        print(
+            f"Historical cutoff: {cutoff.isoformat()}; "
+            f"last valid weekly observation: {actual_date.isoformat()}"
+        )
 
-    fig.write_html(
-        str(html_path),
-        full_html=True,
-        include_plotlyjs="cdn",
-        auto_open=False,
+    # Build in memory first; do not write any output until validation
+    # above has succeeded.  Normal/default JSON fields stay unchanged.
+    payload = json.loads(
+        gen_ai_prompt(rrg["clean_ratio"], rrg["clean_momo"], benchmark)
     )
-    # Legacy parity — the upstream call is commented out too:
-    # summary_text = export_rotation_summary(rrg["clean_ratio"], rrg["clean_momo"], str(out_dir), prefix)
+    if cutoff is not None:
+        payload["market_snapshot"]["requested_as_of_date"] = cutoff.isoformat()
+        payload["market_snapshot"]["historical_reconstruction"] = True
 
-    # Generate the JSON payload
-    json_payload = gen_ai_prompt(rrg["clean_ratio"], rrg["clean_momo"], benchmark)
-    with open(json_path, "w") as f:
-        f.write(json_payload)
+    if json_only:
+        fig = None
+    else:
+        fig = build_rrg_figure(
+            rrg["clean_ratio"], rrg["clean_momo"],
+            df_pivot, rrg["tickers"], benchmark, trail,
+        )
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if fig is not None:
+        fig.write_html(
+            str(html_path),
+            full_html=True,
+            include_plotlyjs="cdn",
+            auto_open=False,
+        )
+    with json_path.open("w", encoding="utf-8") as file:
+        json.dump(payload, file, indent=2)
+
     print(f"JSON analysis file generated at: {json_path}")
-    print(f"✅ Dashboard generated successfully!")
-    print(f"📂 Open in browser: {html_path}")
-
-    return {"html": str(html_path), "json": str(json_path)}
+    if fig is not None:
+        print(f"HTML dashboard generated at: {html_path}")
+    return {"html": str(html_path) if fig is not None else None,
+            "json": str(json_path)}
 
 
 # ============================================================================
@@ -779,6 +839,8 @@ def main(argv: Optional[list] = None) -> int:
     ``--dashboard NAME`` selects a single preset; when absent every
     preset in :data:`RRG_PRESETS` runs.  ``--period``, ``--trail``,
     ``--years`` and ``--benchmark`` override the preset values.
+    ``--as-of`` (alias ``--date``) requests a historical cutoff;
+    ``--json-only`` bypasses the animated HTML figure.
     Per-preset failures are logged and the batch continues; the exit
     code is 1 only when *every* selected preset failed.
     """
@@ -821,7 +883,24 @@ def main(argv: Optional[list] = None) -> int:
         default=None,
         help="Benchmark ticker override (preset default).",
     )
+    parser.add_argument(
+        "--as-of", "--date",
+        dest="as_of",
+        metavar="YYYY-MM-DD",
+        default=None,
+        help="Inclusive historical cutoff for JSON and HTML; defaults to latest data.",
+    )
+    parser.add_argument(
+        "--json-only",
+        action="store_true",
+        help="Generate the JSON payload without Plotly HTML (faster).",
+    )
     args = parser.parse_args(argv)
+
+    try:
+        parsed_as_of = parse_as_of(args.as_of)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     if args.dashboard is not None and args.dashboard not in RRG_PRESETS:
         print(
@@ -852,13 +931,15 @@ def main(argv: Optional[list] = None) -> int:
                 trail=args.trail,
                 lookback_years=args.years,
                 benchmark=args.benchmark,
+                as_of=parsed_as_of,
+                json_only=args.json_only,
             )
         except Exception as e:
             print(f"❌ {name} failed: {e}")
             failed.append(name)
             continue
         succeeded.append(name)
-        print(f"✅ {name}: {paths['html']}")
+        print(f"Generated {name}: {paths['json']}")
 
     print(
         f"\n{len(succeeded)}/{len(names)} preset(s) generated"

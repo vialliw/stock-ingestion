@@ -326,6 +326,7 @@ ingestion:
   - EBAY
   - ECL
   - ED
+  - EEM
   - EFA
   - EFOR
   - EFX
@@ -363,7 +364,9 @@ ingestion:
   - EW
   - EWA
   - EWC
-  - EWTX
+  - EWJ
+  - EWY
+  - EWT
   - EWZ
   - EXC
   - EXE
@@ -428,6 +431,7 @@ ingestion:
   - FTRE
   - FTV
   - FUL
+  - FXI
   - FWONK
   - GAP
   - GD
@@ -562,8 +566,11 @@ ingestion:
   - ITIC
   - ITW
   - IVZ
+  - IWD
+  - IWF
   - IWM
   - IYF
+  - IYR
   - IYT
   - J
   - JAZZ
@@ -1104,6 +1111,7 @@ ingestion:
   - VBR
   - VDE
   - VFC
+  - VGK
   - VHT
   - VIAV
   - VICI
@@ -1132,6 +1140,7 @@ ingestion:
   - VTRS
   - VTS
   - VTV
+  - VXUS
   - VZ
   - WAB
   - WAT
@@ -1195,6 +1204,7 @@ ingestion:
   - XMTR
   - XNET
   - XOM
+  - XOP
   - XPH
   - XPO
   - XPRO
