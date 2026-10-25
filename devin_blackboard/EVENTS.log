@@ -5355,3 +5355,97 @@ Evidence map:
 [2026-10-25T19:36:30.315511+00:00] [EXECUTOR] blocked RRG-T1 -> AC1/AC2 fail only on 2 stale assertions in tests/test_rrg_dashboard.py (input_file, NOT output_file): (1) test_presets ETFs count 85 -> actual 96 (user's own ETF refresh, already in rrg_dashboard_orig.py); (2) test_overrides_forwarded kwargs missing as_of=None/json_only=False added by user's revised main(). Same HRAW-T2 mechanical-stale-assert pattern; needs tests/test_rrg_dashboard.py added to output_files. All in-scope work done + green: AC3 PASS, AC4 PASS (exit 2), 18/18 new backdate tests, 2007 passed full suite with only those 2 failures.[2026-10-25] [ORCHESTRATOR] RRG-T1 scope amendment: added /tests/test_rrg_dashboard.py to output_files — 2 stale asserts (ETF preset count 85->96 matching the user-revised preset universe already in rrg_dashboard_orig.py; main() kwargs assertion must include new as_of/json_only forwards). Same mechanical-fixture precedent as HRAW-T1. AC set unchanged. Task reset blocked -> todo; respawning B.
 
 [2026-10-25T19:37:15.723276+00:00] [EXECUTOR] claimed RRG-T1
+[2026-10-25T19:45:09.397296+00:00] [EXECUTOR] completed RRG-T1 -> Resume pass after orchestrator scope amendment added tests/test_rrg_dashboard.py to output_files. Two mechanical stale-assert fixes only: (1) TestPresets::test_presets_order_and_legacy_verbatim ETFs expected ticker count 85->96 (verified against live RRG_PRESETS: ETFs=96, sector1=17, sector2=17, sector3=7, Semi=34, AI=41, Mag7=7 — only ETFs was stale; Semi 34 already correct); (2) TestMain::test_overrides_forwarded asserted kwargs dict extended with as_of=None and json_only=False matching the user-revised main() signature. No other changes; implementation untouched. Focused tests/test_rrg_dashboard.py 44/44 PASS; check_loops --strict exit 0 (17 files).
+Evidence map:
+[
+  {
+    "id": "RRG-AC1",
+    "check": "focused rrg tests",
+    "command": "python -m pytest tests/test_rrg_dashboard.py tests/test_rrg_dashboard_backdate.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "...................................................................      [100%]\n67 passed in 5.85s\n"
+  },
+  {
+    "id": "RRG-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n2009 passed, 507 warnings in 185.10s (0:03:05)\n"
+  },
+  {
+    "id": "RRG-AC3",
+    "check": "strict loop checker",
+    "command": "python scripts/check_loops.py --src-dir src --strict",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "RRG-AC4",
+    "check": "CLI bad-date rejected",
+    "command": "python scripts/rrg_dashboard.py --as-of not-a-date --json-only",
+    "expected_exit": 2,
+    "actual_exit": 2,
+    "passed": true,
+    "output": "usage: rrg_dashboard.py [-h] [--dashboard NAME] [--period PERIOD]\n                        [--trail TRAIL] [--years YEARS]\n                        [--benchmark BENCHMARK] [--as-of YYYY-MM-DD]\n                        [--json-only]\nrrg_dashboard.py: error: Invalid as_of date 'not-a-date'; use YYYY-MM-DD\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

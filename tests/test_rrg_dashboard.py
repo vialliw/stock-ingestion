@@ -143,7 +143,7 @@ class TestPresets:
         # counts are the true sizes of the verbatim legacy ticker
         # strings.
         expected = {
-            "ETFs": ("SPY", 1, "Relative_Rotation_Dashboard_ETFs", 85),
+            "ETFs": ("SPY", 1, "Relative_Rotation_Dashboard_ETFs", 96),
             "sector1": (
                 "SPY",
                 3,
@@ -789,6 +789,8 @@ class TestMain:
             "trail": 5,
             "lookback_years": 2,
             "benchmark": "MSFT",
+            "as_of": None,
+            "json_only": False,
         }
 
     def test_per_preset_failure_continues(self, _patched, monkeypatch):
