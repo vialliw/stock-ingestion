@@ -1,6 +1,18 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-25 (RRG-T1 — Critic D PASS)
+Last Updated: 2026-10-25 (RRG-T1 — DONE, live gate PASS)
 Current Branch: main
+
+## RRG-T1 — DONE (2026-10-25)
+
+**ORCHESTRATOR deployment gate: PASS** (commit d8252c1). Live run
+`--dashboard sector1 --as-of 2025-06-20 --json-only` wrote
+`Relative_Rotation_Dashboard_sector1_2025-06-20_analysis_prompt.json`
+to C:\Intel\parquet — date-stamped, no overwrite of latest artifacts.
+2,826 weekly_close rows honored Date<=cutoff; JSON verified:
+analysis_date=2025-06-20 (=cutoff, a Friday), requested_as_of_date set,
+historical_reconstruction=true, 17 tickers. Streamlit as-of picker
+covered by widget tests (TestRrgTab 10/10 + 3 backdate; 159/159 RRG
+tests). Cycle B->C(APPROVED)->D(PASS) complete.
 
 ## RRG-T1 — Critic D final verification — PASS (2026-10-25)
 
