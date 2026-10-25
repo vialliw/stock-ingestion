@@ -486,7 +486,61 @@ class MarketDataFlightServer(flight.FlightServerBase):
                 raise flight.FlightServerError(
                     f"tickers must be a list of strings, got {tickers!r}"
                 )
+            # SEC-T3: `overrides` — manual correction channel for
+            # company_metadata (client DML cannot write that table).
+            # Shape: [{ticker: str, company_name?, sector?, industry?,
+            # quote_type?}].  Structural validation here mirrors the
+            # engine's (ValueError there); malformed payloads are
+            # rejected before the engine is invoked.
+            overrides = payload.get("overrides")
+            if overrides is not None:
+                if not isinstance(overrides, list):
+                    raise flight.FlightServerError(
+                        f"overrides must be a list of dicts, "
+                        f"got {overrides!r}"
+                    )
+                for i, item in enumerate(overrides):
+                    if not isinstance(item, dict):
+                        raise flight.FlightServerError(
+                            f"overrides[{i}] must be a dict, "
+                            f"got {item!r}"
+                        )
+                    unknown = set(item) - {
+                        "ticker",
+                        "company_name",
+                        "sector",
+                        "industry",
+                        "quote_type",
+                    }
+                    if unknown:
+                        raise flight.FlightServerError(
+                            f"overrides[{i}] has unknown field(s): "
+                            f"{sorted(unknown)}"
+                        )
+                    t = item.get("ticker")
+                    if not isinstance(t, str) or not t.strip():
+                        raise flight.FlightServerError(
+                            f"overrides[{i}].ticker must be a non-empty "
+                            f"string, got {t!r}"
+                        )
+                    for field in (
+                        "company_name",
+                        "sector",
+                        "industry",
+                        "quote_type",
+                    ):
+                        if (
+                            field in item
+                            and item[field] is not None
+                            and not isinstance(item[field], str)
+                        ):
+                            raise flight.FlightServerError(
+                                f"overrides[{i}].{field} must be a "
+                                f"string or null, got {item[field]!r}"
+                            )
             kwargs = {"tickers": tickers, "refresh": refresh}
+            if overrides is not None:
+                kwargs["overrides"] = overrides
             if delay_s is not None:
                 kwargs["delay_s"] = delay_s
             if max_tickers is not None:

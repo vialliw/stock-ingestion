@@ -1042,6 +1042,182 @@ class TestMetadataLoadAction:
 
 
 # =====================================================================
+# SEC-T3: metadata_load `overrides` payload (executor module only — the
+# challenger variant does not implement overrides; same divergence
+# precedent as the F24 signal_pipeline tests below)
+# =====================================================================
+
+_exec_module = importlib.import_module("src.flight_server")
+
+
+class TestMetadataLoadOverridesAction:
+    """The ``overrides`` key on ``metadata_load`` is shape-validated and
+    forwarded to ``engine.run_metadata_load`` (SEC-T3)."""
+
+    def _server(self):
+        return make_server(_exec_module)
+
+    def test_overrides_forwarded_to_engine(self):
+        server, _, ingest_engine, _ = self._server()
+        ingest_engine.run_metadata_load.return_value = _metadata_result(
+            overrides_applied=2,
+            overrides_report=[
+                {
+                    "ticker": "GPN",
+                    "applied_fields": ["sector"],
+                    "created": False,
+                }
+            ],
+        )
+        overrides = [
+            {
+                "ticker": "GPN",
+                "sector": "Industrials",
+                "industry": "Information Technology Services",
+            },
+            {"ticker": "NBIS", "sector": "Technology"},
+        ]
+        data = parse_result(
+            server.do_action(
+                MagicMock(),
+                make_action("metadata_load", {"overrides": overrides}),
+            )
+        )
+        assert data["status"] == "SUCCESS"
+        assert data["overrides_applied"] == 2
+        assert data["overrides_report"][0]["ticker"] == "GPN"
+        ingest_engine.run_metadata_load.assert_called_once_with(
+            tickers=None, refresh=False, overrides=overrides
+        )
+
+    def test_overrides_absent_not_forwarded(self):
+        """No overrides key -> engine called without the kwarg (legacy
+        call signature preserved)."""
+        server, _, ingest_engine, _ = self._server()
+        ingest_engine.run_metadata_load.return_value = _metadata_result()
+        data = parse_result(
+            server.do_action(MagicMock(), make_action("metadata_load"))
+        )
+        assert data["status"] == "SUCCESS"
+        ingest_engine.run_metadata_load.assert_called_once_with(
+            tickers=None, refresh=False
+        )
+
+    def test_overrides_combined_with_fetch_options(self):
+        server, _, ingest_engine, _ = self._server()
+        ingest_engine.run_metadata_load.return_value = _metadata_result()
+        overrides = [{"ticker": "AAA", "sector": "Energy"}]
+        data = parse_result(
+            server.do_action(
+                MagicMock(),
+                make_action(
+                    "metadata_load",
+                    {
+                        "tickers": ["AAA"],
+                        "refresh": True,
+                        "overrides": overrides,
+                    },
+                ),
+            )
+        )
+        assert data["status"] == "SUCCESS"
+        ingest_engine.run_metadata_load.assert_called_once_with(
+            tickers=["AAA"], refresh=True, overrides=overrides
+        )
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "not-a-list",
+            {"ticker": "AAA"},
+            [123],
+            [["AAA"]],
+            [{"sector": "X"}],  # missing ticker
+            [{"ticker": ""}],  # empty ticker
+            [{"ticker": "   "}],  # whitespace ticker
+            [{"ticker": 5}],  # non-string ticker
+            [{"ticker": "AAA", "sector": 7}],  # non-string field
+            [{"ticker": "AAA", "industry": ["x"]}],
+            [{"ticker": "AAA", "quote_type": True}],
+            [{"ticker": "AAA", "bogus": "x"}],  # unknown key
+        ],
+    )
+    def test_malformed_overrides_raise_before_engine(self, bad):
+        """Malformed overrides -> FlightServerError; engine never runs."""
+        server, _, ingest_engine, _ = self._server()
+        with pytest.raises(flight.FlightServerError):
+            server.do_action(
+                MagicMock(),
+                make_action("metadata_load", {"overrides": bad}),
+            )
+        ingest_engine.run_metadata_load.assert_not_called()
+
+    def test_null_field_values_accepted(self):
+        """Explicit null field values pass validation (engine treats them
+        as absent — merge semantics)."""
+        server, _, ingest_engine, _ = self._server()
+        ingest_engine.run_metadata_load.return_value = _metadata_result()
+        overrides = [{"ticker": "AAA", "sector": None, "industry": "Y"}]
+        data = parse_result(
+            server.do_action(
+                MagicMock(),
+                make_action("metadata_load", {"overrides": overrides}),
+            )
+        )
+        assert data["status"] == "SUCCESS"
+        ingest_engine.run_metadata_load.assert_called_once_with(
+            tickers=None, refresh=False, overrides=overrides
+        )
+
+    def _wire_server(self):
+        """Spin up the EXECUTOR server on an ephemeral port + real client.
+
+        Same pattern as ``TestSignalPipelineAction._wire_server`` —
+        returns ``(server, client, db_mgr, ingest_engine, cfg, thread)``;
+        callers must shut down in a finally block.
+        """
+        db_mgr = MagicMock()
+        ingest_engine = MagicMock()
+        cfg = MagicMock()
+        cfg.ingestion.daily_lookback_days = 4
+        cfg.reports.report_dir = "/tmp/test_reports"
+        location = _ephemeral_location()
+        server = _exec_module.MarketDataFlightServer(
+            location, db_mgr, ingest_engine, cfg
+        )
+        thread = threading.Thread(target=server.serve, daemon=True)
+        thread.start()
+        client = flight.FlightClient(location)
+        client.wait_for_available(timeout=10)
+        return server, client, db_mgr, ingest_engine, cfg, thread
+
+    def test_malformed_overrides_over_wire(self):
+        """Bad overrides over real gRPC -> FlightError at the client."""
+        server, client, db_mgr, ingest_engine, cfg, thread = (
+            self._wire_server()
+        )
+        try:
+            action = flight.Action(
+                "metadata_load",
+                json.dumps({"overrides": [{"sector": "X"}]}).encode(
+                    "utf-8"
+                ),
+            )
+            with pytest.raises(flight.FlightError):
+                list(client.do_action(action))
+            ingest_engine.run_metadata_load.assert_not_called()
+        finally:
+            try:
+                server.shutdown()
+            except Exception:
+                pass
+            try:
+                thread.join(timeout=2)
+            except Exception:
+                pass
+
+
+# =====================================================================
 # F12-T1: weekly_refresh action
 # =====================================================================
 

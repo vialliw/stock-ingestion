@@ -523,3 +523,239 @@ def test_result_shape(engine, db, cfg, module_name):
     assert isinstance(result["tickers_failed"], list)
     assert isinstance(result["errors"], dict)
     assert isinstance(result["duration_ms"], int)
+
+
+# ---------------------------------------------------------------------------
+# SEC-T3: metadata_load `overrides` (manual company_metadata corrections)
+#
+# Executor-only: ``src.ingestion_challenger`` does not implement the
+# overrides payload (same divergence precedent as the F24 signal_pipeline
+# tests in test_flight_server.py), so these tests use the executor engine
+# + DB classes directly instead of the parametrized ``impl`` fixtures.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def exec_db(tmp_path):
+    mgr = _ExecutorDatabaseManager(str(tmp_path / "test_overrides.duckdb"))
+    try:
+        yield mgr
+    finally:
+        mgr.close()
+
+
+@pytest.fixture
+def exec_engine(exec_db, cfg):
+    return _ExecutorIngestionEngine(exec_db, cfg)
+
+
+def _seed_metadata(db, ticker="AAA"):
+    """Seed one fully-populated company_metadata row."""
+    db.upsert_company_metadata(
+        [
+            {
+                "ticker": ticker,
+                "company_name": "Stored Name",
+                "sector": "Stored Sector",
+                "industry": "Stored Industry",
+                "quote_type": "EQUITY",
+            }
+        ]
+    )
+
+
+class TestMetadataOverrides:
+    """Merge-semantics manual corrections for company_metadata (SEC-T3)."""
+
+    def test_partial_override_preserves_stored_fields(
+        self, exec_engine, exec_db
+    ):
+        """A partial override must NOT NULL out untouched fields."""
+        _seed_metadata(exec_db)
+        result = exec_engine.run_metadata_load(
+            tickers=[],
+            overrides=[{"ticker": "AAA", "sector": "Healthcare"}],
+        )
+        assert result["overrides_applied"] == 1
+        row = _metadata_rows(exec_db)["AAA"]
+        assert row["sector"] == "Healthcare"  # overwritten
+        assert row["company_name"] == "Stored Name"  # preserved
+        assert row["industry"] == "Stored Industry"  # preserved
+        assert row["quote_type"] == "EQUITY"  # preserved
+
+    def test_full_override_replaces_all_fields(self, exec_engine, exec_db):
+        _seed_metadata(exec_db)
+        exec_engine.run_metadata_load(
+            tickers=[],
+            overrides=[
+                {
+                    "ticker": "AAA",
+                    "company_name": "New Co",
+                    "sector": "Technology",
+                    "industry": "Software",
+                    "quote_type": "ETF",
+                }
+            ],
+        )
+        row = _metadata_rows(exec_db)["AAA"]
+        assert row == {
+            "company_name": "New Co",
+            "sector": "Technology",
+            "industry": "Software",
+            "quote_type": "ETF",
+        }
+
+    def test_new_ticker_inserts_nulls_for_unprovided_fields(
+        self, exec_engine, exec_db
+    ):
+        result = exec_engine.run_metadata_load(
+            tickers=[],
+            overrides=[{"ticker": "NEW1", "sector": "Energy"}],
+        )
+        assert result["overrides_applied"] == 1
+        row = _metadata_rows(exec_db)["NEW1"]
+        assert row["sector"] == "Energy"
+        assert row["company_name"] is None
+        assert row["industry"] is None
+        assert row["quote_type"] is None
+        # Present now — no longer "missing" for skip-existing.
+        assert exec_db.get_missing_metadata_tickers(["NEW1"]) == []
+
+    def test_null_field_value_treated_as_absent(
+        self, exec_engine, exec_db
+    ):
+        """Explicit null -> merge semantics keep the stored value."""
+        _seed_metadata(exec_db)
+        exec_engine.run_metadata_load(
+            tickers=[],
+            overrides=[
+                {"ticker": "AAA", "sector": None, "industry": "New Ind"}
+            ],
+        )
+        row = _metadata_rows(exec_db)["AAA"]
+        assert row["sector"] == "Stored Sector"  # null did NOT overwrite
+        assert row["industry"] == "New Ind"
+
+    def test_ticker_normalized_and_last_wins_dedup(
+        self, exec_engine, exec_db
+    ):
+        """Lowercase/whitespace tickers normalize; duplicate entries
+        collapse last-wins."""
+        result = exec_engine.run_metadata_load(
+            tickers=[],
+            overrides=[
+                {"ticker": " aapl ", "sector": "First"},
+                {"ticker": "AAPL", "sector": "Second"},
+            ],
+        )
+        assert result["overrides_applied"] == 1
+        assert _metadata_rows(exec_db)["AAPL"]["sector"] == "Second"
+
+    def test_overrides_only_call_performs_no_fetch(
+        self, exec_engine, exec_db
+    ):
+        """tickers=[] + overrides -> zero yfinance calls."""
+        calls: List[str] = []
+        with patch(
+            "src.ingestion.yf.Ticker",
+            side_effect=_ticker_factory({}, calls),
+        ):
+            result = exec_engine.run_metadata_load(
+                tickers=[],
+                overrides=[{"ticker": "AAA", "sector": "Energy"}],
+            )
+        assert calls == []
+        assert result["tickers_fetched"] == 0
+        assert result["overrides_applied"] == 1
+
+    def test_overrides_win_over_same_call_fetch(
+        self, exec_engine, exec_db
+    ):
+        """Ordering: yfinance fetch runs FIRST, overrides applied after —
+        so a correction wins over a same-call refresh."""
+        _seed_metadata(exec_db)
+        with patch(
+            "src.ingestion.yf.Ticker",
+            side_effect=_ticker_factory({"AAA": GOOD_INFO}, []),
+        ), patch("src.ingestion.time.sleep"):
+            result = exec_engine.run_metadata_load(
+                tickers=["AAA"],
+                refresh=True,
+                overrides=[{"ticker": "AAA", "sector": "Corrected"}],
+            )
+        assert result["tickers_fetched"] == 1
+        row = _metadata_rows(exec_db)["AAA"]
+        assert row["sector"] == "Corrected"  # override won over fetch
+        # Fetch populated the other fields; merge preserved them.
+        assert row["company_name"] == "Test Corp"
+        assert row["industry"] == "Software"
+        assert row["quote_type"] == "EQUITY"
+
+    def test_override_report_fields(self, exec_engine, exec_db):
+        """Per-override outcome is reported: applied fields + created."""
+        _seed_metadata(exec_db)
+        result = exec_engine.run_metadata_load(
+            tickers=[],
+            overrides=[
+                {"ticker": "AAA", "sector": "X", "industry": "Y"},
+                {"ticker": "NEW2", "quote_type": "EQUITY"},
+            ],
+        )
+        assert result["overrides_applied"] == 2
+        report = {r["ticker"]: r for r in result["overrides_report"]}
+        assert report["AAA"]["applied_fields"] == ["sector", "industry"]
+        assert report["AAA"]["created"] is False
+        assert report["NEW2"]["applied_fields"] == ["quote_type"]
+        assert report["NEW2"]["created"] is True
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "not-a-list",
+            {"ticker": "AAA"},
+            [{"ticker": "AAA"}, "not-a-dict"],
+            [{"sector": "X"}],  # missing ticker
+            [{"ticker": "   "}],  # empty ticker
+            [{"ticker": 123}],  # non-string ticker
+            [{"ticker": "AAA", "sector": 5}],  # non-string field
+            [{"ticker": "AAA", "quote_type": True}],
+            [{"ticker": "AAA", "unknown_field": "x"}],  # unknown key
+        ],
+    )
+    def test_malformed_overrides_rejected_before_any_write(
+        self, exec_engine, exec_db, bad
+    ):
+        """Malformed payloads raise ValueError AND write nothing — the
+        seeded row must be byte-identical afterwards."""
+        _seed_metadata(exec_db)
+        with pytest.raises(ValueError):
+            exec_engine.run_metadata_load(tickers=[], overrides=bad)
+        assert _metadata_rows(exec_db)["AAA"] == {
+            "company_name": "Stored Name",
+            "sector": "Stored Sector",
+            "industry": "Stored Industry",
+            "quote_type": "EQUITY",
+        }
+
+    def test_overrides_applied_independently_of_skip_existing(
+        self, exec_engine, exec_db
+    ):
+        """An override lands even when its ticker is skipped by the
+        skip-existing fetch path (refresh=False)."""
+        _seed_metadata(exec_db)
+        calls: List[str] = []
+        with patch(
+            "src.ingestion.yf.Ticker",
+            side_effect=_ticker_factory({}, calls),
+        ), patch("src.ingestion.time.sleep"):
+            result = exec_engine.run_metadata_load(
+                tickers=["AAA"],
+                refresh=False,  # AAA is present -> skipped by fetch
+                overrides=[{"ticker": "AAA", "industry": "Fixed"}],
+            )
+        assert calls == []  # never fetched
+        assert result["tickers_skipped"] == 1
+        assert result["overrides_applied"] == 1
+        row = _metadata_rows(exec_db)["AAA"]
+        assert row["industry"] == "Fixed"
+        assert row["company_name"] == "Stored Name"

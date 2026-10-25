@@ -732,6 +732,144 @@ class IngestionEngine:
     # Company metadata load (F10-T1) — rate-limit safe
     # ------------------------------------------------------------------
 
+    # SEC-T3: the four company_metadata columns an ``overrides`` entry
+    # may set (ticker is the key, never an overridable field).
+    _METADATA_OVERRIDE_FIELDS = (
+        "company_name",
+        "sector",
+        "industry",
+        "quote_type",
+    )
+
+    @classmethod
+    def _normalize_metadata_overrides(
+        cls, overrides: Optional[List[Dict[str, Any]]]
+    ) -> List[Dict[str, Any]]:
+        """Validate + normalize a ``metadata_load`` ``overrides`` payload.
+
+        ``overrides`` is a list of dicts; each must carry a ``ticker``
+        string (non-empty after strip — normalized to upper case, same
+        as the ``tickers`` argument) plus any subset of the four
+        metadata fields as strings.  A field present with a ``None``
+        value is treated as ABSENT (merge semantics preserve the stored
+        value — only non-null provided fields overwrite).  Unknown keys,
+        non-dict items, empty/non-string tickers, and non-string field
+        values raise ``ValueError`` — validation runs before any write,
+        so a malformed payload can never leave a half-applied
+        correction.  Duplicate tickers collapse last-wins so the final
+        correction in the list is the one applied.  Returns the
+        normalized, deduped list (never ``None``).
+        """
+        if overrides is None:
+            return []
+        if not isinstance(overrides, list):
+            raise ValueError(
+                f"overrides must be a list of dicts, got {overrides!r}"
+            )
+        normalized: List[Dict[str, Any]] = []
+        for i, item in enumerate(overrides):
+            if not isinstance(item, dict):
+                raise ValueError(
+                    f"overrides[{i}] must be a dict, got {item!r}"
+                )
+            unknown = set(item) - {
+                "ticker",
+                *cls._METADATA_OVERRIDE_FIELDS,
+            }
+            if unknown:
+                raise ValueError(
+                    f"overrides[{i}] has unknown field(s): "
+                    f"{sorted(unknown)} — allowed: ticker, "
+                    f"{list(cls._METADATA_OVERRIDE_FIELDS)}"
+                )
+            ticker = item.get("ticker")
+            if not isinstance(ticker, str) or not ticker.strip():
+                raise ValueError(
+                    f"overrides[{i}].ticker must be a non-empty string, "
+                    f"got {ticker!r}"
+                )
+            entry: Dict[str, Any] = {"ticker": ticker.strip().upper()}
+            for field in (
+                "company_name",
+                "sector",
+                "industry",
+                "quote_type",
+            ):
+                value = item.get(field)
+                if value is None:
+                    # Absent OR explicit null -> merge semantics keep
+                    # the stored value; never an overwrite.
+                    continue
+                if not isinstance(value, str):
+                    raise ValueError(
+                        f"overrides[{i}].{field} must be a string or "
+                        f"null, got {value!r}"
+                    )
+                entry[field] = value
+            normalized.append(entry)
+        # Last-wins dedup keyed on the normalized ticker.
+        deduped = {e["ticker"]: e for e in normalized}
+        return list(deduped.values())
+
+    @staticmethod
+    def _merge_metadata_override(
+        override: Dict[str, Any], stored_row: Optional[tuple]
+    ) -> Dict[str, Any]:
+        """Fill absent override fields from the stored metadata row.
+
+        ``stored_row`` is ``(ticker, company_name, sector, industry,
+        quote_type)`` or ``None`` (new ticker -> NULLs for every field
+        not provided).  Provided override fields always win.
+        """
+        row = {
+            "ticker": override["ticker"],
+            "company_name": stored_row[1] if stored_row else None,
+            "sector": stored_row[2] if stored_row else None,
+            "industry": stored_row[3] if stored_row else None,
+            "quote_type": stored_row[4] if stored_row else None,
+        }
+        row.update({k: v for k, v in override.items() if k != "ticker"})
+        return row
+
+    def _apply_metadata_overrides(
+        self, normalized: List[Dict[str, Any]]
+    ) -> Tuple[int, List[Dict[str, Any]]]:
+        """Merge + upsert validated overrides; return (applied, report).
+
+        The merge is a read-then-write: existing rows are fetched for
+        the override tickers, absent fields are filled from the stored
+        values, and the merged rows go through
+        ``db.upsert_company_metadata`` (the single write path — a blind
+        upsert would NULL out untouched fields because the ON CONFLICT
+        clause replaces all four columns).  The per-override report
+        records which fields were applied and whether the row was
+        created, so corrections are auditable.
+        """
+        tickers = [o["ticker"] for o in normalized]
+        stored = {
+            r[0]: r
+            for r in self.db.conn.execute(
+                "SELECT ticker, company_name, sector, industry, "
+                "quote_type FROM company_metadata "
+                "WHERE ticker IN (SELECT unnest(?))",
+                [tickers],
+            ).fetchall()
+        }
+        merged = [
+            self._merge_metadata_override(o, stored.get(o["ticker"]))
+            for o in normalized
+        ]
+        applied = self.db.upsert_company_metadata(merged)
+        report = [
+            {
+                "ticker": o["ticker"],
+                "applied_fields": [k for k in o if k != "ticker"],
+                "created": o["ticker"] not in stored,
+            }
+            for o in normalized
+        ]
+        return applied, report
+
     def run_metadata_load(
         self,
         tickers: Optional[List[str]] = None,
@@ -740,6 +878,7 @@ class IngestionEngine:
         max_consecutive_failures: int = 15,
         max_tickers: Optional[int] = None,
         batch_size: int = 50,
+        overrides: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Fetch ``yf.Ticker(t).info`` metadata into ``company_metadata``.
 
@@ -770,9 +909,27 @@ class IngestionEngine:
         * Rows are upserted in ``batch_size`` chunks DURING the loop plus
           a final flush on abort/return, so an aborted run keeps the
           progress it already flushed.
+        * ``overrides`` (SEC-T3) is an optional list of per-ticker
+          correction dicts — the manual correction channel for
+          ``company_metadata`` (the client-DML surface cannot write to
+          that table).  Each dict requires ``ticker`` plus any subset of
+          ``company_name``/``sector``/``industry``/``quote_type``
+          strings; provided non-null fields overwrite the stored row
+          while fields ABSENT from the dict preserve the stored value
+          (merge semantics — a partial override cannot NULL out
+          untouched fields; a new ticker stores NULL for unprovided
+          fields).  Validation happens up front, so a malformed payload
+          raises ``ValueError`` before any write.  Ordering when both a
+          fetch and overrides run in one call: the yfinance fetch runs
+          FIRST, then overrides are applied — so a correction always
+          wins over a same-call fetch (e.g. ``refresh=True`` on the
+          same ticker).  Overrides work with or without ``tickers``/
+          ``refresh`` — pass ``tickers=[]`` for an overrides-only call
+          with zero fetches.
 
         Returns ``{tickers_fetched, tickers_skipped, tickers_failed,
-        rows_upserted, aborted, reason, errors, duration_ms}``.
+        rows_upserted, aborted, reason, errors, duration_ms,
+        overrides_applied, overrides_report}``.
         """
         if (
             isinstance(delay_s, bool)
@@ -809,6 +966,9 @@ class IngestionEngine:
             )
         if not isinstance(refresh, bool):
             raise ValueError(f"refresh must be a bool, got {refresh!r}")
+        # Overrides are validated BEFORE any fetch or write — a malformed
+        # payload must fail without touching company_metadata.
+        normalized_overrides = self._normalize_metadata_overrides(overrides)
 
         start_time = datetime.now()
 
@@ -913,6 +1073,28 @@ class IngestionEngine:
                 _flush()
 
         _flush()  # final flush — keeps flushed progress on abort/return
+
+        # SEC-T3: apply overrides AFTER the fetch loop's final flush so
+        # a correction always wins over a same-call fetch (merge reads
+        # the just-refreshed rows, then overwrite).  A merge/upsert
+        # failure is logged and recorded in ``errors`` but never
+        # propagates — same contract as ``_flush``.
+        overrides_applied = 0
+        overrides_report: List[Dict[str, Any]] = []
+        if normalized_overrides:
+            try:
+                overrides_applied, overrides_report = (
+                    self._apply_metadata_overrides(normalized_overrides)
+                )
+            except Exception as exc:
+                logger.error(
+                    "company_metadata overrides apply failed "
+                    "(%d override(s)): %s",
+                    len(normalized_overrides),
+                    exc,
+                )
+                errors["__overrides__"] = str(exc)
+
         duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
         result = {
             "tickers_fetched": fetched,
@@ -923,6 +1105,8 @@ class IngestionEngine:
             "reason": reason,
             "errors": errors,
             "duration_ms": duration_ms,
+            "overrides_applied": overrides_applied,
+            "overrides_report": overrides_report,
         }
         if failed:
             logger.warning(
@@ -932,10 +1116,11 @@ class IngestionEngine:
             )
         logger.info(
             "Metadata load complete. Fetched: %s, skipped: %s, "
-            "rows upserted: %s, aborted: %s.",
+            "rows upserted: %s, overrides applied: %s, aborted: %s.",
             fetched,
             skipped,
             rows_upserted,
+            overrides_applied,
             aborted,
         )
         return result
@@ -966,6 +1151,8 @@ class IngestionEngine:
                     "reason": None,
                     "errors": {},
                     "duration_ms": 0,
+                    "overrides_applied": 0,
+                    "overrides_report": [],
                 }
             logger.info(
                 "Metadata bridge: %d configured ticker(s) missing from "

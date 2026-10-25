@@ -106,7 +106,7 @@ The project was built using a coordinated multi-agent workflow (executor → cha
   - `initial_load` — run the initial historical load. Depth = `ingestion.initial_load_years` (default 6); an explicit `years` key in the action payload overrides it. `years` must be an integer in `[1, 30]` (bool/non-int rejected); invalid values raise `ValueError` in the engine and surface as a `FlightServerError` — never a silent empty download.
   - `daily_load` — run today's incremental load.
   - `on_request_load` — load a custom date range for specified tickers.
-  - `metadata_load` — backfill `company_metadata` from `yf.Ticker(t).info` (see [Company Metadata](#company-metadata)). Payload: `tickers` (list of strings, optional — defaults to all configured tickers), `refresh` (bool, default `false` — `true` re-fetches even present tickers), `delay_s` (number ≥ 0, default 0.5 — pacing between `.info` calls), `max_tickers` (integer ≥ 1, optional cap). Returns `SUCCESS` (no failures), `PARTIAL` (some `tickers_failed`), or `ABORTED` (circuit breaker tripped).
+  - `metadata_load` — backfill `company_metadata` from `yf.Ticker(t).info` (see [Company Metadata](#company-metadata)). Payload: `tickers` (list of strings, optional — defaults to all configured tickers), `refresh` (bool, default `false` — `true` re-fetches even present tickers), `delay_s` (number ≥ 0, default 0.5 — pacing between `.info` calls), `max_tickers` (integer ≥ 1, optional cap), `overrides` (optional list of per-ticker correction dicts — see [Company Metadata](#company-metadata); malformed payloads raise `FlightServerError`). Returns `SUCCESS` (no failures), `PARTIAL` (some `tickers_failed`), or `ABORTED` (circuit breaker tripped).
   - `weekly_refresh` — rebuild `weekly_close` and `weekly_indicators` from `daily_close` (see [Weekly Layer](#weekly-layer)). No payload required. Returns `SUCCESS` with row counts, or `FAILED` with an `error` field — the daily tables are unaffected.
   - `fear_greed_refresh` — fetch CNN's Fear & Greed payload and upsert `fear_greed_history` (see [CNN Fear & Greed Index](#cnn-fear--greed-index)). Payload is optional; `start_date` (`YYYY-MM-DD`) overrides the configured backfill horizon — a malformed value raises `FlightServerError`. Returns `SUCCESS` with `rows_upserted`/`latest_date`/`fg_score`/`fg_rating`/`alert_triggered`/`missing_series`/`fetched_url`/`start_date_fallback`, or `FAILED` with an `error` field.
   - `signal_pipeline` — run the six-step signal pipeline server-side (see [Signal Pipeline](#signal-pipeline)). Payload is optional; every key overrides the `signals:` config block and is validated (`backdate_days`/`max_holding_days` int ≥ 1, `overwrite_existing`/`filter_below_open` bool, `min_reward_risk`/`min_target_pct` number, `exclude_clusters` list of ints, `exclude_models` list of strings, `folder_path` non-empty string — invalid values raise `FlightServerError`). Returns `{status, steps: {ingest, dedupe, repair, prune, performance, repair_sweep, null_verification, cluster_metadata}, duration_ms}`.
@@ -223,6 +223,22 @@ python scripts/load_company_metadata.py --limit 5 --delay 1.0   # smoke test
 
 `scripts/load_company_metadata.bat` is the double-clickable Windows wrapper (flags pass through, e.g. `load_company_metadata.bat --refresh`).
 
+#### Manual corrections via `overrides`
+
+The `metadata_load` action accepts an optional `overrides` payload — the manual correction channel for `company_metadata` (the client-DML surface is namespace-restricted and cannot write that table). Each entry is a dict with a required `ticker` (normalized strip/upper, validated) plus any subset of the four metadata fields as strings:
+
+```json
+{"tickers": [], "overrides": [
+  {"ticker": "GPN", "sector": "Industrials", "industry": "Information Technology Services"},
+  {"ticker": "NBIS", "industry": "Software - Infrastructure"}
+]}
+```
+
+- **Merge semantics** — provided non-null fields overwrite the stored row; fields *absent* from the dict (or explicitly `null`) preserve the stored value. A partial override can never NULL out untouched fields, and a new ticker stores NULL for unprovided fields.
+- **Ordering** — when a fetch and overrides run in one call, the yfinance fetch runs *first*, then overrides are applied — so a correction always wins over a same-call `refresh`. Overrides are independent of the fetch loop: pass `"tickers": []` for an overrides-only call with zero fetches.
+- **Validated before any write** — non-list payloads, non-dict items, missing/empty/non-string tickers, non-string field values, and unknown keys are rejected (`ValueError` in the engine, `FlightServerError` over Flight) without touching the table.
+- **Audited** — the result carries `overrides_applied` (count) and `overrides_report` (per-entry `{ticker, applied_fields, created}`); writes go through the same `upsert_company_metadata` write path as the fetch loop.
+
 ### Finviz Sector/Industry Classification
 
 `scripts/classify_tickers_finviz.py` classifies every non-ETF ticker into Finviz's sector/industry taxonomy by scraping the redesigned screener *overview* view (`/screener/stocks?v=111` — the legacy `screener.ashx` path 301-redirects there; results live in the page's `ssr-island-1` JSON island, not an HTML table) in batched multi-ticker URLs (built by `scripts/split_tickers_for_finviz.py`, 20 tickers per batch by default). It writes CSV reports only — no DuckDB writes.
@@ -238,6 +254,15 @@ python scripts/classify_tickers_finviz.py --tickers AAPL,MSFT  # explicit subset
 python scripts/classify_tickers_finviz.py --dry-run            # print URLs, no HTTP
 python scripts/classify_tickers_finviz.py --delay 2.0          # slower pacing
 ```
+
+**Quarterly scheduled task** — `scripts/register_finviz_classify.ps1` registers `StockIngestion-FinvizClassify`, which re-runs the classification on **day 1 of January, April, July, and October** (default 08:00 machine-local). `New-ScheduledTaskTrigger` cannot express a quarter-of-year schedule, so the task is created via `schtasks.exe /sc MONTHLY /d 1 /m JAN,APR,JUL,OCT` and then tightened with ScheduledTasks cmdlets (2-hour execution limit — a run takes ~10-15 min — `IgnoreNew` instances, `StartWhenAvailable`). Runs as SYSTEM/Highest by default; `-UserPrincipal` registers under the current interactive user instead, `-Time HH:mm` overrides the start time, `-Unregister` removes the task. Registration requires elevation and is idempotent:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\register_finviz_classify.ps1
+powershell -ExecutionPolicy Bypass -File scripts\register_finviz_classify.ps1 -Unregister
+```
+
+Finviz-vs-yfinance divergences found by a classification run are corrected through the `metadata_load` `overrides` payload (see [Company Metadata](#company-metadata)) — the classification CSV is the diff source.
 
 ### Weekly Layer
 
@@ -392,6 +417,7 @@ stock-ingestion/
 │   ├── refresh_weekly.bat      # Double-click wrapper for refresh_weekly.py
 │   ├── refresh_weekly.py       # weekly_close + weekly_indicators rebuild via the weekly_refresh Flight action
 │   ├── register_flight_service.ps1  # AtStartup service task for the Flight server (restart-on-failure)
+│   ├── register_finviz_classify.ps1 # Quarterly Finviz classification task (day 1 of JAN/APR/JUL/OCT)
 │   ├── fear_greed_dashboard.py # Fear & Greed tab module (SQL, window presets, gauge/history/heatmap figures)
 │   ├── report_app.py           # Streamlit report app (2 daily + 3 weekly RVOL/regime tabs + Market Breadth + RRG + Fear & Greed + Correlation)
 │   ├── report_top25_active.py  # Top-25 active xlsx report — "Avg Trade Money ($M)" column (Flight-first, read-only DuckDB fallback)
