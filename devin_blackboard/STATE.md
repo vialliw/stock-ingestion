@@ -1,6 +1,50 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-25 (SEC-T3 — Challenger C APPROVED)
+Last Updated: 2026-10-25 (SEC-T3 — Critic D PASS)
 Current Branch: main
+
+## SEC-T3 — Critic D final verification — PASS (2026-10-25)
+
+**CRITIC-D verdict: PASS (code gate)** at HEAD a7ada94 (impl dc622b6 +
+blackboard 5d3b4e7/949b1e3/a7ada94). Independent re-verification — B/C
+self-reports NOT trusted; re-ran every gate and probed engine + action
+layer directly via D's own probe script in %TEMP% (real temp DuckDB,
+mocked yfinance, no network, no ps1 execution, no C:\Intel writes).
+49/49 independent probes PASS + all gates green.
+
+`--verify SEC-T3` re-run by D (clean single run): **ALL PASS** —
+SEC3-AC1 focused 402/402 (18.25s), SEC3-AC2 full suite 2054/2054
+(198.83s), SEC3-AC3 strict loops exit 0 (17 files; own non-strict run
+also exit 0), SEC3-AC4 PSParser exit 0; 6 prose ACs auto-pass
+placeholders verified independently.
+
+Probe evidence (49 checks, D-authored — not C's script): partial
+override preserves stored fields; full replaces; new ticker NULLs;
+explicit null == absent; last-wins dedup + strip/upper; overrides
+applied AFTER fetch flush (correction wins over same-call refresh);
+independent of skip_existing; overrides-only call = zero fetches;
+9 malformed payloads -> ValueError (engine) AND FlightServerError
+(action layer, engine assert_not_called) with rows byte-identical —
+no partial-write leak; report contract {overrides_applied,
+overrides_report:[{ticker,applied_fields,created}]} accurate; apply
+failure -> errors["__overrides__"], never propagates; overrides kwarg
+forwarded only when present. ps1 static review: schtasks /sc MONTHLY
+/d 1 /m JAN,APR,JUL,OCT quarterly mechanism, Set-ScheduledTask trigger
+preservation, /f idempotent, -Unregister, -UserPrincipal /it LIMITED,
+SYSTEM/HIGHEST default, absolute python+runner paths, repo-root
+WorkingDirectory, 2h ExecutionTimeLimit, ParseExact HH:mm, full help.
+Tests non-vacuous (value asserts on merged rows, applied_fields,
+created flags, counts, called_with kwargs, over-wire FlightError).
+README twins byte-identical (cmp exit 0), document overrides + task.
+Scope audit: dc622b6 = exactly the 7 output_files; blackboard only
+otherwise. NO out-of-scope.
+
+C advisory A1 assessed — NON-BLOCKING, agreed: deploy gate must assert
+registered trigger MonthsOfYear={Jan,Apr,Jul,Oct} + DaysOfMonth={1}.
+
+DEFERRED (orchestrator-owned, not failed): restart Flight Server;
+register task + verify quarterly triggers; execute
+finviz_classification_update skill end-to-end for GPN/NBIS/HHH.
+Next: orchestrator deploy gate.
 
 ## SEC-T3 — Challenger C adversarial review — APPROVED (2026-10-25)
 
