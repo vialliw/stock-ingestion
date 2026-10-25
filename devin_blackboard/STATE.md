@@ -1,6 +1,80 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-25 (SEC-T2 — executor B DONE; awaiting Challenger C)
+Last Updated: 2026-10-25 (SEC-T2 — Challenger C APPROVED; awaiting Critic D)
 Current Branch: main
+
+## SEC-T2 — Challenger C adversarial review — APPROVED (2026-10-25)
+
+**CHALLENGER-C verdict: APPROVED** (HEAD 0cbc120; impl 1df026d + blackboard
+0cbc120). Independent re-run of every AC — B's 33/33 + dry-run +
+strict-loops claims NOT trusted; re-verified directly. No live Finviz
+HTTP (all probes mocked or parser-only).
+
+Probe evidence (C1-C7):
+- C1 Parser robustness: island regex
+  `data-ssr-props="ssr-island-1">(.*?)</script>` (DOTALL) -> html.unescape
+  -> json.loads -> props["data"]["rows"][i]["text"]. Missing/blank HTML,
+  missing/renamed island (ssr-island-2 ignored), malformed JSON, absent
+  data/rows/non-list rows, missing row keys, missing optional fields
+  (->""), HTML entities unescaped, escaped+raw JSON islands, NAN ticker
+  skipped, first-wins dedup, case normalization (str(raw).strip().upper())
+  — all verified (10 tests + 10 direct probes). 200-but-captcha/botwall
+  page (no island) -> {} no crash (direct probe with cf-captcha HTML).
+- C2 Pagination: totalCount/firstRow/pageSize-driven. 24-ticker ->
+  &r=21 followed (asserts 24 recs, calls[1] endswith &r=21, 2 calls);
+  exact-cap totalCount==20 -> 1 call; below-cap -> 1 call; missing
+  island on page 2 -> stop with page1 rows; missing totalCount -> 1 call
+  (defaults 0, (fr-1)+served>=0 always true). rows-consumed math
+  (first_row-1)+served>=total verified. Guards: MAX_PAGES_PER_BATCH=64
+  range cap; same-window `if next_offset <= first_row: break` (probe
+  with pageSize=0 confirms guard triggers).
+- C3 Canonical URL: _canonical_finviz_url replaces screener.ashx ->
+  screener/stocks (1st only); already-canonical passes through.
+  test_requests_use_canonical_screener_stocks_url asserts handler sees
+  screener/stocks NOT screener.ashx. --dry-run suppresses helper stdout
+  and prints canonical URLs; AC4 dry-run exit 0 prints
+  https://finviz.com/screener/stocks?v=111&t=AAPL,MSFT + DRY-RUN line.
+- C4 Cross-check stays set-based: requested={t.strip().upper()};
+  unclassified=sorted(requested - set(records)). Sort-order test
+  (ZETA,ALPHA -> ALPHA,ZETA -> unclassified==[], 1 call). Retry pass at
+  size 10 (POISON dropped -> retried alone -> classified; asserts
+  unclassified==[], batches_total==2, last call ends t=POISON). CSV
+  schemas unchanged (detail [ticker,company,sector,industry,country];
+  summary [level,sector,industry,ticker_count] with rollups +
+  "(unclassified)" row; GHOST kept in detail with empty fields).
+- C5 Test vacuity / mutation kills (3/3, all restored byte-identical,
+  git diff clean after each): (a) drop island regex -> 16 FAIL; (b)
+  break totalCount pagination (>=total+1) -> 5 FAIL; (c) drop canonical
+  rewrite (return url) -> 2 FAIL. Fixtures resemble real Finviz: make_page
+  builds <script type="application/json" data-ssr-props="ssr-island-1">
+  with html.escape(json.dumps({"data":{...}})) — script tag inside HTML,
+  escaped entities, matches orchestrator live-probe shape. 33 tests
+  assert real values (counts, column order, sector names, delay
+  magnitudes, URL substrings, &r= offsets, abort counts, dedup, case
+  normalization) — not mere existence.
+- C6 Scope audit: git diff 1df026d~1..0cbc120 = 4 output_files (README.md,
+  docs/README.md, scripts/classify_tickers_finviz.py,
+  tests/test_classify_finviz.py) + 3 blackboard. NO out-of-scope files.
+  README twins byte-identical (cmp exit 0). README diff relevant — Finviz
+  section now references /screener/stocks, ssr-island-1, totalCount
+  pagination; no .ashx/HTML-table references remain.
+- C7 Gates re-run: AC1 focused 33/33 (1.60s); AC3 strict loops "No
+  unjustified loops found. (17 files checked)" exit 0; AC4 dry-run exit
+  0 printing screener/stocks URL + DRY-RUN. AC2 full suite NOT re-run by
+  C (citing B's 2019/2019; focused + 3 mutation kills + 10 direct
+  parser probes + scope + gates independently verified). No live Finviz
+  HTTP.
+
+Advisory A1 (non-blocking): the SSR island regex assumes `>` immediately
+follows the data-ssr-props attribute value. If a future Finviz redesign
+inserts additional attributes after data-ssr-props, extraction would
+silently return {} (no crash, but no rows). Current orchestrator
+live-probe shape has `>` immediately after the attribute, so this is
+correct today. Recommend a more tolerant regex
+(`data-ssr-props="ssr-island-1"[^>]*>(.*?)</script>`) in a future
+hardening pass — non-blocking.
+
+Verdict: APPROVED. Next: Critic D -> orchestrator live Finviz deploy gate
+(~1,115 equities / ~56 batches).
 
 ## SEC-T2 — Finviz redesigned-screener parser — DONE (executor B, 2026-10-25)
 
