@@ -5449,3 +5449,4 @@ Evidence map:
     "output": ""
   }
 ]
+[2026-10-25] [EXECUTOR] RRG-T1 STATE.md updated -> DONE section (commit d244592). Resume pass: 2 stale asserts fixed (ETFs 85->96; overrides_forwarded +as_of/json_only). All 4 structured ACs PASS: AC1 67/67, AC2 2009/2009, AC3 strict loops exit 0, AC4 exit 2.
