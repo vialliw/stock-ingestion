@@ -5353,3 +5353,5 @@ Evidence map:
 
 [2026-10-25T19:25:42.109853+00:00] [EXECUTOR] claimed RRG-T1
 [2026-10-25T19:36:30.315511+00:00] [EXECUTOR] blocked RRG-T1 -> AC1/AC2 fail only on 2 stale assertions in tests/test_rrg_dashboard.py (input_file, NOT output_file): (1) test_presets ETFs count 85 -> actual 96 (user's own ETF refresh, already in rrg_dashboard_orig.py); (2) test_overrides_forwarded kwargs missing as_of=None/json_only=False added by user's revised main(). Same HRAW-T2 mechanical-stale-assert pattern; needs tests/test_rrg_dashboard.py added to output_files. All in-scope work done + green: AC3 PASS, AC4 PASS (exit 2), 18/18 new backdate tests, 2007 passed full suite with only those 2 failures.[2026-10-25] [ORCHESTRATOR] RRG-T1 scope amendment: added /tests/test_rrg_dashboard.py to output_files — 2 stale asserts (ETF preset count 85->96 matching the user-revised preset universe already in rrg_dashboard_orig.py; main() kwargs assertion must include new as_of/json_only forwards). Same mechanical-fixture precedent as HRAW-T1. AC set unchanged. Task reset blocked -> todo; respawning B.
+
+[2026-10-25T19:37:15.723276+00:00] [EXECUTOR] claimed RRG-T1
