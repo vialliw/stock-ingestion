@@ -1,6 +1,63 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-25 (SEC-T1/T2 — DONE, live Finviz gate PASS)
+Last Updated: 2026-10-25 (SEC-T3 — DONE by executor B)
 Current Branch: main
+
+## SEC-T3 — metadata_load overrides + quarterly Finviz task — DONE (executor B, 2026-10-25)
+
+DONE commits: impl dc622b6, done/blackboard 5d3b4e7. `--verify SEC-T3`
+ALL PASS: AC1 focused 402/402 (17.91s), AC2 full suite 2054/2054
+(217.62s), AC3 strict loops exit 0 (17 files), AC4 PSParser lint
+exit 0; 6 prose ACs auto-pass placeholders.
+
+**(a) `metadata_load` overrides** — the manual correction channel for
+`company_metadata` (client DML cannot write that table). Engine:
+`_normalize_metadata_overrides` validates `[{ticker + optional
+company_name/sector/industry/quote_type}]` BEFORE any write
+(ValueError on non-list/non-dict/missing-or-empty-or-non-string
+ticker/non-string field/unknown key; last-wins dedup; strip/upper
+normalization). Merge semantics: `_apply_metadata_overrides` reads
+existing rows (unnest(?) param query on db.conn), fills absent/null
+fields from stored values, upserts via `db.upsert_company_metadata` —
+a blind upsert would have NULLed untouched fields. Applied AFTER the
+fetch loop's final flush, so a correction wins over a same-call
+refresh; apply failure logged + recorded in `errors["__overrides__"]`,
+never propagates (same contract as `_flush`). Report gains
+`overrides_applied` + `overrides_report` [{ticker, applied_fields,
+created}]. Flight action validates shape -> FlightServerError before
+the engine call; forwards `overrides` kwarg only when present (legacy
+call signature preserved).
+
+**(b) `scripts/register_finviz_classify.ps1`** — registers
+`StockIngestion-FinvizClassify`: `python
+scripts/classify_tickers_finviz.py` on day 1 of JAN/APR/JUL/OCT via
+`schtasks /create /sc MONTHLY /d 1 /m JAN,APR,JUL,OCT` (true quarterly —
+New-ScheduledTaskTrigger cannot express it), then Set-ScheduledTask
+tightens action working dir (repo root) + settings (2h
+ExecutionTimeLimit, IgnoreNew, StartWhenAvailable, batteries).
+SYSTEM/ServiceAccount/Highest default; `-UserPrincipal` Interactive/
+Limited (/it); `-Unregister`; idempotent via `/f`; machine-local start
+time default 08:00 (`-Time HH:mm`); .SYNOPSIS/.PARAMETER help.
+NOT executed — registration is the orchestrator's deploy step.
+
+Tests (executor-only sections per the F24 signal_pipeline precedent —
+`src/ingestion_challenger`/`src/flight_server_challenger` unchanged,
+out of output_files): 11 engine tests in test_metadata.py (merge
+preservation, full replace, NULL insert for new ticker, null-as-absent,
+last-wins dedup + normalization, zero-fetch overrides-only, overrides-
+win-over-same-call-refresh, per-override report fields, 9-case
+malformed parametrize asserting rows unchanged, skip-existing
+independence) + 6 action tests in test_flight_server.py (forwarding,
+absent-not-forwarded, combined options, null-fields accepted, 13-case
+malformed parametrize -> FlightServerError with engine not called,
+over-wire FlightError). README twins updated, cmp byte-identical;
+`overrides` payload shape + quarterly task documented.
+
+DEFERRED (orchestrator-owned): restart Flight Server; register the
+scheduled task + verify quarterly triggers; execute the
+finviz_classification_update skill end-to-end (latest Finviz CSV vs
+company_metadata diff -> metadata_load overrides -> verify GPN/NBIS/HHH
+corrected).
+Next: Challenger C -> Critic D -> orchestrator deploy gate.
 
 ## SEC-T1 + SEC-T2 — DONE (2026-10-25)
 
