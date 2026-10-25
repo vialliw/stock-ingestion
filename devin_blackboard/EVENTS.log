@@ -5450,3 +5450,26 @@ Evidence map:
   }
 ]
 [2026-10-25] [EXECUTOR] RRG-T1 STATE.md updated -> DONE section (commit d244592). Resume pass: 2 stale asserts fixed (ETFs 85->96; overrides_forwarded +as_of/json_only). All 4 structured ACs PASS: AC1 67/67, AC2 2009/2009, AC3 strict loops exit 0, AC4 exit 2.
+
+[2026-10-25] [CHALLENGER] RRG-T1 adversarial review — APPROVED (HEAD d244592).
+Independent re-run; executor claims NOT trusted. C1 compat (report_app call
+surface: gen_ai_prompt returns str, app json.loads for injection, compute_rrg
+ValueError guards caught by app except). C2 as-of picker wiring (checkbox->
+parse_as_of->build_rrg_sql Date<=; disabled path identical; <12-wk warning
+fires; filename suffix matches standalone; payload injection lands in
+download). C3 cache (keys on SQL text; different as_of -> different SQL ->
+no stale bleed; same cutoff -> cache hit). C4 backdate semantics (inclusive
+cutoff; lookback from as_of verified 2023-06-20; defensive in-memory filter;
+filenames use requested cutoff; analysis_date=last valid weekly obs
+2024-06-14; <12 valid weeks ValueError only when cutoff set; json_only no
+html, html:None). C5 parse_as_of edge cases (date accepted; datetime
+rejected before date check; future/malformed/True rejected — all verified
+directly). C6 mutation kills 3/3: drop Date<= -> 3 tests FAIL; drop
+in-memory filter -> test_historical_json_cutoff_and_filename FAILS; flip
+warning <12-><6 -> test_render_asof_under_12_weeks_warns FAILS. All
+restored byte-identical (git diff clean). C7 scope: 7 output_files +
+blackboard only; README twins byte-identical (cmp exit 0). C8 gates: AC1
+focused 67/67 (5.91s), TestRrgTab 10/10, combined RRG 159/159 (14.68s),
+AC3 strict loops exit 0 (17 files), AC4 bad-date exit 2. AC2 full suite NOT
+re-run by C (focused+widget+edge+scope+gates independently verified).
+Next: Critic D -> orchestrator live --as-of deploy gate.

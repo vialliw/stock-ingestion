@@ -1,6 +1,80 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-25 (RRG-T1 — DONE by executor B)
+Last Updated: 2026-10-25 (RRG-T1 — Challenger C APPROVED)
 Current Branch: main
+
+## RRG-T1 — Challenger C adversarial review — APPROVED (2026-10-25)
+
+**CHALLENGER-C verdict: APPROVED** (HEAD d244592; impl 2c2f9e1 + resume
+d244592). Independent re-run of every AC — executor's 67/67 + 2009/2009
+claims NOT trusted; re-verified focused + widget + edge probes directly.
+
+Probe evidence (C1-C8):
+- C1 Compatibility: report_app call surface intact — RRG_PRESETS,
+  build_rrg_sql, pivot_closes, compute_rrg, build_rrg_figure,
+  gen_ai_prompt all keep positional signatures + default-path
+  semantics. gen_ai_prompt returns str (json.dumps); report_app
+  json.loads it only when injecting cutoff fields, json.dumps back
+  for st.json/download_button (data=string). compute_rrg new guards
+  (missing benchmark, no tickers, <3 valid weeks) raise ValueError ->
+  app's `except ValueError` -> st.error + return. App calls
+  compute_rrg directly (not generate_rrg_dashboard), so the <12-week
+  guard lives in the app as st.warning, not a raise — correct.
+- C2 As-of picker wiring: checkbox(date_input max=today) ->
+  parse_as_of -> build_rrg_sql Date<= bound. Disabled path:
+  as_of_raw=None -> cutoff=None -> no Date<=, no caption, no warning,
+  no payload injection, no suffix (test_render_asof_disabled_keeps_
+  default_sql_and_filename). <12-week warning fires under cutoff
+  (test_render_asof_under_12_weeks_warns). Filename suffix
+  {prefix}_{YYYY-MM-DD}_analysis_prompt.json matches standalone
+  (test_render_asof_picker_routes_cutoff_into_sql). Payload injection
+  lands in download_button data (json.loads verified).
+- C3 Cache correctness: cached_fetch_dataframe keys on (sql,
+  location, db_path) via st.cache_data. Different as_of -> different
+  SQL text (Date<= differs) -> separate cache entries, no stale
+  bleed. Same cutoff -> identical SQL -> cache hit. Verified
+  build_rrg_sql determinism directly.
+- C4 Backdate semantics: cutoff inclusive (Date <=, not <);
+  lookback = cutoff - 365*years days (verified 2024-06-19 - 365 =
+  2023-06-20 in SQL). Defensive in-memory filter (dates >= lower &
+  dates <= cutoff) runs even if fetcher ignores SQL predicates
+  (test_later_changes_do_not_change_historical_json +
+  test_historical_json_cutoff_and_filename both exercise a fetcher
+  returning the full frame). Filenames use REQUESTED cutoff
+  (_2024-06-19); analysis_date = last valid weekly obs
+  (2024-06-14 = prior Friday, verified). <12 valid weeks -> ValueError
+  ONLY when cutoff set (test_less_than_12_valid_weeks_is_rejected +
+  test_under_12_weeks_without_cutoff_is_allowed). json_only writes no
+  html, returns html:None (test_historical_json_cutoff_and_filename
+  asserts result["html"] is None + no *.html files).
+- C5 parse_as_of edge cases: date obj accepted; datetime instance
+  rejected (isinstance(datetime) checked BEFORE isinstance(date)
+  since datetime subclasses date); future rejected; malformed
+  rejected (2024-6-19, 19/06/2024, not-a-date, 2024-02-30, True).
+  All verified directly.
+- C6 Test vacuity / mutation kills (3/3):
+  (a) Drop `Date <=` bound in build_rrg_sql -> 3 tests FAIL
+      (test_builder_cutoff_and_legacy_default,
+      test_cutoff_accepts_date_object,
+      test_render_asof_picker_routes_cutoff_into_sql).
+  (b) Drop defensive in-memory cutoff filter -> test_historical_
+      json_cutoff_and_filename FAILS (analysis_date becomes
+      2025-10-03 instead of 2024-06-14).
+  (c) Flip report_app warning threshold <12 -> <6 ->
+      test_render_asof_under_12_weeks_warns FAILS.
+  All mutations restored byte-identical (git diff clean).
+- C7 Scope audit: git diff --name-status 2c2f9e1~1..HEAD = 7
+  output_files (README.md, docs/README.md, scripts/report_app.py,
+  scripts/rrg_dashboard.py, tests/test_report_app.py,
+  tests/test_rrg_dashboard.py, tests/test_rrg_dashboard_backdate.py)
+  + blackboard (allowed). No out-of-scope files. README twins
+  byte-identical (cmp exit 0).
+- C8 Gates re-run: AC1 focused 67/67 (44 + 23 backdate, 5.91s);
+  TestRrgTab 10/10; combined RRG suite 159/159 (14.68s); AC3 strict
+  loops exit 0 (17 files); AC4 bad-date exit 2. AC2 full suite NOT
+  re-run by C (citing B's 2009/2009; focused + widget + edge +
+  scope + gates independently verified).
+
+Next: Critic D -> orchestrator live --as-of deploy gate.
 
 ## RRG-T1 — RRG backdate compat — DONE (executor B, 2026-10-25)
 
