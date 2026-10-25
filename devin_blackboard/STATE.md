@@ -1,6 +1,79 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-25 (RRG-T1 — DONE, live gate PASS)
+Last Updated: 2026-10-25 (SEC-T1 — Challenger C APPROVED; awaiting Critic D)
 Current Branch: main
+
+## SEC-T1 — Challenger C adversarial review — APPROVED (2026-10-25)
+
+**CHALLENGER-C verdict: APPROVED** (HEAD 38e3673; impl 912ffa9..2746bb0 +
+blackboard 7c850a1). Independent re-run of every AC — executor's 23/23 +
+dry-run claims NOT trusted; re-verified directly. No live Finviz HTTP
+(all probes mocked via FakeSession/FakeResponse).
+
+Probe evidence (C1-C8):
+- C1 Scraper correctness: URL via split_tickers_for_finviz(batch_size=20
+  default); &r=21,41,... pagination guard fires only at exactly ROW_CAP=20
+  rows; retry/backoff on 429/403/5xx + RequestException, max 3 retries,
+  exponential sleep (delays == [1.0, 2.0] asserted); abort after 5
+  consecutive batch failures (test_abort asserts aborted=True, attempted
+  5/total 6, all 12 tickers surface unclassified); 30s timeout; pacing
+  delay + rng.uniform(0, delay*jitter) (1.2 <= d <= 1.2+0.3 asserted).
+- C2 Ticker sourcing: EQUITY_TICKERS_SQL = "SELECT ticker FROM
+  company_metadata WHERE quote_type='EQUITY' ORDER BY ticker" via Flight
+  do_get JSON {"sql"} ticket (Ticket(json.dumps({"sql": sql})));
+  wait_for_available(5s) probe; config.yaml fallback on any Exception
+  (source="config-fallback"); --tickers subset (source="--tickers",
+  excluded=0, upper-cased, hyphens preserved e.g. BRK-B); ETF/INDEX/FUTURE
+  excluded by quote_type filter; excluded_non_equity = total - equity_count
+  (test asserts 3 for total=5/equity=2).
+- C3 Parser: pd.read_html + best-overlap heuristic — table must have
+  REQUIRED_COLUMN="Ticker"; among those, max overlap with
+  _OVERVIEW_FIELD_MAP. Layout table (Filter/Value) skipped. Missing
+  optional columns → "" (asserted). Empty/blank HTML → {} (asserted).
+  Error page (no <table>) → ValueError caught → {} (asserted). Table
+  without Ticker → {} (asserted). Ticker case: str(raw).strip().upper();
+  NaN/None/"NAN" rows skipped; first-wins dedup.
+- C4 Cross-check: requested = {t.strip().upper()}; unclassified =
+  sorted(requested - set(records)); ONE retry pass at retry_batch_size=10
+  when unclassified and not aborted. test_cross_check: POISON dropped
+  from 3-batch, retried alone at size 10, classified; asserts
+  unclassified==[], batches_total==2, last call ends t=POISON.
+  Permanently unclassified NAMED in result["unclassified"] AND kept in
+  detail CSV with empty fields (never dropped).
+- C5 CSV outputs: finviz_sector_industry_YYYYMMDD.csv (columns
+  ticker,company,sector,industry,country — exact order asserted) +
+  finviz_sector_summary_YYYYMMDD.csv (level,sector,industry,ticker_count
+  — sector rollups + sector→industry counts + "(unclassified)" row).
+  test_detail_and_summary asserts Technology=2, Financial=1,
+  (unclassified)=1, industry Software-Infrastructure=1, GHOST row kept.
+  Outputs to reports.report_dir (--output-dir override). stdout digest
+  prints source/requested/excluded/batches/classified/unclassified
+  (count+names)/aborted/CSV paths.
+- C6 Test vacuity / mutation kills (3/3, all restored byte-identical;
+  git diff clean after each):
+  (a) Drop cross-check retry pass -> 2 tests FAIL.
+  (b) Make 429 non-retryable -> 1 test FAILS (asserts 200, got 429).
+  (c) Break pagination (append break after &r= offset) -> 1 test FAILS
+      (asserts 22 rows, got 20).
+  23 tests assert real values (counts, column order, sector names, delay
+  magnitudes, URL substrings, abort counts) — not mere existence.
+- C7 Scope audit: git diff 912ffa9~1..2746bb0 = 5 output_files +
+  blackboard only; 7c850a1 = blackboard only. NO out-of-scope files.
+  README twins byte-identical (cmp exit 0). README L228-239 documents the
+  new script in both README.md and docs/README.md.
+- C8 Gates re-run: AC1 focused 23/23 (1.94s); AC3 strict loops "No
+  unjustified loops found. (17 files checked)" exit 0; AC4 --dry-run
+  --tickers AAPL,MSFT exit 0 printing screener URL + DRY-RUN line. AC2
+  full suite NOT re-run by C (citing B's 1983/1983; focused + mutation +
+  scope + gates independently verified).
+
+Advisory A1 (non-blocking): test_failure_counter_resets_on_success L370-372
+has a tautological `or` clause (both branches can't be false given retry
+semantics). The non-vacuous core `assert result["aborted"] is False`
+(L369) is the real check and passes. No code change; recommend tightening
+the supplementary clause in a future pass.
+
+Verdict: APPROVED. Next: Critic D -> orchestrator live Finviz deploy gate
+(~1,115 equities / ~56 batches, expected ~98 excluded non-equity).
 
 ## RRG-T1 — DONE (2026-10-25)
 
