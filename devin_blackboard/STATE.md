@@ -1,6 +1,76 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-25 (SEC-T3 — DONE by executor B)
+Last Updated: 2026-10-25 (SEC-T3 — Challenger C APPROVED)
 Current Branch: main
+
+## SEC-T3 — Challenger C adversarial review — APPROVED (2026-10-25)
+
+**CHALLENGER-C verdict: APPROVED** (HEAD 949b1e3; impl dc622b6 +
+blackboard 5d3b4e7/949b1e3). Trusted nothing — re-ran every AC and
+probed the engine directly in %TEMP%\sec_t3_c\probe.py (real temp
+DuckDB, mocked yfinance, no network, no ps1 execution, no C:\Intel).
+48/48 independent probes PASS + 3/3 mutation kills + all gates green.
+
+Scope audit: git show --stat dc622b6 = 7 files = exactly the 7
+output_files; blackboard diff = STATE.md only. NO out-of-scope.
+fc /b README.md docs\README.md exit 0 (byte-identical twins).
+Challenger modules (ingestion_challenger, flight_server_challenger)
+UNTOUCHED — override tests use executor-only fixtures (F24 precedent).
+
+Merge correctness (real temp DuckDB, 48 probes): partial override
+preserves untouched fields (merge reads existing row via unnest(?),
+fills absent fields, upserts merged row — NOT a blind upsert which
+would NULL via ON CONFLICT DO UPDATE SET all four = EXCLUDED); full
+override replaces; new ticker inserts NULLs; explicit JSON null
+treated as ABSENT (preserves stored — correct per AC "fields ABSENT
+preserve stored value"); last-wins dedup + strip/upper; overrides
+applied AFTER fetch loop's final _flush (correction wins over
+same-call refresh); 9 malformed payloads raise ValueError BEFORE any
+write (rows byte-identical — NO partial-write leak); apply failure
+never propagates (errors["__overrides__"], overrides_applied=0,
+overrides_report=[]); report contract accurate ({ticker,
+applied_fields, created}); overrides-only call (tickers=[]) does
+zero fetches.
+
+Validation layers: engine _normalize_metadata_overrides rejects
+non-list/non-dict/missing-or-empty/non-string ticker/non-string
+field/unknown key (ValueError, up front). Flight action layer
+(flight_server.py:489-543) mirrors shape validation -> FlightServerError
+BEFORE engine call (assert_not_called); forwards `overrides` kwarg
+ONLY when present (legacy signature preserved); null fields
+accepted; over-wire FlightError on malformed.
+
+ps1 (static review, NOT executed): schtasks /sc MONTHLY /d 1 /m
+JAN,APR,JUL,OCT is the documented quarter-of-year trigger (single
+MONTHLY trigger, MonthsOfYear={Jan,Apr,Jul,Oct}, DaysOfMonth={1});
+Set-ScheduledTask -Action -Settings (no -Trigger) preserves the
+schtasks-created trigger per MS docs; principal preserved (no
+-Principal passed); /f idempotent; -Unregister; -UserPrincipal /it
+LIMITED; absolute pythonExe + runner paths; -WorkingDirectory repo
+root; 2h ExecutionTimeLimit + IgnoreNew + StartWhenAvailable;
+HH:mm ParseExact validation. PSParser tokenize exit 0.
+
+Mutation kills (3/3, restored byte-identical, git diff clean):
+M1 blind upsert -> 4 FAIL; M2 drop validation -> 11 FAIL; M3 apply
+overrides before final flush -> 1 FAIL. Tests non-vacuous (value
+asserts on preserved/overwritten fields, applied_fields contents,
+created bool, counts, called_with kwargs, assert_not_called,
+over-wire FlightError).
+
+Gates re-run by C: AC1 focused 402/402 (10.50s); AC2 full suite
+2054/2054 (241.52s, single clean run after killing 12 stray
+backgrounded pytest processes); AC3 strict loops exit 0 (17 files);
+AC4 PSParser exit 0. 6 prose ACs independently verified.
+
+Advisory A1 (non-blocking): Set-ScheduledTask trigger-preservation
+is documented but not unit-testable without executing registration.
+The orchestrator's deploy gate is the backstop — recommend asserting
+(Get-ScheduledTask -TaskName X).Triggers[0].MonthsOfYear ==
+{Jan,Apr,Jul,Oct} + DaysOfMonth == {1} after registration. Non-
+blocking (script logic correct; AC defers execution).
+
+Verdict: APPROVED. Next: Critic D -> orchestrator deploy gate
+(restart Flight Server; register task + verify quarterly triggers;
+execute finviz_classification_update skill for GPN/NBIS/HHH).
 
 ## SEC-T3 — metadata_load overrides + quarterly Finviz task — DONE (executor B, 2026-10-25)
 

@@ -5754,3 +5754,45 @@ Evidence map:
     "output": ""
   }
 ]
+[2026-10-25T22:10:00+01:00] [CHALLENGER-C] SEC-T3 adversarial review (HEAD 949b1e3; impl dc622b6 + blackboard 5d3b4e7/949b1e3): **APPROVED**. Trusted nothing — re-ran every AC and probed the engine directly in %TEMP%\sec_t3_c\probe.py (real temp DuckDB, mocked yfinance, no network, no ps1 execution, no C:\Intel). 48/48 independent probes PASS + 3/3 mutation kills + all gates green.
+
+Scope audit (C6): `git show --stat dc622b6` = 7 files = exactly the 7 output_files (src/ingestion.py, src/flight_server.py, tests/test_metadata.py, tests/test_flight_server.py, scripts/register_finviz_classify.ps1, README.md, docs/README.md). `git diff 5d3b4e7..949b1e3 --stat` = STATE.md only (blackboard). NO out-of-scope edits. `fc /b README.md docs\README.md` exit 0 — byte-identical twins. Challenger modules (src/ingestion_challenger.py, src/flight_server_challenger.py) UNTOUCHED — confirmed via grep (no `overrides` symbol in ingestion_challenger; override tests use executor-only fixtures, same F24 signal_pipeline precedent).
+
+Merge correctness (C1-C10, real temp DuckDB probes):
+- C1 partial override on populated row: sector overwritten, company_name/industry/quote_type PRESERVED (merge reads existing row via `unnest(?)` param query, fills absent fields, upserts merged row — NOT a blind upsert which would NULL untouched fields via ON CONFLICT DO UPDATE SET all four = EXCLUDED).
+- C2 full override replaces all four fields.
+- C3 new ticker inserts NULLs for unprovided fields; get_missing_metadata_tickers([]) returns [] after (no longer missing).
+- C4 explicit JSON null treated as ABSENT — sector:null preserves stored sector, industry:"NewInd" overwrites. Matches AC text ("fields ABSENT preserve stored value") and docstring ("A field present with None is treated as ABSENT"). Correct interpretation — null is a no-op, not a NULL-write.
+- C5 last-wins dedup + strip/upper normalization (" aapl " + "AAPL" -> 1 row, sector="Second").
+- C6 overrides applied AFTER fetch loop's final _flush() — refresh=True + override on same ticker: fetch populates company_name/industry/quote_type, override wins on sector, merge preserves the fetch-populated fields. Correction always wins.
+- C7 9 malformed payloads (non-list, non-dict item, missing ticker, empty/whitespace ticker, non-string ticker, non-string field, bool field, unknown key) ALL raise ValueError BEFORE any write; rows byte-identical before/after each attempt — NO partial-write leak. Validation runs up front in _normalize_metadata_overrides, before the fetch loop and before _apply_metadata_overrides.
+- C8 apply failure never propagates: monkeypatched upsert_company_metadata to raise -> run_metadata_load returns normally, errors["__overrides__"] set, overrides_applied=0, overrides_report=[] (same contract as _flush).
+- C9 report contract: overrides_applied count + overrides_report [{ticker, applied_fields, created}] accurate — existing ticker created=False, new ticker created=True, applied_fields lists only the non-null provided fields (excludes ticker).
+- C10 overrides-only call (tickers=[]) performs ZERO yfinance fetches (calls==[], tickers_fetched==0).
+
+Validation layers (C7 + action tests): engine _normalize_metadata_overrides rejects non-list/non-dict/missing-or-empty-or-non-string-ticker/non-string-field/unknown-key (ValueError); last-wins dedup; strip/upper. Flight action layer (flight_server.py:489-543) mirrors the shape validation -> FlightServerError BEFORE engine call (test_malformed_overrides_raise_before_engine asserts ingest_engine.run_metadata_load.assert_not_called()); forwards `overrides` kwarg ONLY when present (legacy call signature preserved — test_overrides_absent_not_forwarded asserts called_with(tickers=None, refresh=False) with no overrides kwarg). Null field values accepted at action layer (engine treats as absent). Over-wire test: real gRPC client receives FlightError on malformed overrides (test_malformed_overrides_over_wire).
+
+ps1 correctness (C-ps1, static review — NOT executed per AC): scripts/register_finviz_classify.ps1 (165 lines, PSParser tokenize exit 0). Logic audit:
+- Quarterly trigger: `schtasks /create /f /tn X /tr ... /sc MONTHLY /d 1 /m JAN,APR,JUL,OCT /st HH:mm` — documented schtasks syntax for "day 1 of each listed month" (single MONTHLY trigger, MonthsOfYear={Jan,Apr,Jul,Oct}, DaysOfMonth={1}). This is the ONLY command-line way to express quarter-of-year (New-ScheduledTaskTrigger has no quarterly trigger — confirmed by AC text + .SYNOPSIS).
+- Set-ScheduledTask -TaskName X -Action $action -Settings $settings (no -Trigger) preserves the schtasks-created trigger per Microsoft docs ("If you do not specify a parameter, the cmdlet does not change that property"). Principal (SYSTEM/Highest or /it LIMITED) set via schtasks is also preserved (no -Principal/-User/-Password passed). This is the documented behavior on Windows 10/11 + PS 5.1+.
+- /f idempotent (overwrites existing). -Unregister: Get-ScheduledTask SilentlyContinue -> Unregister-ScheduledTask -Confirm:$false -> exit 0 (no-op if absent). -UserPrincipal: /ru $currentUser /it /rl LIMITED (interactive token, no password stored; matches register_incident_watch.ps1 convention). $ErrorActionPreference='Stop' -> any failure throws + exit 1.
+- Action: $pythonExe = (Get-Command python).Source (absolute path — no PATH dependency in Task Scheduler context); $runner = Join-Path $PSScriptRoot 'classify_tickers_finviz.py' (absolute); -WorkingDirectory $repoRoot (repo root via Split-Path -Parent $PSScriptRoot); Test-Path $runner guard. Time validated via [DateTime]::ParseExact($Time,'HH:mm',InvariantCulture) before schtasks. Settings: ExecutionTimeLimit 2h, MultipleInstances IgnoreNew, StartWhenAvailable, AllowStartIfOnBatteries, DontStopIfGoingOnBatteries.
+- Advisory (non-blocking): the Set-ScheduledTask trigger-preservation behavior is documented but NOT test-covered (AC explicitly defers execution to the orchestrator deploy gate). The orchestrator's deploy gate MUST verify the registered task has exactly the quarterly trigger (JAN/APR/JUL/OCT day 1) and not a monthly-every-month trigger. This is the only residual risk that could "silently make the task run monthly-instead-of-quarterly" — and it is owned by the deploy gate, not the script logic.
+
+Test vacuity (C-mut, 3/3 mutation kills — each restored byte-identical, git diff clean after each):
+- M1 blind upsert (replace _apply_metadata_overrides merge with `merged = list(normalized)`) -> 4 FAIL (test_partial_override_preserves_stored_fields, test_null_field_value_treated_as_absent, test_overrides_win_over_same_call_fetch, test_overrides_applied_independently_of_skip_existing). Tests assert real preserved values, not mere existence.
+- M2 drop validation (return overrides as-is) -> 11 FAIL (all 9 malformed parametrize cases + test_null_field_value_treated_as_absent + test_ticker_normalized_and_last_wins_dedup). Tests assert ValueError raised AND rows-unchanged.
+- M3 apply overrides BEFORE final _flush (fetch clobbers override) -> 1 FAIL (test_overrides_win_over_same_call_fetch). Test asserts override sector wins over fetch sector.
+Tests are non-vacuous: value-level asserts on preserved/overwritten fields, applied_fields list contents, created bool, overrides_applied counts, engine-called-with kwargs, assert_not_called on malformed, over-wire FlightError.
+
+Gates re-run by C (C7):
+- SEC3-AC1 focused: `python -m pytest tests/test_metadata.py tests/test_flight_server.py -q` -> 402 passed in 10.50s, exit 0.
+- SEC3-AC2 full suite: `python -m pytest tests/ -q` -> 2054 passed in 241.52s, exit 0 (single clean run after killing 12 stray backgrounded pytest processes from earlier attempts).
+- SEC3-AC3 strict loops: `python scripts/check_loops.py --src-dir src --strict` -> "No unjustified loops found. (17 files checked)" exit 0.
+- SEC3-AC4 PSParser lint: PSParser::Tokenize on scripts/register_finviz_classify.ps1 -> exit 0 (no parse errors).
+- 6 prose ACs auto-pass placeholders; independently verified above (overrides payload shape + merge semantics + report contract + ps1 quarterly
+ + tests + README twins).
+
+Advisory A1 (non-blocking): the ps1's reliance on Set-ScheduledTask preserving the schtasks-created quarterly trigger is documented PowerShell behavior but not unit-testable without executing registration. The orchestrator's deploy gate (AC prose: "register the scheduled task and verify it exists with correct quarterly triggers") is the backstop — recommend the deploy step assert (Get-ScheduledTask -TaskName X).Triggers[0].MonthsOfYear equals {Jan,Apr,Jul,Oct} + DaysOfMonth equals {1} before declaring the deploy done. Non-blocking because the script logic itself is correct and the AC explicitly defers execution.
+
+Verdict: **APPROVED**. Next: Critic D -> orchestrator deploy gate (restart Flight Server; register task + verify quarterly triggers; execute finviz_classification_update skill for GPN/NBIS/HHH).
