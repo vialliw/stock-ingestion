@@ -1,6 +1,69 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-25 (SEC-T1 — Challenger C APPROVED; awaiting Critic D)
+Last Updated: 2026-10-25 (SEC-T1 — Critic D PASS (code gate); awaiting orchestrator live gate)
 Current Branch: main
+
+## SEC-T1 — Critic D final verification — PASS (2026-10-25)
+
+**CRITIC-D verdict: PASS (code gate)** at HEAD 26c9e89. Independent
+re-verification — B/C self-reports NOT trusted. `--verify SEC-T1`
+ALL PASS (4/4 structured; 6 prose auto-pass): AC1 focused 23/23
+(1.58s; independent re-run 23 passed 2.10s), AC2 full suite
+2009/2009 (213.86s — note suite grew 1983->2009 via RRG-T1 tests),
+AC3 strict loops "No unjustified loops found. (17 files checked)"
+exit 0, AC4 --dry-run exit 0 printing screener.ashx?v=111&t=AAPL,MSFT
++ "DRY-RUN: 2 tickers (source=--tickers); no requests made." Project
+gate `check_loops.py --src-dir src` exit 0. No live Finviz HTTP —
+all checks mocked or dry-run.
+
+Prose ACs (independently verified in source + probes):
+- split_tickers_for_finviz.py: git diff 912ffa9..ab5a2f5 shows the
+  ONLY change is the mock-1200 demo moved under
+  `if __name__ == "__main__"` — function body byte-identical. Own
+  probe: import produces zero stdout; function batches/upper-cases/
+  builds v=111 URLs correctly.
+- classify_tickers_finviz.py confirmed: Flight do_get
+  Ticket(json.dumps({"sql": sql})) L361 + wait_for_available(5s)
+  L360; config.yaml ingestion.tickers fallback on any Exception
+  (source="config-fallback") L391-397; --tickers subset early-return
+  L378-382; batch_size=20 via the helper L88/276; browser UA header
+  L68-71/130-131; delay 1.2 + uniform(0, delay*0.25) jitter L90/
+  272-273; 30s timeout L91; exp-backoff on 429/403/5xx max 3
+  (RETRYABLE_STATUSES + >=500, sleep base*2**attempt) L97-147; abort
+  at 5 consecutive failures L94/304-311; &r=21,41,... pagination only
+  at exactly ROW_CAP=20 L226-241; parser requires Ticker column and
+  picks max-overlap table vs _OVERVIEW_FIELD_MAP L168-183; requested
+  -vs-returned cross-check + ONE retry pass at retry_batch_size=10
+  L321-338; unclassified NAMED in stdout digest L584-585 AND kept in
+  detail CSV with empty fields L412-421; --dry-run returns before any
+  session creation L545-552.
+- CSV outputs: detail finviz_sector_industry_YYYYMMDD.csv columns
+  [ticker,company,sector,industry,country] exact order; summary
+  finviz_sector_summary_YYYYMMDD.csv [level,sector,industry,
+  ticker_count] with sector rollups + sector->industry rows +
+  "(unclassified)" row; written to cfg.reports.report_dir with
+  --output-dir override; stdout digest prints source/requested/
+  excluded-non-equity/batches/classified/unclassified+aborted+paths
+  L573-588.
+- tests/test_classify_finviz.py: 23 tests (6 parser + 5 retry + 2
+  pagination + 5 classify + 1 reports + 4 dry-run/resolve), all
+  HTTP mocked via FakeSession/FakeResponse, value-level asserts
+  (delays == [1.0, 2.0], &r=21 URL suffix, abort attempted=5/6,
+  Technology=2/(unclassified)=1 counts, exact column order).
+- README twins: cmp exit 0 byte-identical; script documented
+  README L228-239 (purpose, batching, rate-limit, usage examples).
+- Scope audit: git diff --name-status 912ffa9~1..2746bb0 = 5
+  output_files + blackboard only; 7c850a1 = blackboard only. No
+  out-of-scope files.
+- C advisory A1 confirmed non-blocking: the `or` clause at
+  test_failure_counter_resets_on_success L370-372 is weak (both
+  branches cannot be false simultaneously under retry semantics),
+  but the non-vacuous core `assert result["aborted"] is False`
+  (L369) is the real check and passes. Cosmetic only.
+
+DEFERRED (orchestrator-owned, not failed): live Finviz run against
+~1,115 equities writing both CSVs to C:\Intel\parquet; unclassified
+list small + named; ~98 excluded non-equity reported.
+Next: orchestrator live Finviz deployment gate.
 
 ## SEC-T1 — Challenger C adversarial review — APPROVED (2026-10-25)
 
