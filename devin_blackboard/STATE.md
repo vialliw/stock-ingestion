@@ -1,6 +1,22 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-25 (SEC-T2 — Critic D PASS (code gate); orchestrator live Finviz gate next)
+Last Updated: 2026-10-25 (SEC-T1/T2 — DONE, live Finviz gate PASS)
 Current Branch: main
+
+## SEC-T1 + SEC-T2 — DONE (2026-10-25)
+
+**ORCHESTRATOR deployment gate: PASS** (commit fb70261). Live
+classification run: 1,118 EQUITY tickers from company_metadata via
+Flight (109 non-equity excluded), 57 batches, 0 aborts. Result:
+1,114 classified; the only 4 unclassified (DBRG, LESL, QRVO, WBD)
+are genuinely delisted tickers Finviz does not list — matches the
+project-known delisted set. Artifacts in C:\Intel\parquet:
+finviz_sector_industry_20261025.csv (ticker,company,sector,industry,
+country) + finviz_sector_summary_20261025.csv (11 sectors +
+sector->industry rollups + (unclassified)=4 row). History: SEC-T1's
+first live gate caught the Finviz redesign (screener.ashx ->
+/screener/stocks; HTML table -> SSR JSON island ssr-island-1 ->
+data.rows[].text); SEC-T2 migrated the parser + canonical URL +
+totalCount-driven pagination. B->C(APPROVED x2)->D(PASS x2) complete.
 
 ## SEC-T2 — Critic D final verification — PASS (2026-10-25)
 
