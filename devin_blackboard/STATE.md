@@ -1,6 +1,18 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-30 (OPS — DailyLoad console-popup fix, verified live)
+Last Updated: 2026-10-30 (incident queue worked — EWTX resolved; Flight restarted on ACA exclusion)
 Current Branch: main
+
+## OPS — Incident queue worked (orchestrator, 2026-10-30)
+
+`20261026_sev2_stale_EWTX` (SEV2, 4 checks): batch fetch miss — DB
+frozen 10-23, upstream served every session; nightly loads never
+counted EWTX failed (engine silent-drop blind spot — flagged to user).
+Re-fetched `on_request_load` 10-24..10-31 -> 5 rows matching vendor;
+watcher auto-resolved, `open/` empty. resolution_note + closed GH
+issue #23 (incident/sev2/resolved). Separately: user's uncommitted
+config edit (ACA -> `exclude_tickers`; ACA dead-upstream since ~10-22)
+activated via `Flight Server` task restart — port 8815 up, 1224
+tickers. Tonight's 21:30 load will no longer fetch/fail ACA.
 
 ## OPS — StockIngestion-DailyLoad console-popup fix (orchestrator, 2026-10-30)
 
