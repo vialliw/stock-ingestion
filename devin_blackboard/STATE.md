@@ -1,6 +1,25 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-25 (SEC-T3 — DONE, deployed + skill executed)
+Last Updated: 2026-10-30 (OPS — DailyLoad console-popup fix, verified live)
 Current Branch: main
+
+## OPS — StockIngestion-DailyLoad console-popup fix (orchestrator, 2026-10-30)
+
+User request: stop the task's console window popping up at run time.
+Cause: action ran `python.exe` (console subsystem) under an Interactive
+principal, so conhost attached a visible window to the user session.
+Fix: swapped the registered action to `C:\Intel\python\3.12\pythonw.exe`
+(windowless interpreter) via `Set-ScheduledTask -Action` — trigger
+(weekly Mon–Fri 21:30 local, DaysOfWeek=62) and principal
+(user/Interactive/Limited) preserved. `scripts/register_daily_task.ps1`
+now prefers `pythonw.exe` (falls back to `python.exe`) so a future
+re-registration does not reintroduce the popup. Safe because
+`daily_load_once.py` logs only to `cfg.logging.log_file` (no console
+output needed; no `print()` anywhere in src/ or the report chain).
+Verified: PSParser lint exit 0; manual `Start-ScheduledTask` run under
+pythonw finished LastTaskResult=0 — Flight-routed `daily_load`
+(force=True, trailing 4 days) + `Report_Top_25_Active.xlsx` written.
+NOTE: the live task's trigger is weekly Mon–Fri while the script still
+registers `/sc DAILY` — re-registering the script would restore daily.
 
 ## SEC-T3 — DONE (2026-10-25)
 

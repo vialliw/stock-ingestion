@@ -4,8 +4,10 @@
     stock-ingestion daily load once per day with the default config.
 
 .DESCRIPTION
-    The task action runs scripts\daily_load_once.py with the resolved
-    python interpreter.  That script loads src/config.yaml and calls
+    The task action runs scripts\daily_load_once.py with pythonw.exe
+    (the windowless interpreter next to python.exe, when present) so no
+    console window pops up in the interactive session.  That script
+    loads src/config.yaml and calls
     PipelineScheduler.run_once() — the same daily-load path used by the
     APScheduler daemon (NYSE market check, DuckDB lock retry,
     run_daily_load, optional R2 sync).
@@ -118,7 +120,15 @@ if (-not $Time) {
 
 # Resolve the python interpreter to an absolute path so the task does
 # not depend on the PATH of whatever context Task Scheduler runs in.
+# Prefer pythonw.exe (the windowless interpreter sitting next to
+# python.exe) so the scheduled run does not pop a console window into
+# the interactive session; daily_load_once.py logs to
+# cfg.logging.log_file, so no console output is needed.
 $pythonExe = (Get-Command python -ErrorAction Stop).Source
+$pythonwExe = Join-Path (Split-Path -Parent $pythonExe) 'pythonw.exe'
+if (Test-Path $pythonwExe) {
+    $pythonExe = $pythonwExe
+}
 
 $action = "`"$pythonExe`" `"$runner`""
 
