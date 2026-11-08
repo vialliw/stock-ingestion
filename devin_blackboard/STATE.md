@@ -1,6 +1,19 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-08 (duckdb-2.0 outage remediated — service restored, data current, queue clear)
+Last Updated: 2026-11-08 (repo migrated to B:\projects\stock-ingestion — all tasks re-pointed, verified live)
 Current Branch: main
+
+## OPS — repo migrated to B:\projects\stock-ingestion (orchestrator, 2026-11-08)
+
+Repo copied OneDrive -> B:\projects\stock-ingestion (robocopy, 4,436
+files / 104.89 MB). DuckDB unchanged at `C:\Intel\parquet\stock_ingestion.duckdb`.
+All 4 scheduled tasks re-pointed in place (triggers/principals preserved);
+`incidents` junction recreated on B: -> `C:\Intel\incidents\stock-ingestion`
+and removed from the old folder (prevents OneDrive delete-follow into the
+store). Path refs committed 98db87e; `workflow_phase2.py` PROJECT_DIR now
+`__file__`-derived. Verified: Flight Server live on new path, Flight query
+OK (4,385,027 daily_close rows, latest 2026-11-06), pytest 2054/2054 pass.
+Old OneDrive folder left intact as rollback — delete after 21:30 load
+verified. New sessions: open `B:\projects\stock-ingestion`.
 
 ## OPS — duckdb 2.0 outage (orchestrator, 2026-11-08)
 
