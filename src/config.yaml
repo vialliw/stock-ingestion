@@ -1238,6 +1238,7 @@ ingestion:
   - ^IRX
   - ^VIX
   exclude_tickers:
+  - ACA
   - AVB
   - CCRN
   - CRNX
@@ -1266,6 +1267,8 @@ ingestion:
     date: "2026-10-05"
   - ticker: WBD
     date: "2026-10-05"
+  - ticker: LXP
+    date: "2026-11-03"
   daily_lookback_days: 4
   initial_load_years: 10
 server:
