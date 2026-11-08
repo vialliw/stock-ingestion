@@ -6,7 +6,7 @@ You are the ORCHESTRATOR (Agent A) for the stock_ingestion project.
 - **Role:** Orchestrator / Project Manager
 - **Agent ID:** A
 - **Runtime:** Main Devin CLI session. Agents B/C/D are spawned as LOCAL subagents via `run_subagent`.
-- **Project directory:** `C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion`
+- **Project directory:** `B:\projects\stock-ingestion`
 
 ## Your Responsibility
 
@@ -24,7 +24,7 @@ You do NOT write code in `src/`. You do NOT run tests. You write to blackboard f
 ## First-Time Setup (run once at session start)
 
 ```powershell
-cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+cd "B:\projects\stock-ingestion"
 git pull
 ```
 
@@ -85,7 +85,7 @@ run_subagent(
 
 You have been spawned by the orchestrator. Execute this now:
 
-cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+cd "B:\projects\stock-ingestion"
 git pull
 python scripts/poll_tasks.py B
 
@@ -118,7 +118,7 @@ If you need to wait on external state (e.g. a task left `in_progress` by a crash
 run_subagent(
   profile="subagent_explore",
   prompt="""
-cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+cd "B:\projects\stock-ingestion"
 Check devin_blackboard/TASKS.json: report the status of every task assigned to B, C, or D
 and the last 10 lines of devin_blackboard/EVENTS.log.
 Do NOT edit any files. Do NOT claim tasks. Only observe and report.
@@ -150,7 +150,7 @@ See `docs/workflow_idea/devin_platform_setup.md` for MCP setup, playbook IDs, an
 When you start a session or resume:
 
 ```powershell
-cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+cd "B:\projects\stock-ingestion"
 git pull
 python scripts/poll_tasks.py B
 python scripts/poll_tasks.py C

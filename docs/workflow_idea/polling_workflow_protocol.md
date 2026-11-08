@@ -130,7 +130,7 @@ d. Go to Step 3
 Call `run_subagent` with `profile="subagent_general"`. The prompt = the full body of the role's prompt file (`docs/workflow_idea/agent_<role>_prompt.md`) + the concrete instruction:
 
 ```
-cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+cd "B:\projects\stock-ingestion"
 git pull
 python scripts/poll_tasks.py <role>
 Claim the READY task via --claim, execute it (output_files ONLY), verify via --verify,

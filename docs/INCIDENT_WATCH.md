@@ -122,9 +122,11 @@ Note: machine policy is `AllSigned` — `-ExecutionPolicy Bypass` is required.
   integrity violation dates (HRAW-T3).
 - **DST drift:** during the ~5 wk/yr UK–US DST-mismatch window the task fires
   19:30 ET instead of 18:30 — still safely after the 16:14 ET load.
-- **OneDrive:** the `incidents` junction sits inside the synced repo; the
-  store itself lives outside OneDrive. If sync ever ingests the tree,
-  exclude `incidents` in OneDrive settings.
+- **Junction:** the `incidents` junction sits inside the repo (now
+  `B:\projects\stock-ingestion`, outside OneDrive); the store itself lives at
+  `C:\Intel\incidents\stock-ingestion`. If the repo is ever placed under a
+  sync root again, exclude `incidents` — sync engines can follow the
+  junction into the store.
 - **`git add -A`:** `incidents/` is gitignored — live incident state must
   never be committed.
 - Suppression list additions go in `_config/suppressions.json`, not in code —

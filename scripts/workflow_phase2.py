@@ -24,6 +24,7 @@ the challenger's findings before verifying. This trades speed for thoroughness.
 """
 import asyncio
 import json
+import os
 
 # --- Workflow metadata ---
 META = {
@@ -66,7 +67,7 @@ REVIEW_SCHEMA = {
 # --- Prompt builders ---
 
 REPO = "github.com/vialliw/stock-ingestion"
-PROJECT_DIR = "C:\\Users\\user\\OneDrive\\Documents\\script\\python\\projects\\stock-ingestion"
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def build_executor_prompt(task_def):

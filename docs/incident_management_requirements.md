@@ -260,10 +260,11 @@ stock-ingestion\
   which lands in the central store transparently.
 - Other projects repeat the pattern: `other-repo\incidents` →
   `C:\Intel\incidents\<other-repo>`.
-- **OneDrive caveat (verify before commit):** the junction itself sits inside
-  a OneDrive-synced folder. If OneDrive follows it and starts ingesting the
-  incident tree, exclude `incidents` from sync or move the link outside the
-  synced root.
+- **Sync-root caveat (verify before commit):** the junction sits inside the
+  repo folder. The repo moved to `B:\projects\stock-ingestion` (outside
+  OneDrive) on 2026-11-08; if it is ever placed under a sync root again,
+  exclude `incidents` — sync engines can follow the junction into the
+  incident tree.
 
 ### 7.3 Semantics
 

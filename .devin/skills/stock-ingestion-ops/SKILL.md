@@ -14,7 +14,7 @@ allowed-tools:
 
 # stock-ingestion Operations Runbook
 
-Repo: `C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion`
+Repo: `B:\projects\stock-ingestion`
 Service: Arrow Flight on `127.0.0.1:8815`, canonical DB
 `C:\Intel\parquet\stock_ingestion.duckdb`, config `src/config.yaml`,
 schema v8. Server runs as scheduled task **FlightServer**.

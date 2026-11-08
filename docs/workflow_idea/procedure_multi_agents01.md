@@ -2,7 +2,7 @@
 
 > **Project:** stock_ingestion — Centralize stock-data ingestion and expose program interfaces.
 > **Repository:** `vialliw/stock-ingestion`
-> **Local path:** `C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion`
+> **Local path:** `B:\projects\stock-ingestion`
 > **Status:** Phase 1 complete. Phase 2 in progress.
 > **Document version:** 4.0 (2026-09-12) — local `run_subagent` spawning is the DEFAULT; Devin Cloud MCP sessions are an optional alternative
 
@@ -70,7 +70,7 @@ Devin Cloud MCP sessions (`devin_session_create`) remain an **optional alternati
 ## 2. Prerequisites
 
 1. Repo exists on GitHub: `vialliw/stock-ingestion`
-2. Local clone at `C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion`
+2. Local clone at `B:\projects\stock-ingestion`
 3. R2 secrets stored as **GitHub repo secrets** (never committed):
    - `R2_ACCESS_KEY_ID`
    - `R2_ENDPOINT_URL`
@@ -861,7 +861,7 @@ d. Go to Step 3
 Call `run_subagent` with `profile="subagent_general"`. The prompt = the full body of the role's prompt file (`docs/workflow_idea/agent_<role>_prompt.md`) + the concrete instruction:
 
 ```
-cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+cd "B:\projects\stock-ingestion"
 git pull
 python scripts/poll_tasks.py <role>
 Claim the READY task via --claim, execute it (output_files ONLY), verify via --verify,
@@ -958,7 +958,7 @@ You are the ORCHESTRATOR (Agent A) for the stock_ingestion project.
 - **Role:** Orchestrator / Project Manager
 - **Agent ID:** A
 - **Runtime:** Main Devin CLI session. Agents B/C/D are spawned as LOCAL subagents via `run_subagent`.
-- **Project directory:** `C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion`
+- **Project directory:** `B:\projects\stock-ingestion`
 
 ## Your Responsibility
 
@@ -976,7 +976,7 @@ You do NOT write code in `src/`. You do NOT run tests. You write to blackboard f
 ## First-Time Setup (run once at session start)
 
 ```powershell
-cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+cd "B:\projects\stock-ingestion"
 git pull
 ```
 
@@ -1010,7 +1010,7 @@ run_subagent(
 
 You have been spawned by the orchestrator. Execute this now:
 
-cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+cd "B:\projects\stock-ingestion"
 git pull
 python scripts/poll_tasks.py B
 
@@ -1061,7 +1061,7 @@ See `docs/workflow_idea/devin_platform_setup.md` for MCP setup, playbook IDs, an
 ### Step 1: Initial state check
 
 ```powershell
-cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+cd "B:\projects\stock-ingestion"
 git pull
 python scripts/poll_tasks.py B
 python scripts/poll_tasks.py C
@@ -1183,7 +1183,7 @@ You are the EXECUTOR (Agent B) for the stock_ingestion project. You are spawned 
 - **Role:** Executor
 - **Agent ID:** B
 - **Subagent profile:** `subagent_general` (same model as the orchestrator)
-- **Project directory:** `C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion`
+- **Project directory:** `B:\projects\stock-ingestion`
 
 ## Your Responsibility
 You implement features, fix bugs, and write code. You write to `src/` files and test files. You do NOT review or verify — that's the Challenger (C) and Critic (D).
@@ -1191,7 +1191,7 @@ You implement features, fix bugs, and write code. You write to `src/` files and 
 ## First-Time Setup (run once at spawn)
 
 ```powershell
-cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+cd "B:\projects\stock-ingestion"
 git pull
 ```
 
@@ -1291,7 +1291,7 @@ You are the CHALLENGER (Agent C) for the stock_ingestion project. You are spawne
 - **Role:** Challenger
 - **Agent ID:** C
 - **Subagent profile:** `subagent_general` (same model as the orchestrator — NOT `subagent_explore`, which is read-only and cannot claim tasks)
-- **Project directory:** `C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion`
+- **Project directory:** `B:\projects\stock-ingestion`
 
 ## Your Responsibility
 You independently review the executor's work. You look for edge cases, false positives/negatives, loops that could be vectorized, SQL that could be optimized, and tests that don't actually test what they claim. You do NOT modify the executor's code — you communicate findings via EVENTS.log.
@@ -1299,7 +1299,7 @@ You independently review the executor's work. You look for edge cases, false pos
 ## First-Time Setup (run once at spawn)
 
 ```powershell
-cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+cd "B:\projects\stock-ingestion"
 git pull
 ```
 
@@ -1380,7 +1380,7 @@ You are the CRITIC (Agent D) for the stock_ingestion project. You are spawned as
 - **Role:** Critic
 - **Agent ID:** D
 - **Subagent profile:** `subagent_general` (same model as the orchestrator)
-- **Project directory:** `C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion`
+- **Project directory:** `B:\projects\stock-ingestion`
 
 ## Your Responsibility
 You verify acceptance criteria, run tests, and enforce the loop checker. You are the final gate before a task is marked complete. You write to `tests/` files and blackboard files only. You do NOT edit `src/` or `scripts/` files.
@@ -1388,7 +1388,7 @@ You verify acceptance criteria, run tests, and enforce the loop checker. You are
 ## First-Time Setup (run once at spawn)
 
 ```powershell
-cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+cd "B:\projects\stock-ingestion"
 git pull
 ```
 

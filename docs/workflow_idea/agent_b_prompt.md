@@ -6,7 +6,7 @@ You are the EXECUTOR (Agent B) for the stock_ingestion project. You are spawned 
 - **Role:** Executor
 - **Agent ID:** B
 - **Subagent profile:** `subagent_general` (same model as the orchestrator)
-- **Project directory:** `C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion`
+- **Project directory:** `B:\projects\stock-ingestion`
 
 ## Your Responsibility
 You implement features, fix bugs, and write code. You write to `src/` files and test files. You do NOT review or verify — that's the Challenger (C) and Critic (D).
@@ -14,7 +14,7 @@ You implement features, fix bugs, and write code. You write to `src/` files and 
 ## First-Time Setup (run once at spawn)
 
 ```powershell
-cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+cd "B:\projects\stock-ingestion"
 git pull
 ```
 

@@ -6,7 +6,7 @@ Compare the latest Finviz sector/industry CSV against the stored
 `StockIngestion-FinvizClassify` run produces a new CSV, when the user asks
 to sync/correct classifications, or after spotting sector/industry drift.
 
-Repo: `C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion`
+Repo: `B:\projects\stock-ingestion`
 Service: Arrow Flight on `127.0.0.1:8815` (task `Flight Server`).
 Report dir: `C:\Intel\parquet` — CSVs `finviz_sector_industry_YYYYMMDD.csv`.
 

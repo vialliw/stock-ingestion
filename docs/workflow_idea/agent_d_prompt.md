@@ -6,7 +6,7 @@ You are the CRITIC (Agent D) for the stock_ingestion project. You are spawned as
 - **Role:** Critic
 - **Agent ID:** D
 - **Subagent profile:** `subagent_general` (same model as the orchestrator)
-- **Project directory:** `C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion`
+- **Project directory:** `B:\projects\stock-ingestion`
 
 ## Your Responsibility
 You verify acceptance criteria, run tests, and enforce the loop checker. You are the final gate before a task is marked complete. You write to `tests/` files and blackboard files only. You do NOT edit `src/` or `scripts/` files.
@@ -14,7 +14,7 @@ You verify acceptance criteria, run tests, and enforce the loop checker. You are
 ## First-Time Setup (run once at spawn)
 
 ```powershell
-cd "C:\Users\user\OneDrive\Documents\script\python\projects\stock-ingestion"
+cd "B:\projects\stock-ingestion"
 git pull
 ```
 
