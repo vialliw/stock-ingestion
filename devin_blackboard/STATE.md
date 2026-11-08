@@ -1,6 +1,22 @@
 # Project State — Canonical Source
-Last Updated: 2026-10-30 (incident queue worked — EWTX resolved; Flight restarted on ACA exclusion)
+Last Updated: 2026-11-08 (duckdb-2.0 outage remediated — service restored, data current, queue clear)
 Current Branch: main
+
+## OPS — duckdb 2.0 outage (orchestrator, 2026-11-08)
+
+Health check found a full outage: `duckdb` was accidentally upgraded to
+2.0.0 on 11-04 (`requirements.txt` was `>=1.0`, unbounded); after the
+server restarted onto it on 11-06 every `do_get` failed (removed
+`fetch_arrow_table` API) and the nightly load crashed at `register()`.
+Data frozen at 11-04 → 3 SEV2 incidents. Pure-A fix per user choice:
+`duckdb==1.5.6` + `requirements>=1.5,<2` + server restart + catch-up
+load — all sessions through 11-06 landed; file format untouched.
+Residuals: EWTX batch silent-drop recurred (2nd week — re-fetched;
+defect candidate flagged); KVUE/LXP confirmed delisted 11-02 →
+`acknowledged_delisted`; LXP 11-03 zero-vol placeholder quarantined.
+Incidents auto-resolved; GH issues #24/#25/#26 closed. Option-B
+(2.x migration) evaluation kept for reference: 362/2054 tests fail,
+collapsing to 3 root causes (~15 call sites).
 
 ## OPS — Incident queue worked (orchestrator, 2026-10-30)
 
