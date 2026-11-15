@@ -1,6 +1,23 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-08 (repo migrated to B:\projects\stock-ingestion — all tasks re-pointed, verified live)
+Last Updated: 2026-11-15 (incident queue cleared: 4 fetch misses remediated; EWTX silent-drop defect STILL pending fix)
 Current Branch: main
+
+## OPS — Incident queue worked (orchestrator, 2026-11-15)
+
+4 open -> 0, all batch fetch misses (upstream verified serving every
+bar, no delistings). `20261110_sev2_stale_EWTX` (SEV2, 5 checks): EWTX
+frozen 11-06 — THIRD recurrence of the silent batch-drop defect (ticker
+returns only out-of-window rows → counted "succeeded", never retried).
+`20261114_sev3_gap_{MGPI,PTLE,TCBI}`: each missing 2026-11-13 (same
+Friday session — batch-miss signature). One `on_request_load` call
+(4 tickers, 2026-11-07..11-15) upserted 17 rows; watcher auto-resolved
+all 4; resolution_notes written; GH issues #27–#30 closed. PENDING:
+silent-drop engine fix (in-window coverage check → failed+retry) still
+planned/not implemented — EWTX recurs until it lands. Also: session cwd
+still pointed at the dead OneDrive husk; a stray incident-handle SKILL.md
+copy was left there (harmless — real skills live under
+B:\projects\stock-ingestion\.devin\skills). New sessions: open
+`B:\projects\stock-ingestion`.
 
 ## OPS — repo migrated to B:\projects\stock-ingestion (orchestrator, 2026-11-08)
 
