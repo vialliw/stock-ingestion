@@ -4972,7 +4972,7 @@
     "title": "Strengthen publish gates + hygiene (Challenger advisories A1/A2/A3): summary draft leak, state-file ignore, conflicting CLI flags",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "assigned_to": "B",
     "depends_on": [
       "RRG-AUTO-T1"

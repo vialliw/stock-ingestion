@@ -16,14 +16,18 @@ Phase B — manual enrichment in a Devin session (unchanged; this script
 Phase C ``--publish``
     Enrichment gate (dated report: ``> Weekly read:`` or ``> Read:``
     AND ``**Net call:**``; weekly_summary.md must contain the resolved
-    date of every dated report being shipped), preflight
+    date of every dated report being shipped AND carry no draft
+    placeholders — no ``TODO`` tokens, no ``<!-- missing`` markers),
+    preflight
     ``git ls-remote``, clone into ``.tmp/rrg-dash``, mirror-sync
     ``docs/rrg/*.md`` -> ``report/`` (json never synced), commit as
     ``devin-ai-integration[bot]``, push only on diff, cleanup, EVENTS.log
     entry, toast via ``scripts/notify_done.ps1`` only when published.
 
 Usage:
-    python scripts/rrg_weekly_pipeline.py --all        (default)
+    python scripts/rrg_weekly_pipeline.py --all        (default; cannot
+                                                       combine with
+                                                       --generate/--publish)
     python scripts/rrg_weekly_pipeline.py --generate
     python scripts/rrg_weekly_pipeline.py --publish
     python scripts/rrg_weekly_pipeline.py --dry-run    (plan only; never
@@ -70,6 +74,10 @@ DATED_REPORT_RE = re.compile(r"_(\d{4}-\d{2}-\d{2})_analysis_report\.md$")
 PROMPT_RE = re.compile(r"_analysis_prompt\.json$")
 WEEKLY_READ_RE = re.compile(r"^>\s*(?:Weekly read|Read):", re.MULTILINE)
 NETCALL_RE = re.compile(r"\*\*Net call:\*\*")
+# Draft placeholders emitted by summarize_rrg.py: the 'TODO(agent):' arc
+# line, 'TODO:' row placeholders, and '<!-- missing <field> -->' markers.
+TODO_RE = re.compile(r"\bTODO\b")
+MISSING_MARKER_RE = re.compile(r"<!--\s*missing")
 
 
 # ------------------------------------------------------------------
@@ -142,6 +150,26 @@ def summary_missing_dates(summary_path: Path, dates: list[str]) -> list[str]:
     return [d for d in dates if d not in text]
 
 
+def summary_draft_markers(summary_path: Path) -> list[str]:
+    """Draft placeholders found in the summary (empty list = polished).
+
+    A freshly drafted weekly_summary.md (raw summarize_rrg.py output
+    before the manual enrich pass) carries 'TODO(agent):' on the arc
+    line, 'TODO:' row placeholders, and/or '<!-- missing ... -->'
+    markers.  Any of them means the file must never be published.
+    """
+    try:
+        text = summary_path.read_text(encoding="utf-8")
+    except OSError:
+        return []  # unreadable is handled by the missing-dates gate
+    found = []
+    if TODO_RE.search(text):
+        found.append("TODO")
+    if MISSING_MARKER_RE.search(text):
+        found.append("<!-- missing")
+    return found
+
+
 def plan_publish(src_dir: Path,
                  resolved_date: Optional[str] = None) -> dict:
     """Classify every ``src_dir/*.md`` against the enrichment gate.
@@ -150,8 +178,10 @@ def plan_publish(src_dir: Path,
     ``.json`` files are never considered (only ``*.md`` is globbed).
 
     - dated report -> needs ``> Weekly read:``/``> Read:`` + ``**Net call:**``
-    - weekly_summary.md -> needs every dated report's resolved date (and
-      the pipeline's ``resolved_date`` when provided) in its text
+    - weekly_summary.md -> needs every shipped dated report's resolved
+      date (and the pipeline's ``resolved_date`` when provided) in its
+      text AND must contain no draft placeholders (``TODO`` tokens,
+      ``<!-- missing`` markers) — a drafted summary never ships
     - other .md (e.g. the flagship report) -> same marker gate as dated
     """
     publish: list[str] = []
@@ -180,10 +210,17 @@ def plan_publish(src_dir: Path,
         if resolved_date and resolved_date not in required:
             required.append(resolved_date)
         missing = summary_missing_dates(summary_path, required)
+        markers = summary_draft_markers(summary_path)
+        reasons = []
         if missing:
+            reasons.append("summary missing resolved date(s): "
+                           + ", ".join(missing))
+        if markers:
+            reasons.append("summary contains draft placeholder(s): "
+                           + ", ".join(markers))
+        if reasons:
             skip.append({"name": summary_name,
-                         "reason": "summary missing resolved date(s): "
-                                   + ", ".join(missing)})
+                         "reason": "; ".join(reasons)})
         else:
             publish.append(summary_name)
     return {"publish": sorted(publish), "skip": skip}
@@ -482,6 +519,11 @@ def main(argv: Optional[list] = None) -> int:
                     help="print intended actions only; never writes, "
                          "clones, or pushes")
     args = ap.parse_args(argv)
+
+    # --all already means "generate then publish"; combining it with a
+    # single-phase flag is contradictory -> explicit error (exit 2).
+    if args.all and (args.generate or args.publish):
+        ap.error("--all cannot be combined with --generate/--publish")
 
     # --all (or no phase flag) runs both; a single phase flag is exclusive.
     explicit = args.generate or args.publish

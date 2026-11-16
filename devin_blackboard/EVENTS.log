@@ -6057,3 +6057,70 @@ RRG-AUTO-T2 evidence (all re-run by D):
 Verdict: RRG-AUTO-T1 PASS, RRG-AUTO-T2 PASS. No blockers. Tasks already status=done by B; D does not mark. Next: orchestrator deploy/done confirmation; RRG-AUTO-T3 (todo) carries A1-A3 fixes.
 
 [2026-11-16T11:53:15.290566+00:00] [EXECUTOR] claimed RRG-AUTO-T3
+[2026-11-16T12:07:57.915111+00:00] [EXECUTOR] completed RRG-AUTO-T3 -> A1/A2/A3 implemented + VERIFY ALL PASS. A1: summary_draft_markers() added — weekly_summary.md publishable only if it names every shipped report's resolved date AND has no \bTODO\b tokens (TODO(agent): arc line, TODO: rows) and no <!--\s*missing markers; drafted summary skipped with 'draft placeholder(s)' reason; e2e test proves draft summary never copied to remote clone report/ while enriched report ships. A2: docs/rrg/.rrg_pipeline_state.json added to .gitignore. A3: --all combined with --generate/--publish rejected via argparse error exit 2; no phase flag still defaults to both; --generate --publish (no --all) runs both. Evidence: focused 54/54 (0.47s); full suite 2108/2108 (252.38s); check_loops exit 0 (17 files); --publish --dry-run exit 0 (29 publishable incl. real enriched summary, 0 skipped); --all --generate exits 2. Files: scripts/rrg_weekly_pipeline.py, tests/test_rrg_weekly_pipeline.py (+17 tests), .gitignore. STATE.md updated.
+Evidence map:
+[
+  {
+    "id": "RA3-AC1",
+    "check": "focused tests",
+    "command": "python -m pytest tests/test_rrg_weekly_pipeline.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "......................................................                   [100%]\n54 passed in 0.47s\n"
+  },
+  {
+    "id": "RA3-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n2108 passed, 523 warnings in 264.45s (0:04:24)\n"
+  },
+  {
+    "id": "RA3-AC3",
+    "check": "loop checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "RA3-AC4",
+    "check": "publish dry-run",
+    "command": "python scripts/rrg_weekly_pipeline.py --publish --dry-run",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "20261113.md\n[dry-run] would ship report/weekly_summary.md\n[dry-run] would preflight: git ls-remote https://github.com/vialliw/Relative-Rotation-Analysis-Dashboard\n[dry-run] would wipe+clone https://github.com/vialliw/Relative-Rotation-Analysis-Dashboard -> B:\\projects\\stock-ingestion\\.tmp\\rrg-dash\n[dry-run] would mirror-sync docs/rrg/*.md -> report/ (.json never synced; remote-only .md deleted), commit as devin-ai-integration[bot], push only on diff\n[dry-run] no clone, no push, no files changed\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

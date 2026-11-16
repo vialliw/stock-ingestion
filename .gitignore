@@ -16,3 +16,6 @@ incidents/
 
 # Scratch space — temp clones (rrg_weekly_pipeline publishes via .tmp/rrg-dash)
 .tmp/
+
+# RRG pipeline runtime state (machine-local, rewritten each --generate run)
+docs/rrg/.rrg_pipeline_state.json

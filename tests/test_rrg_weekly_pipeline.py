@@ -8,6 +8,7 @@ never reaches the subprocess/clone layer.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -133,6 +134,44 @@ class TestReportGate:
         assert not rp.report_is_enriched(tmp_path / "nope.md")
 
 
+# Draft placeholders exactly as summarize_rrg.py emits them (unenriched
+# draft): 'TODO(agent):' arc line, 'TODO:' row placeholder, and
+# '<!-- missing ... -->' markers on partially-enriched rows.
+DRAFT_SUMMARY_ARC = (
+    "# RRG Weekly Summary Table — ETF Dashboard vs SPY\n\n"
+    "2 weekly reports, 2026-11-06 \u2192 2026-11-13 (12-week lookback each).\n"
+    "TODO(agent): add the cross-week arc recap here \u2014 regime phases + "
+    "inflection dates.\n\n"
+    "| Date | Weekly summary |\n"
+    "|------|----------------|\n"
+    "| 2026-11-06 | metals lead. Net call: overweight metals. |\n"
+    "| 2026-11-13 | energy rotates. Net call: hold. |\n"
+)
+DRAFT_SUMMARY_TODO_ROW = (
+    "# RRG Weekly Summary Table\n\n"
+    "| Date | Weekly summary |\n"
+    "|------|----------------|\n"
+    "| 2026-11-06 | metals lead. Net call: overweight metals. |\n"
+    "| 2026-11-13 | TODO: no Weekly read / Net call found \u2014 "
+    "read the full report. |\n"
+)
+DRAFT_SUMMARY_MISSING = (
+    "# RRG Weekly Summary Table\n\n"
+    "| Date | Weekly summary |\n"
+    "|------|----------------|\n"
+    "| 2026-11-06 | metals lead. |\n"
+    "| 2026-11-13 | energy rotates. <!-- missing net_call --> |\n"
+)
+POLISHED_SUMMARY = (
+    "# RRG Weekly Summary Table\n\n"
+    "Arc: leadership rotated from metals into energy across two weeks.\n\n"
+    "| Date | Weekly summary |\n"
+    "|------|----------------|\n"
+    "| 2026-11-06 | Metals led while energy lagged. Net call: overweight. |\n"
+    "| 2026-11-13 | Energy improved into leading. Net call: hold. |\n"
+)
+
+
 class TestSummaryGate:
     def test_missing_dates_listed(self, tmp_path):
         s = tmp_path / "weekly_summary.md"
@@ -143,6 +182,30 @@ class TestSummaryGate:
     def test_absent_summary_lists_all(self, tmp_path):
         assert rp.summary_missing_dates(
             tmp_path / "weekly_summary.md", ["2026-11-13"]) == ["2026-11-13"]
+
+    def test_draft_markers_todo_arc(self, tmp_path):
+        s = tmp_path / "weekly_summary.md"
+        s.write_text(DRAFT_SUMMARY_ARC, encoding="utf-8")
+        assert "TODO" in rp.summary_draft_markers(s)
+
+    def test_draft_markers_todo_row(self, tmp_path):
+        s = tmp_path / "weekly_summary.md"
+        s.write_text(DRAFT_SUMMARY_TODO_ROW, encoding="utf-8")
+        assert "TODO" in rp.summary_draft_markers(s)
+
+    def test_draft_markers_missing_marker(self, tmp_path):
+        s = tmp_path / "weekly_summary.md"
+        s.write_text(DRAFT_SUMMARY_MISSING, encoding="utf-8")
+        assert "<!-- missing" in rp.summary_draft_markers(s)
+
+    def test_polished_summary_has_no_markers(self, tmp_path):
+        s = tmp_path / "weekly_summary.md"
+        s.write_text(POLISHED_SUMMARY, encoding="utf-8")
+        assert rp.summary_draft_markers(s) == []
+
+    def test_unreadable_summary_reports_no_markers(self, tmp_path):
+        # Unreadable is a missing-dates problem, not a marker problem.
+        assert rp.summary_draft_markers(tmp_path / "nope.md") == []
 
 
 class TestPlanPublish:
@@ -203,6 +266,47 @@ class TestPlanPublish:
         assert "weekly_summary.md" not in plan["publish"]
         assert all(i["name"] != "weekly_summary.md" for i in plan["skip"])
 
+    @pytest.mark.parametrize("draft_text", [
+        DRAFT_SUMMARY_ARC,        # 'TODO(agent):' arc placeholder
+        DRAFT_SUMMARY_TODO_ROW,   # 'TODO:' row placeholder
+        DRAFT_SUMMARY_MISSING,    # '<!-- missing ... -->' marker
+    ])
+    def test_drafted_summary_never_publishable(
+            self, tmp_path, draft_text):
+        """A summary still carrying draft placeholders is skipped even
+        though it names every shipped report's date."""
+        _dated(tmp_path, "2026-11-06", ENRICHED)
+        _dated(tmp_path, "2026-11-13", ENRICHED)
+        (tmp_path / "weekly_summary.md").write_text(
+            draft_text, encoding="utf-8")
+        plan = rp.plan_publish(tmp_path, resolved_date="2026-11-13")
+        assert "weekly_summary.md" not in plan["publish"]
+        skipped = {i["name"]: i["reason"] for i in plan["skip"]}
+        assert "weekly_summary.md" in skipped
+        assert "draft placeholder" in skipped["weekly_summary.md"]
+
+    def test_polished_summary_still_ships(self, tmp_path):
+        """The strengthened gate must not block a genuinely enriched
+        summary that covers every shipped date."""
+        _dated(tmp_path, "2026-11-06", ENRICHED)
+        _dated(tmp_path, "2026-11-13", ENRICHED)
+        (tmp_path / "weekly_summary.md").write_text(
+            POLISHED_SUMMARY, encoding="utf-8")
+        plan = rp.plan_publish(tmp_path, resolved_date="2026-11-13")
+        assert "weekly_summary.md" in plan["publish"]
+
+    def test_draft_marker_and_missing_date_reasons_combine(
+            self, tmp_path):
+        """A draft missing a shipped date reports BOTH reasons."""
+        _dated(tmp_path, "2026-11-06", ENRICHED)
+        _dated(tmp_path, "2026-11-20", ENRICHED)
+        (tmp_path / "weekly_summary.md").write_text(
+            DRAFT_SUMMARY_ARC, encoding="utf-8")  # lacks 2026-11-20 row
+        plan = rp.plan_publish(tmp_path)
+        skipped = {i["name"]: i["reason"] for i in plan["skip"]}
+        reason = skipped["weekly_summary.md"]
+        assert "2026-11-20" in reason and "draft placeholder" in reason
+
 
 # ------------------------------------------------------------------
 # Dry-run — plan only, never subprocesses/clones/pushes
@@ -262,6 +366,34 @@ class TestDryRun:
         assert rp.main(["--publish", "--dry-run"]) == 0
         assert "dry-run" in capsys.readouterr().out
 
+    def test_main_no_phase_flag_defaults_to_all(self, capsys):
+        """No phase flag == --all (both phases run, here as dry-run)."""
+        assert rp.main(["--dry-run"]) == 0
+        out = capsys.readouterr().out
+        assert "generate_rrg_dashboard" in out and "ls-remote" in out
+
+
+class TestCliFlagConflicts:
+    """--all is mutually exclusive with the single-phase flags."""
+
+    @pytest.mark.parametrize("argv", [
+        ["--all", "--generate"],
+        ["--all", "--publish"],
+        ["--all", "--generate", "--publish"],
+        ["--all", "--generate", "--dry-run"],
+    ])
+    def test_all_with_phase_flag_exits_two(self, argv, capsys):
+        with pytest.raises(SystemExit) as exc:
+            rp.main(argv)
+        assert exc.value.code == 2
+        assert "--all cannot be combined" in capsys.readouterr().err
+
+    def test_generate_and_publish_together_allowed(self, capsys):
+        """--generate --publish (no --all) is explicit 'both' -> runs."""
+        assert rp.main(["--generate", "--publish", "--dry-run"]) == 0
+        out = capsys.readouterr().out
+        assert "generate_rrg_dashboard" in out and "ls-remote" in out
+
 
 # ------------------------------------------------------------------
 # Publish no-op paths (no network needed)
@@ -285,3 +417,55 @@ class TestPublishGating:
         monkeypatch.setattr(rp.subprocess, "run", _boom)
         assert rp.publish(dry_run=False) == 0
         assert not (tmp_path / "clone").exists()
+
+    def test_drafted_summary_never_reaches_remote_set(
+            self, tmp_path, monkeypatch):
+        """End-to-end: a drafted (placeholder-carrying) summary is never
+        copied into the remote clone's report/ even when dated reports
+        pass the gate and the push path executes."""
+        src = tmp_path / "src"
+        src.mkdir()
+        report_name = ("Relative_Rotation_Dashboard_ETFs_"
+                       "2026-11-13_analysis_report.md")
+        (src / report_name).write_text(ENRICHED, encoding="utf-8")
+        (src / "weekly_summary.md").write_text(
+            DRAFT_SUMMARY_ARC, encoding="utf-8")
+        monkeypatch.setattr(rp, "DOCS_RRG", src)
+        monkeypatch.setattr(rp, "SUMMARY_FILE", src / "weekly_summary.md")
+        monkeypatch.setattr(rp, "STATE_FILE",
+                            src / ".rrg_pipeline_state.json")
+        monkeypatch.setattr(rp, "EVENTS_LOG", tmp_path / "EVENTS.log")
+        monkeypatch.setattr(rp, "CLONE_DIR", tmp_path / "clone")
+        monkeypatch.setattr(rp, "toast", lambda *a, **k: None)
+
+        copied = []
+        real_copy = rp.shutil.copyfile
+
+        def _rec(src_f, dst):
+            copied.append(Path(dst).name)
+            return real_copy(src_f, dst)
+
+        monkeypatch.setattr(rp.shutil, "copyfile", _rec)
+
+        def _fake_run(cmd, cwd=None, timeout=300):
+            if cmd[:2] == ["git", "clone"]:
+                Path(cmd[-1]).mkdir(parents=True, exist_ok=True)
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="", stderr="")
+
+        def _fake_git(clone, *a, timeout=300):
+            out = ""
+            if a[:2] == ("status", "--porcelain"):
+                out = " M report"  # force a diff so commit/push run
+            elif a[:1] == ("rev-parse",):
+                out = "abc1234"
+            return subprocess.CompletedProcess(
+                ["git", *a], 0, stdout=out, stderr="")
+
+        monkeypatch.setattr(rp, "_run", _fake_run)  # ls-remote + clone succeed
+        monkeypatch.setattr(rp, "_git", _fake_git)
+
+        assert rp.publish(dry_run=False) == 0
+        # The enriched report shipped; the draft summary did not.
+        assert report_name in copied
+        assert "weekly_summary.md" not in copied

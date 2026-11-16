@@ -1,6 +1,33 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-16 (RRG-AUTO-T1 + RRG-AUTO-T2: CRITIC-D PASS — all ACs independently re-verified; awaiting orchestrator done/deploy confirmation; RRG-AUTO-T3 todo for A1-A3; EWTX silent-drop pending)
+Last Updated: 2026-11-16 (RRG-AUTO-T3 in progress — A1/A2/A3 fixes implemented by executor B, verification running)
 Current Branch: main
+
+## RRG-AUTO-T3 — in progress (executor B, 2026-11-16)
+
+Challenger advisories A1-A3 implemented in output_files only:
+
+- **A1 (summary gate strengthened):** new `summary_draft_markers()` in
+  `scripts/rrg_weekly_pipeline.py` — weekly_summary.md now publishable
+  only if it names every shipped report's resolved date AND contains no
+  `TODO` tokens (`\bTODO\b` — covers the 'TODO(agent):' arc line and
+  'TODO:' row placeholders) and no `<!--\s*missing` markers (the
+  summarize_rrg.py draft's incomplete-enrichment markers). A drafted
+  summary is skipped with reason "summary contains draft placeholder(s):
+  ...". New end-to-end test proves a draft summary is never copied into
+  the remote clone's report/ while an enriched report ships.
+- **A2:** `docs/rrg/.rrg_pipeline_state.json` added to .gitignore
+  (runtime machine-local state).
+- **A3:** `main()` rejects `--all` combined with `--generate`/`--publish`
+  via argparse error (exit 2, usage on stderr); `--all` remains default
+  when no phase flag given; `--generate --publish` (no --all) still runs
+  both as an explicit "both" request.
+
+Tests: 17 new -> 54 total in test_rrg_weekly_pipeline.py (draft-marker
+unit tests, plan-level draft-summary gating incl. polished-summary
+pass-through + combined reasons, CLI conflict SystemExit(2) matrix,
+remote-set copy-capture test). Focused 54/54 pass; loops check exit 0;
+`--publish --dry-run` exit 0 (29 publishable incl. real enriched
+summary, 0 skipped); `--all --generate` exits 2 as required.
 
 ## RRG-AUTO-T1 + RRG-AUTO-T2 — Critic D final verification: PASS (2026-11-16)
 
