@@ -5862,3 +5862,88 @@ Verdict: **PASS**. Next: orchestrator deploy gate.
 [2026-11-16T12:20:00] [ORCHESTRATOR] PLAN — RRG weekly automation design approved by user (semi-auto enrichment, Fri 22:15, implement via agents). Design doc: docs/enhancements/rrg_weekly_automation_design.md. Filed RRG-AUTO-T1 (pipeline script+tests+bat+gitignore) + RRG-AUTO-T2 (register scheduled task Fri 22:15 + Sat/Sun 09:00 StartWhenAvailable). Task count 122->124.
 
 [2026-11-16T11:18:09.132443+00:00] [EXECUTOR] claimed RRG-AUTO-T1
+[2026-11-16T11:33:36.339641+00:00] [EXECUTOR] completed RRG-AUTO-T1 -> Implemented scripts/rrg_weekly_pipeline.py (Phase A --generate: last-Friday as_of -> generate_rrg_dashboard(ETFs,json_only,docs/rrg); analyze_rrg draft only when report absent; summarize_rrg only when weekly_summary.md absent; docs/rrg/.rrg_pipeline_state.json. Phase C --publish: enrichment gate (> Weekly read:|> Read: + **Net call:**; summary must contain each shipped report's resolved date), preflight git ls-remote, wipe+clone .tmp/rrg-dash, mirror-sync docs/rrg/*.md -> report/ (json never synced, remote-only .md deleted, local-but-unenriched kept), commit as devin-ai-integration[bot], push only on diff, cleanup, EVENTS.log, toast only when published or on failure). Subcommands --generate/--publish/--all/--dry-run; dry-run never clones/pushes/writes. scripts/rrg_weekly_pipeline.bat wrapper; .gitignore gained .tmp/. VERIFY ALL PASS: RA1-AC1 focused 37/37 (0.37s), RA1-AC2 full suite 2091/2091 (257.95s), RA1-AC3 loop checker exit 0 (17 files), RA1-AC4/AC5 dry-runs exit 0 printing plan only. NOTE: claim commit 0ebd7ed also swept orchestrator's uncommitted docs/rrg+skills files via git add -A (poll_tasks behavior).
+Evidence map:
+[
+  {
+    "id": "RA1-AC1",
+    "check": "focused tests",
+    "command": "python -m pytest tests/test_rrg_weekly_pipeline.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ".....................................                                    [100%]\n37 passed in 0.31s\n"
+  },
+  {
+    "id": "RA1-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n2091 passed, 523 warnings in 236.83s (0:03:56)\n"
+  },
+  {
+    "id": "RA1-AC3",
+    "check": "loop checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "RA1-AC4",
+    "check": "generate dry-run prints plan",
+    "command": "python scripts/rrg_weekly_pipeline.py --generate --dry-run",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "run] as_of (last Friday) = 2026-11-13\n[dry-run] would call generate_rrg_dashboard(config, 'ETFs', as_of=2026-11-13, json_only=True, output_dir='docs/rrg') -> Relative_Rotation_Dashboard_ETFs_2026-11-13_analysis_prompt.json\n[dry-run] report Relative_Rotation_Dashboard_ETFs_2026-11-13_analysis_report.md: exists (enriched \u2014 leave untouched)\n[dry-run] weekly_summary.md: exists \u2014 leave untouched\n[dry-run] would write state file .rrg_pipeline_state.json\n[dry-run] no files written, no subprocesses run\n"
+  },
+  {
+    "id": "RA1-AC5",
+    "check": "publish dry-run prints plan",
+    "command": "python scripts/rrg_weekly_pipeline.py --publish --dry-run",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "20261113.md\n[dry-run] would ship report/weekly_summary.md\n[dry-run] would preflight: git ls-remote https://github.com/vialliw/Relative-Rotation-Analysis-Dashboard\n[dry-run] would wipe+clone https://github.com/vialliw/Relative-Rotation-Analysis-Dashboard -> B:\\projects\\stock-ingestion\\.tmp\\rrg-dash\n[dry-run] would mirror-sync docs/rrg/*.md -> report/ (.json never synced; remote-only .md deleted), commit as devin-ai-integration[bot], push only on diff\n[dry-run] no clone, no push, no files changed\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

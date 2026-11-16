@@ -4866,7 +4866,7 @@
     "title": "rrg_weekly_pipeline.py — deterministic generate+publish pipeline for weekly RRG reports (design: docs/enhancements/rrg_weekly_automation_design.md)",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "assigned_to": "B",
     "depends_on": [],
     "input_files": [
