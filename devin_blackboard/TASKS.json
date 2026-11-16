@@ -4966,5 +4966,64 @@
         "text": "Documented in script header (mirroring register_daily_task.ps1 conventions) that re-registration preserves these triggers; register_daily_task.ps1's /sc DAILY caveat must NOT be replicated"
       }
     ]
+  },
+  {
+    "id": "RRG-AUTO-T3",
+    "title": "Strengthen publish gates + hygiene (Challenger advisories A1/A2/A3): summary draft leak, state-file ignore, conflicting CLI flags",
+    "role": "executor",
+    "model": "swe",
+    "status": "in_progress",
+    "assigned_to": "B",
+    "depends_on": [
+      "RRG-AUTO-T1"
+    ],
+    "input_files": [
+      "/docs/enhancements/rrg_weekly_automation_design.md",
+      "/scripts/rrg_weekly_pipeline.py",
+      "/tests/test_rrg_weekly_pipeline.py",
+      "/.devin/skills/summarize_rrg/summarize_rrg.py",
+      "/.gitignore",
+      "/devin_blackboard/STATE.md"
+    ],
+    "output_files": [
+      "/scripts/rrg_weekly_pipeline.py",
+      "/tests/test_rrg_weekly_pipeline.py",
+      "/.gitignore"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "RA3-AC1",
+        "check": "focused tests",
+        "command": "python -m pytest tests/test_rrg_weekly_pipeline.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "RA3-AC2",
+        "check": "full suite green",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "RA3-AC3",
+        "check": "loop checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "RA3-AC4",
+        "check": "publish dry-run",
+        "command": "python scripts/rrg_weekly_pipeline.py --publish --dry-run",
+        "expected_exit": 0
+      },
+      {
+        "text": "A1 (MEDIUM): summary gate rejects drafts — weekly_summary.md is publishable only if it contains NO 'TODO' tokens (draft emits 'TODO(agent):' arc placeholder + 'TODO:' row placeholders) AND no '<!-- missing' markers AND contains each shipped report's date. Test proves a drafted summary (containing TODO markers) never reaches the remote set"
+      },
+      {
+        "text": "A2 (LOW): docs/rrg/.rrg_pipeline_state.json added to .gitignore (runtime state, machine-local)"
+      },
+      {
+        "text": "A3 (LOW): CLI rejects combining --all with --generate/--publish (mutually exclusive or explicit error); --all remains the default when no phase flag given"
+      }
+    ]
   }
 ]

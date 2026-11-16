@@ -6055,3 +6055,5 @@ RRG-AUTO-T2 evidence (all re-run by D):
 - Header-doc AC: ps1 .DESCRIPTION documents multi-trigger Register-ScheduledTask (NOT schtasks /sc DAILY), idempotent re-registration preserving all 3 triggers, explicitly cites and avoids the register_daily_task.ps1 /sc DAILY caveat (lines 30-38, 119).
 
 Verdict: RRG-AUTO-T1 PASS, RRG-AUTO-T2 PASS. No blockers. Tasks already status=done by B; D does not mark. Next: orchestrator deploy/done confirmation; RRG-AUTO-T3 (todo) carries A1-A3 fixes.
+
+[2026-11-16T11:53:15.290566+00:00] [EXECUTOR] claimed RRG-AUTO-T3
