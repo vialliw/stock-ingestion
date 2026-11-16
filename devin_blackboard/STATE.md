@@ -1,6 +1,64 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-16 (RRG-AUTO-T3 in progress — A1/A2/A3 fixes implemented by executor B, verification running)
+Last Updated: 2026-11-16 (RRG-AUTO-T3 — Challenger C review APPROVED, awaiting Critic D)
 Current Branch: main
+
+## RRG-AUTO-T3 — Challenger C review: APPROVED (2026-11-16)
+
+**CHALLENGER-C verdict: APPROVED** (HEAD 6df11cc; impl ee32793..6df11cc).
+Trusted nothing — re-ran every AC + 5 adversarial probes on the
+strengthened summary gate + CLI conflict matrix + end-to-end copy
+interception.
+
+A1 (summary draft gate) — AIRTIGHT for the leak path T3 targets:
+- TODO_RE = `\bTODO\b` catches both draft forms emitted by
+  summarize_rrg.py build_table(): "TODO(agent):" arc line (line 63) and
+  "TODO:" row placeholder (line 74). Word boundary `O`/`(` and `O`/`:`
+  both match. MISSING_MARKER_RE = `<!--\s*missing` catches the
+  "<!-- missing <field> -->" marker (line 77), tolerant of extra
+  whitespace (PROBE: `<!--  missing  net_call -->` -> SKIPPED).
+- No false positive on enriched content: docs/rrg/weekly_summary.md
+  (current polished 36-line file) has ZERO TODO/missing markers (grep
+  exit 1). `\bTODO\b` does NOT match substrings "TODAY"/"TODOS"
+  (PROBE -> PUBLISHED, correct).
+- End-to-end test test_drafted_summary_never_reaches_remote_set
+  monkeypatches shutil.copyfile + _run + _git, forces a diff via
+  porcelain, runs publish(dry_run=False) to completion, asserts
+  report_name in copied AND "weekly_summary.md" not in copied.
+  Interception claim VERIFIED — draft summary never reaches the
+  remote clone's report/.
+- 17 new tests counted (5 + 5 + 1 + 5 + 1); focused 54/54 pass.
+
+A2 (state file gitignored) — VERIFIED: .gitignore:21 has
+`docs/rrg/.rrg_pipeline_state.json`; `git check-ignore -v` exit 0.
+
+A3 (CLI conflict matrix) — VERIFIED (all re-run, exit codes checked):
+- `--all --generate` -> exit 2 + "cannot be combined" on stderr
+- `--all --publish` -> exit 2
+- `--all --generate --publish` -> exit 2
+- `--generate --publish` (no --all) -> exit 0, both phases run
+- bare `--dry-run` -> exit 0, defaults to --all (both phases in plan)
+
+Regression: `--publish --dry-run` -> 29 publishable / 0 skipped, real
+enriched weekly_summary.md still ships. Loops exit 0 (no src/ changes
+in delta anyway). Scope: delta = .gitignore + scripts/rrg_weekly_pipeline.py
++ tests/test_rrg_weekly_pipeline.py + blackboard; no src/ edits.
+
+NON-BLOCKING observations (for the record, not re-open of A1):
+- A1-N1 (LOW): `\bTODO\b` is case-sensitive. summarize_rrg.py today
+  emits uppercase "TODO" only, so no false negative. PROBE: lowercase
+  "todo: enrich me" -> PUBLISHED (slips through). Brittleness — if a
+  future edit to summarize_rrg.py emits lowercase, the gate breaks.
+  Recommend re.IGNORECASE or a contract note in summarize_rrg.py.
+- A1-N2 (LOW): A header-only summary (no rows, date string in title,
+  no markers) passes both gates (PROBE -> PUBLISHED). Not a realistic
+  leak (summarize_rrg.py always emits rows; would require manual row
+  deletion). Pre-existing design limitation — missing-dates gate
+  checks for date STRINGS, not row presence. Not introduced by T3.
+- A1-N3 (INFO): Conservative false positive — an analyst writing "TODO"
+  in enriched prose (e.g. "TODO: rotate next week") would be blocked.
+  Acceptable per design intent (TODO in published prose is bad style).
+
+Next: Critic D final acceptance verification.
 
 ## RRG-AUTO-T3 — in progress (executor B, 2026-11-16)
 
