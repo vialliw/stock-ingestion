@@ -5989,3 +5989,69 @@ Evidence map:
   }
 ]
 [2026-11-16T11:38:49.536162+00:00] [EXECUTOR] RRG-AUTO-T1 + RRG-AUTO-T2 both DONE. T1: scripts/rrg_weekly_pipeline.py (+bat, tests 37/37, .gitignore .tmp/) — generate+publish phases, enrichment gate, mirror-sync publish, dry-run pure. VERIFY ALL PASS (focused 37/37, full 2091/2091, loops exit 0, both dry-runs exit 0). T2: scripts/register_rrg_weekly.ps1 registered StockIngestion-RRGWeekly — verified Get-ScheduledTask: Fri 22:15 / Sat+Sun 09:00 weekly, StartWhenAvailable, user/Interactive/Limited, pythonw.exe + --all, WD=repo root. VERIFY ALL PASS (PSParser + loops). STATE.md updated. Next: Challenger C -> Critic D.
+
+[2026-11-16T13:05:00+00:00] [CHALLENGER] RRG-AUTO-T1 + RRG-AUTO-T2 review — APPROVED (no blocking issues; 5 non-blocking advisories, A1 most material). HEAD 4789049 (impl e4cd72b + 2327d34). Trusted nothing — re-ran every AC and probed gate/mirror/state directly in tmp_path.
+
+VERDICT: APPROVED.
+
+Independent re-verification (all gates green):
+- RA1-AC1 focused: 37/37 passed in 0.53s, exit 0.
+- RA1-AC2 full suite: 2091 passed (B's claim reproduced).
+- RA1-AC3 loop checker: "No unjustified loops found. (17 files checked)" exit 0.
+- RA1-AC4 --generate --dry-run: exit 0, prints plan only (as_of=2026-11-13, generate_rrg_dashboard, weekly_summary.md, .rrg_pipeline_state.json).
+- RA1-AC5 --publish --dry-run: exit 0, prints 29 publishable + 0 skipped, ls-remote + clone + mirror-sync plan only.
+- RA2-AC1 PSParser: PARSE OK (re-run via powershell shell_flavor; bash-mangled invocation corrected).
+- RA2-AC2 loop checker: exit 0.
+- Live Get-ScheduledTask verified independently: Triggers DaysOfWeek={32=Fri@22:15, 64=Sat@09:00, 1=Sun@09:00} weekly machine-local; Action=C:\Intel\python\3.12\pythonw.exe "B:\projects\stock-ingestion\scripts\rrg_weekly_pipeline.py" --all; WorkingDirectory=B:\projects\stock-ingestion; Principal user/Interactive/Limited; Settings StartWhenAvailable=True, MultipleInstances=IgnoreNew, ExecutionTimeLimit=PT2H.
+
+Correctness vs design (probed, not assumed):
+1. Never overwrites existing report or weekly_summary.md — generate() lines 296-298 (report exists -> exists_enriched/exists_draft, no write) + 309-319 (summary exists -> "exists", no write). Confirmed by code read.
+2. Dated-report enrichment gate airtight — report_is_enriched requires BOTH ^>\s*(?:Weekly read|Read): (multiline) AND \*\*Net call:\*\*. plan_publish only adds passing files to publish[]. publish() copies only plan["publish"]. Unenriched draft cannot reach remote via copy path. Probe: DRAFT report -> skip; NO_NETCALL -> skip; missing file -> skip.
+3. Mirror-sync deletes only remote .md absent locally, NOT .json — publish() lines 418-422: local_names = ALL local *.md (enriched or not); deletion loop globs only report_dir/*.md. PROBE4: stale remote .md deleted=True; remote data.json preserved=True. Unenriched local file stays on remote (in local_names -> not deleted; not in plan["publish"] -> not overwritten) — matches design "a local file that failed the gate is NOT remote-only".
+4. Publish commits as devin-ai-integration[bot] — lines 436-437: git -c user.name=devin-ai-integration[bot] -c user.email=158243242+devin-ai-integration[bot]@users.noreply.github.com commit. Push uses user's default credentials (intended).
+5. --dry-run zero side-effect calls — generate() dry path returns before any import/subprocess/write (lines 262-278); publish() dry path returns before ls-remote/clone/copy (lines 367-376). Test test_publish_dry_run_never_runs_subprocess monkeypatches subprocess.run to boom -> passes. Confirmed.
+6. Holiday-shortened weeks — resolved_date_from_prompt reads market_snapshot.analysis_date (actual bar date, e.g. Thursday); report_path derived from ACTUAL returned json_path.name (line 291), not precomputed as_of name. Filename date = bar date. Summary gate requires both filename date(s) of shipped reports AND resolved_date (lines 179-181).
+7. Failed Friday load = idempotent no-op — generate_rrg_dashboard snaps to last valid bar <= as_of; same JSON -> same report -> exists -> left untouched; state file updates (expected). Publish re-syncs same content -> git status --porcelain empty -> no commit (lines 425-431).
+8. .tmp/rrg-dash dirty — publish() lines 395-396: shutil.rmtree(ignore_errors=True) before clone. Fresh clone each run.
+9. git push failure — lines 444-450: logs + toast + return 1; finally block (463-464) rmtree clone. No state leak.
+10. State-file schema — design {as_of, resolved_date, prompt_json, report_md, report_enriched, summary_has_date, generated_at}; code writes superset adding report_action + summary_action. No violation (extra fields, all required fields present).
+
+AC deviation (pythonw + .py instead of pythonw + .bat): ACCEPTABLE. A .bat cannot be a pythonw.exe argument (pythonw expects a .py entry script); running the .bat via cmd would reintroduce the conhost console popup that pythonw exists to avoid. B's implementation (pythonw.exe + rrg_weekly_pipeline.py --all) achieves the AC's intent (windowless, no popup) and is technically the only correct interpretation. .bat kept as manual wrapper, documented in .bat header + ps1 header lines 101-104. Live Get-ScheduledTask confirms pythonw.exe is the registered interpreter.
+
+NON-BLOCKING ADVISORIES (numbered, severity-tagged):
+
+A1 (MEDIUM, design-level gap — recommend PM-approved strengthening): Summary enrichment gate is weaker than the dated-report gate. summary_missing_dates only checks for the resolved_date STRING in the summary text; it does NOT verify arc-line enrichment or polished prose. PROBE1: a DRAFT summary (fresh summarize_rrg.py output: "| 2026-11-13 | TODO enrichment |") with ZERO enriched reports still ships weekly_summary.md. PROBE3: a DRAFT summary alongside an enriched report ships the draft summary. This contradicts the design's stated intent "Unenriched artifacts are skipped (never shipped as drafts)" but MATCHES the design's literal summary gate ("contains the resolved date of each dated report it claims to cover"). B implemented the design faithfully — the gap is in the design's gate spec, not the code. Recommendation (needs PM): require an enrichment marker in weekly_summary.md (e.g. a "> Arc:" line, or require each shipped report's date-row to exceed N chars of prose, or require the summary to NOT contain "TODO"/placeholder tokens). Until then, an unenriched summary can reach remote. Not blocking because B followed the design exactly and the dated-report gate (the primary enrichment boundary) is airtight.
+
+A2 (LOW): docs/rrg/.rrg_pipeline_state.json is neither tracked nor gitignored. It will appear as an untracked file in git status on every generate run. Design doesn't specify. Recommend adding to .gitignore (operational state, like incidents/) OR documenting that it should be committed for the next Devin session. Non-blocking.
+
+A3 (LOW): --all --generate (both flags) silently runs both phases (args.all forces do_publish=True even when --generate is explicit). CLI doesn't reject the conflicting combination. Minor UX edge case.
+
+A4 (LOW): --generate --dry-run shows the precomputed report filename (from as_of), but a real run reassigns report_path from the actual returned json_path.name (line 291) which may differ on holiday weeks. Cosmetic dry-run/real-run mismatch in filename display. Not blocking.
+
+A5 (INFO): ps1 sets -AllowStartIfOnBatteries + -DontStopIfGoingOnBatteries (lines 135-136) but live Get-ScheduledTask output showed AllowStartIfOnBatteries blank. May be a Format-List display quirk or the setting didn't persist. Non-blocking (design doesn't require battery settings). Recommend critic/PM verify via `schtasks /query /v /tn StockIngestion-RRGWeekly` if battery behavior matters.
+
+Adversarial check — paths for unenriched draft / .json / clobbered enriched file to reach remote: NONE FOUND for dated reports and .json. The only leak path is the summary gate (A1) for weekly_summary.md specifically. Dated reports: gate is marker-based and airtight. .json: never globbed by plan_publish, never copied, never deleted (PROBE4). Clobbered enriched file (local re-draft removing markers): fails gate -> not copied; still in local_names -> not deleted from remote -> remote keeps prior enriched version (design-intended).
+
+Scope audit: e4cd72b = 7 files (rrg_weekly_pipeline.py + .bat + test_rrg_weekly_pipeline.py + .gitignore + blackboard TASKS.json + locks + EVENTS.log); 2327d34 = 4 files (register_rrg_weekly.ps1 + blackboard). No src/ or tests/ edits outside output_files. .gitignore change minimal (.tmp/ entry). No out-of-scope.
+
+Verdict: APPROVED. Next: Critic D -> orchestrator deploy gate (already registered live; D should re-verify gates + run check_loops + consider A1 recommendation for PM
+
+[2026-11-16T13:05:00] [ORCHESTRATOR] PLAN — Challenger C APPROVED RRG-AUTO-T1+T2 (no blockers, 5 advisories). PM accepted advisory A1 (MEDIUM, design-level summary-gate leak: draft weekly_summary.md could publish since gate checked only date presence) + bundled A2 (state file untracked) + A3 (conflicting CLI flags) into new task RRG-AUTO-T3 (todo). Fix spec from C's evidence: drafts carry 'TODO(agent):' arc placeholder, 'TODO:' row placeholders, '<!-- missing' markers — gate now rejects any of these tokens. A4 (cosmetic dry-run filename) + A5 (battery-flag display quirk) declined, noted. Spawning Critic D for T1+T2 acceptance verification; T3 goes to B after.
+
+[2026-11-16T11:53:00+00:00] [CRITIC] RRG-AUTO-T1 + RRG-AUTO-T2 final acceptance verification — VERDICT: PASS / PASS (HEAD 4789049; impl e4cd72b + 2327d34). Trusted nothing — re-ran every acceptance_criteria command in both tasks and spot-checked code claims directly. C advisories A1-A3 spun off to RRG-AUTO-T3; not re-flagged. AC deviation (pythonw+.py vs pythonw+.bat) accepted per C adjudication — .bat cannot be a pythonw arg; achieves AC intent (windowless).
+
+RRG-AUTO-T1 evidence (all re-run by D):
+- RA1-AC1 focused: `python -m pytest tests/test_rrg_weekly_pipeline.py -q` -> "37 passed in 0.24s" exit 0.
+- RA1-AC2 full suite: `python -m pytest tests/ -q` -> "2091 passed, 523 warnings in 210.99s" SUITE_EXIT=0 (own run; .pytest_cache nodeids=2091, lastfailed absent — corroborates earlier backgrounded run also clean).
+- RA1-AC3 loop checker: "No unjustified loops found. (17 files checked)" exit 0.
+- RA1-AC4 `rrg_weekly_pipeline.py --generate --dry-run` -> exit 0; plan only: as_of=last Friday=2026-11-13; generate_rrg_dashboard(ETFs, json_only=True, output_dir=docs/rrg); report "exists (enriched — leave untouched)"; weekly_summary.md "exists — leave untouched"; state-file write planned; "no files written, no subprocesses run".
+- RA1-AC5 `--publish --dry-run` -> exit 0; "29 publishable, 0 skipped"; ls-remote preflight + wipe+clone .tmp/rrg-dash + mirror-sync .md-only plan; "no clone, no push, no files changed".
+- Free-text ACs (code spot-check, lines cited): enrichment gate = WEEKLY_READ_RE ^>\s*(?:Weekly read|Read): MULTILINE AND NETCALL_RE \*\*Net call:\*\* (rrg_weekly_pipeline.py:71-72, gate at 152-175); only *.md globbed for publish + local_names mirror (line 418) — .json never synced/deleted; ls-remote preflight (385), rmtree .tmp/rrg-dash (396), commit identity devin-ai-integration[bot] + 158243242+...@users.noreply.github.com (62-63); .gitignore:18 gains `.tmp/`.
+
+RRG-AUTO-T2 evidence (all re-run by D):
+- RA2-AC1 PSParser: Tokenize -> "PARSE OK" exit 0 (powershell shell_flavor).
+- RA2-AC2 loop checker: exit 0 (17 files).
+- Live Get-ScheduledTask StockIngestion-RRGWeekly (D's own query): State=Ready; 3 weekly triggers — DaysOfWeek=32(Fri)@22:15, 64(Sat)@09:00, 1(Sun)@09:00 all Enabled; Action=C:\Intel\python\3.12\pythonw.exe "B:\projects\stock-ingestion\scripts\rrg_weekly_pipeline.py" --all; WorkingDirectory=B:\projects\stock-ingestion; Principal user/Interactive/Limited; StartWhenAvailable=True; MultipleInstances=IgnoreNew; ExecutionTimeLimit=PT2H.
+- Header-doc AC: ps1 .DESCRIPTION documents multi-trigger Register-ScheduledTask (NOT schtasks /sc DAILY), idempotent re-registration preserving all 3 triggers, explicitly cites and avoids the register_daily_task.ps1 /sc DAILY caveat (lines 30-38, 119).
+
+Verdict: RRG-AUTO-T1 PASS, RRG-AUTO-T2 PASS. No blockers. Tasks already status=done by B; D does not mark. Next: orchestrator deploy/done confirmation; RRG-AUTO-T3 (todo) carries A1-A3 fixes.
