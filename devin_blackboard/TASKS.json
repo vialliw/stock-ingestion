@@ -4932,7 +4932,7 @@
     "title": "Register StockIngestion-RRGWeekly scheduled task (Fri 22:15 + Sat/Sun 09:00, StartWhenAvailable) via scripts/register_rrg_weekly.ps1",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "assigned_to": "B",
     "depends_on": [
       "RRG-AUTO-T1"
