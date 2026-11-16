@@ -6158,3 +6158,22 @@ NON-BLOCKING observations (for the record, NOT a re-open of A1):
 Adversarial: NO path for a draft (TODO/missing-marker-carrying) summary to reach remote. Dated-report gate unchanged and airtight (per T1/T2 review). .json never globbed. Scope clean.
 
 Verdict: APPROVED. Next: Critic D final acceptance verification.
+
+[2026-11-16T16:45:00+00:00] [CRITIC] RRG-AUTO-T3 final acceptance verification — PASS. HEAD 55f4f21 (impl ee32793..6df11cc, C review 55f4f21). Trusted nothing — re-ran every acceptance_criteria command + independently verified all three free-text criteria. C's A1-N1/N2/N3 observations accepted by orchestrator as documented limitations — NOT re-flagged.
+
+VERDICT: PASS.
+
+Structured criteria (all re-run by D):
+- RA3-AC1 focused: python -m pytest tests/test_rrg_weekly_pipeline.py -q -> 54 passed in 0.51s, exit 0.
+- RA3-AC2 full suite: python -m pytest tests/ -q -> 2108 passed, 523 warnings, 244.99s, EXIT=0 (output captured to file; count = prior 2091 + 17 new, consistent).
+- RA3-AC3 loop checker: python scripts/check_loops.py --src-dir src -> "No unjustified loops found. (17 files checked)", exit 0.
+- RA3-AC4 publish dry-run: python scripts/rrg_weekly_pipeline.py --publish --dry-run -> exit 0, "publish gate: 29 publishable, 0 skipped" incl. weekly_summary.md; plan-only (preflight/clone/push listed as would-do, "no clone, no push, no files changed").
+
+Free-text criteria (independently verified):
+- A1 (summary draft gate): VERIFIED. scripts/rrg_weekly_pipeline.py:79-80 TODO_RE=\bTODO\b + MISSING_MARKER_RE=<!--\s*missing; summary_draft_markers() (153-170) + summary_missing_dates() (144-150) both consulted in plan_publish() (207-225) — summary skipped on missing shipped-report dates AND/OR draft placeholders. test_drafted_summary_never_reaches_remote_set (test file line 421) exists and PASSED standalone (1 passed in 0.13s): monkeypatches shutil.copyfile + _run + _git, forces diff via porcelain, asserts enriched report copied AND weekly_summary.md NOT copied.
+- A2 (state file gitignored): VERIFIED. .gitignore:21 = docs/rrg/.rrg_pipeline_state.json; git check-ignore -v exit 0.
+- A3 (CLI conflict): VERIFIED, exit codes captured directly (not via pipe): --all --generate -> exit 2 "cannot be combined"; --all --publish -> exit 2; --all --generate --publish -> exit 2; --generate --publish --dry-run -> exit 0 (both phases in plan); --all remains default via `not explicit` (main 528-531).
+
+Scope: delta = .gitignore + scripts/rrg_weekly_pipeline.py + tests/test_rrg_weekly_pipeline.py + blackboard; no src/ edits. Working tree clean post-verification (artifact suite_out.txt removed).
+
+No blockers. Reporting to orchestrator — task status already done; awaiting orchestrator cycle-close decision.

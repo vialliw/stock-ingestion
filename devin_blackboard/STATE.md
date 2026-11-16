@@ -1,6 +1,37 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-16 (RRG-AUTO-T3 — Challenger C review APPROVED, awaiting Critic D)
+Last Updated: 2026-11-16 (RRG-AUTO-T3 — Critic D final verification PASS)
 Current Branch: main
+
+## RRG-AUTO-T3 — Critic D final verification: PASS (2026-11-16)
+
+**CRITIC-D verdict: PASS** (HEAD 55f4f21; impl ee32793..6df11cc).
+Trusted nothing — re-ran every acceptance_criteria command and
+independently verified all three free-text criteria. C's A1-N1/N2/N3
+observations accepted by orchestrator as documented limitations — not
+re-flagged.
+
+- RA3-AC1 focused: 54/54 passed (0.51s, exit 0).
+- RA3-AC2 full suite: 2108/2108 passed (244.99s reported, EXIT=0;
+  captured via output file — count = prior 2091 + 17 new, consistent).
+- RA3-AC3 loops: "No unjustified loops found. (17 files)" exit 0.
+- RA3-AC4 --publish --dry-run: exit 0, 29 publishable / 0 skipped
+  incl. real enriched weekly_summary.md; plan-only.
+- A1: TODO_RE `\bTODO\b` + MISSING_MARKER_RE `<!--\s*missing` +
+  shipped-report-dates gate all enforced in plan_publish (script
+  lines 79-80, 144-170, 207-225); end-to-end test
+  test_drafted_summary_never_reaches_remote_set exists (test line
+  421) and PASSED standalone — draft summary never copied to remote
+  while enriched report ships.
+- A2: .gitignore:21 = docs/rrg/.rrg_pipeline_state.json;
+  `git check-ignore -v` exit 0.
+- A3: exit codes captured directly — `--all --generate` -> 2,
+  `--all --publish` -> 2, `--all --generate --publish` -> 2,
+  `--generate --publish --dry-run` -> 0 (both phases); --all default
+  preserved via `not explicit`.
+
+Scope clean (delta = .gitignore + script + tests + blackboard; no
+src/ edits). Working tree clean post-verification. Reported to
+orchestrator; task status already done — awaiting cycle close.
 
 ## RRG-AUTO-T3 — Challenger C review: APPROVED (2026-11-16)
 
