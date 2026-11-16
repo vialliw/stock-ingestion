@@ -5988,3 +5988,4 @@ Evidence map:
     "output": ""
   }
 ]
+[2026-11-16T11:38:49.536162+00:00] [EXECUTOR] RRG-AUTO-T1 + RRG-AUTO-T2 both DONE. T1: scripts/rrg_weekly_pipeline.py (+bat, tests 37/37, .gitignore .tmp/) — generate+publish phases, enrichment gate, mirror-sync publish, dry-run pure. VERIFY ALL PASS (focused 37/37, full 2091/2091, loops exit 0, both dry-runs exit 0). T2: scripts/register_rrg_weekly.ps1 registered StockIngestion-RRGWeekly — verified Get-ScheduledTask: Fri 22:15 / Sat+Sun 09:00 weekly, StartWhenAvailable, user/Interactive/Limited, pythonw.exe + --all, WD=repo root. VERIFY ALL PASS (PSParser + loops). STATE.md updated. Next: Challenger C -> Critic D.

@@ -1,6 +1,38 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-16 (RRG weekly automation cycle filed: RRG-AUTO-T1 pipeline + RRG-AUTO-T2 scheduled task; EWTX silent-drop pending)
+Last Updated: 2026-11-16 (RRG-AUTO-T1 + RRG-AUTO-T2 DONE by B: pipeline + registered task; awaiting C/D review; EWTX silent-drop pending)
 Current Branch: main
+
+## RRG-AUTO-T1 + RRG-AUTO-T2 — DONE (executor B, 2026-11-16)
+
+**T1 (impl+dry-run verified, commits e4cd72b + claim 0ebd7ed):**
+`scripts/rrg_weekly_pipeline.py` — Phase A `--generate`: last-Friday
+as_of → generate_rrg_dashboard(ETFs, json_only, docs/rrg); analyze_rrg
+draft only when report absent (existing file never overwritten — state
+`exists_enriched`/`exists_draft`); summarize_rrg only when
+weekly_summary.md absent; writes docs/rrg/.rrg_pipeline_state.json
+{as_of, resolved_date, prompt_json, report_md, report_enriched,
+summary_has_date, generated_at}. Phase C `--publish`: gate = `> Weekly
+read:`/`> Read:` + `**Net call:**` per .md; weekly_summary ships only
+when it names every shipped dated report + resolved_date; preflight
+`git ls-remote`; wipe+clone `.tmp/rrg-dash`; mirror docs/rrg/*.md →
+report/ (json never synced, remote-only .md deleted, local-but-
+unenriched kept); commit as devin-ai-integration[bot]; push only on
+diff; cleanup + EVENTS.log + toast only when published (or on failure).
+--all default; --dry-run prints plan, zero subprocesses. Tests:
+37/37 new in test_rrg_weekly_pipeline.py (date math, gates, filename
+resolution, dry-run purity); full suite 2091/2091; loop checker clean.
+.bat wrapper added; .gitignore gained .tmp/.
+
+**T2 (registered + verified live, commit in done event):**
+`scripts/register_rrg_weekly.ps1` — multi-trigger Register-ScheduledTask
+(NOT /sc DAILY): Fri 22:15 + Sat/Sun 09:00 weekly machine-local,
+StartWhenAvailable, IgnoreNew, 2h limit, user/Interactive/Limited,
+pythonw.exe scripts\rrg_weekly_pipeline.py --all, WD=repo root.
+Get-ScheduledTask verified: DaysOfWeek 32/64/1 @22:15/09:00/09:00.
+AC note: "pythonw running .bat" implemented as pythonw + .py — a .bat
+cannot be a pythonw argument; .bat kept as manual wrapper (documented).
+
+DEFERRED to C/D: adversarial review + critic verification.
 
 ## CYCLE — RRG weekly automation filed (orchestrator, 2026-11-16)
 
