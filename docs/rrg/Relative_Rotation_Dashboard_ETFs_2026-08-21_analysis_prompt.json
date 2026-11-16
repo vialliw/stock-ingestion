@@ -1,0 +1,1660 @@
+{
+  "system_prompt": "You are an institutional market technician specializing in relative rotation analysis, sector rotation, and momentum regimes.",
+  "analysis_query": "Analyze the RRG data to identify consistent leaders, high-velocity improvers, decaying momentum, and actionable portfolio tilts.",
+  "instructions": {
+    "focus_priority": [
+      "leadership_regime",
+      "improving_trends",
+      "weakening_momentum",
+      "velocity_analysis"
+    ],
+    "interpretation_rules": {
+      "lead_quadrant": "Strong RS and momentum - overweight",
+      "improving_quadrant": "Building momentum - tactical entry watch",
+      "weakening_quadrant": "Fading momentum - reduce exposure",
+      "lagging_quadrant": "Weak RS and momentum - avoid"
+    },
+    "response_style": "institutional technical concise actionable"
+  },
+  "market_snapshot": {
+    "analysis_date": "2026-08-21",
+    "benchmark": "SPY",
+    "lookback_weeks": 12,
+    "ticker_data": {
+      "AMLP": {
+        "current_position": {
+          "rs_ratio": 99.07,
+          "rs_momentum": 96.4,
+          "quadrant": "LAGGING",
+          "angle_deg": 165.0
+        },
+        "trajectory": {
+          "velocity_1w": 1.45,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 9,
+          "consistency_score": 0.0
+        }
+      },
+      "ARKK": {
+        "current_position": {
+          "rs_ratio": 101.32,
+          "rs_momentum": 101.23,
+          "quadrant": "LEADING",
+          "angle_deg": 13.9
+        },
+        "trajectory": {
+          "velocity_1w": 7.57,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 4,
+          "lag_weeks_3m": 1,
+          "consistency_score": 33.3
+        }
+      },
+      "AWAY": {
+        "current_position": {
+          "rs_ratio": 110.38,
+          "rs_momentum": 127.06,
+          "quadrant": "LEADING",
+          "angle_deg": 42.2
+        },
+        "trajectory": {
+          "velocity_1w": 4.39,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 7,
+          "lag_weeks_3m": 0,
+          "consistency_score": 58.3
+        }
+      },
+      "BATT": {
+        "current_position": {
+          "rs_ratio": 87.14,
+          "rs_momentum": 79.81,
+          "quadrant": "LAGGING",
+          "angle_deg": 48.8
+        },
+        "trajectory": {
+          "velocity_1w": 5.03,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "BCD": {
+        "current_position": {
+          "rs_ratio": 93.85,
+          "rs_momentum": 87.04,
+          "quadrant": "LAGGING",
+          "angle_deg": 48.4
+        },
+        "trajectory": {
+          "velocity_1w": 2.03,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 11,
+          "consistency_score": 0.0
+        }
+      },
+      "CANE": {
+        "current_position": {
+          "rs_ratio": 103.36,
+          "rs_momentum": 102.79,
+          "quadrant": "LEADING",
+          "angle_deg": -5.9
+        },
+        "trajectory": {
+          "velocity_1w": 3.76,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 1,
+          "lag_weeks_3m": 7,
+          "consistency_score": 8.3
+        }
+      },
+      "CIBR": {
+        "current_position": {
+          "rs_ratio": 124.48,
+          "rs_momentum": 133.84,
+          "quadrant": "LEADING",
+          "angle_deg": -119.0
+        },
+        "trajectory": {
+          "velocity_1w": 10.09,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 12,
+          "lag_weeks_3m": 0,
+          "consistency_score": 100.0
+        }
+      },
+      "CLOU": {
+        "current_position": {
+          "rs_ratio": 119.88,
+          "rs_momentum": 125.1,
+          "quadrant": "LEADING",
+          "angle_deg": -89.5
+        },
+        "trajectory": {
+          "velocity_1w": 7.75,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 12,
+          "lag_weeks_3m": 0,
+          "consistency_score": 100.0
+        }
+      },
+      "COMT": {
+        "current_position": {
+          "rs_ratio": 90.22,
+          "rs_momentum": 72.37,
+          "quadrant": "LAGGING",
+          "angle_deg": -3.8
+        },
+        "trajectory": {
+          "velocity_1w": 1.04,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 2,
+          "lag_weeks_3m": 10,
+          "consistency_score": 16.7
+        }
+      },
+      "COPX": {
+        "current_position": {
+          "rs_ratio": 102.9,
+          "rs_momentum": 103.68,
+          "quadrant": "LEADING",
+          "angle_deg": 60.7
+        },
+        "trajectory": {
+          "velocity_1w": 12.57,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 1,
+          "lag_weeks_3m": 11,
+          "consistency_score": 8.3
+        }
+      },
+      "CORN": {
+        "current_position": {
+          "rs_ratio": 93.56,
+          "rs_momentum": 91.2,
+          "quadrant": "LAGGING",
+          "angle_deg": 2.8
+        },
+        "trajectory": {
+          "velocity_1w": 2.94,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "CPER": {
+        "current_position": {
+          "rs_ratio": 100.8,
+          "rs_momentum": 103.57,
+          "quadrant": "LEADING",
+          "angle_deg": 101.1
+        },
+        "trajectory": {
+          "velocity_1w": 1.97,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 2,
+          "lag_weeks_3m": 8,
+          "consistency_score": 16.7
+        }
+      },
+      "DBB": {
+        "current_position": {
+          "rs_ratio": 95.71,
+          "rs_momentum": 95.85,
+          "quadrant": "LAGGING",
+          "angle_deg": 76.1
+        },
+        "trajectory": {
+          "velocity_1w": 2.12,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "DBC": {
+        "current_position": {
+          "rs_ratio": 92.52,
+          "rs_momentum": 76.88,
+          "quadrant": "LAGGING",
+          "angle_deg": -2.0
+        },
+        "trajectory": {
+          "velocity_1w": 0.83,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 2,
+          "lag_weeks_3m": 10,
+          "consistency_score": 16.7
+        }
+      },
+      "DIA": {
+        "current_position": {
+          "rs_ratio": 102.81,
+          "rs_momentum": 106.45,
+          "quadrant": "LEADING",
+          "angle_deg": 71.2
+        },
+        "trajectory": {
+          "velocity_1w": 2.01,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 4,
+          "lag_weeks_3m": 8,
+          "consistency_score": 33.3
+        }
+      },
+      "EEM": {
+        "current_position": {
+          "rs_ratio": 96.29,
+          "rs_momentum": 90.94,
+          "quadrant": "LAGGING",
+          "angle_deg": 44.2
+        },
+        "trajectory": {
+          "velocity_1w": 1.62,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 6,
+          "consistency_score": 0.0
+        }
+      },
+      "EFA": {
+        "current_position": {
+          "rs_ratio": 101.69,
+          "rs_momentum": 102.98,
+          "quadrant": "LEADING",
+          "angle_deg": 73.2
+        },
+        "trajectory": {
+          "velocity_1w": 4.17,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 1,
+          "lag_weeks_3m": 10,
+          "consistency_score": 8.3
+        }
+      },
+      "EWA": {
+        "current_position": {
+          "rs_ratio": 98.95,
+          "rs_momentum": 95.06,
+          "quadrant": "LAGGING",
+          "angle_deg": 71.7
+        },
+        "trajectory": {
+          "velocity_1w": 5.57,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "EWC": {
+        "current_position": {
+          "rs_ratio": 101.68,
+          "rs_momentum": 99.14,
+          "quadrant": "WEAKENING",
+          "angle_deg": 52.5
+        },
+        "trajectory": {
+          "velocity_1w": 3.75,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 11,
+          "consistency_score": 0.0
+        }
+      },
+      "EWJ": {
+        "current_position": {
+          "rs_ratio": 101.74,
+          "rs_momentum": 101.78,
+          "quadrant": "LEADING",
+          "angle_deg": 91.4
+        },
+        "trajectory": {
+          "velocity_1w": 3.09,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 1,
+          "lag_weeks_3m": 7,
+          "consistency_score": 8.3
+        }
+      },
+      "EWY": {
+        "current_position": {
+          "rs_ratio": 93.62,
+          "rs_momentum": 70.31,
+          "quadrant": "LAGGING",
+          "angle_deg": -97.2
+        },
+        "trajectory": {
+          "velocity_1w": 2.36,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 3,
+          "consistency_score": 0.0
+        }
+      },
+      "EWZ": {
+        "current_position": {
+          "rs_ratio": 87.05,
+          "rs_momentum": 81.75,
+          "quadrant": "LAGGING",
+          "angle_deg": 74.8
+        },
+        "trajectory": {
+          "velocity_1w": 7.31,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "FCG": {
+        "current_position": {
+          "rs_ratio": 94.4,
+          "rs_momentum": 79.97,
+          "quadrant": "LAGGING",
+          "angle_deg": 61.2
+        },
+        "trajectory": {
+          "velocity_1w": 3.24,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "FTGC": {
+        "current_position": {
+          "rs_ratio": 95.51,
+          "rs_momentum": 82.82,
+          "quadrant": "LAGGING",
+          "angle_deg": 46.8
+        },
+        "trajectory": {
+          "velocity_1w": 1.95,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 1,
+          "lag_weeks_3m": 10,
+          "consistency_score": 8.3
+        }
+      },
+      "FXI": {
+        "current_position": {
+          "rs_ratio": 92.53,
+          "rs_momentum": 103.36,
+          "quadrant": "IMPROVING",
+          "angle_deg": 82.2
+        },
+        "trajectory": {
+          "velocity_1w": 2.43,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 10,
+          "consistency_score": 0.0
+        }
+      },
+      "GDX": {
+        "current_position": {
+          "rs_ratio": 99.8,
+          "rs_momentum": 101.1,
+          "quadrant": "IMPROVING",
+          "angle_deg": 52.5
+        },
+        "trajectory": {
+          "velocity_1w": 21.06,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 11,
+          "consistency_score": 0.0
+        }
+      },
+      "GLD": {
+        "current_position": {
+          "rs_ratio": 90.98,
+          "rs_momentum": 93.52,
+          "quadrant": "LAGGING",
+          "angle_deg": 59.6
+        },
+        "trajectory": {
+          "velocity_1w": 10.51,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "GRID": {
+        "current_position": {
+          "rs_ratio": 90.96,
+          "rs_momentum": 81.2,
+          "quadrant": "LAGGING",
+          "angle_deg": 104.6
+        },
+        "trajectory": {
+          "velocity_1w": 0.65,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 8,
+          "consistency_score": 0.0
+        }
+      },
+      "HERO": {
+        "current_position": {
+          "rs_ratio": 100.29,
+          "rs_momentum": 114.63,
+          "quadrant": "LEADING",
+          "angle_deg": 59.8
+        },
+        "trajectory": {
+          "velocity_1w": 5.93,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 1,
+          "lag_weeks_3m": 9,
+          "consistency_score": 8.3
+        }
+      },
+      "HYG": {
+        "current_position": {
+          "rs_ratio": 95.77,
+          "rs_momentum": 99.39,
+          "quadrant": "LAGGING",
+          "angle_deg": 68.5
+        },
+        "trajectory": {
+          "velocity_1w": 2.12,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "IAI": {
+        "current_position": {
+          "rs_ratio": 102.53,
+          "rs_momentum": 110.76,
+          "quadrant": "LEADING",
+          "angle_deg": 34.4
+        },
+        "trajectory": {
+          "velocity_1w": 1.97,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 5,
+          "lag_weeks_3m": 2,
+          "consistency_score": 41.7
+        }
+      },
+      "IBB": {
+        "current_position": {
+          "rs_ratio": 114.58,
+          "rs_momentum": 117.51,
+          "quadrant": "LEADING",
+          "angle_deg": 50.2
+        },
+        "trajectory": {
+          "velocity_1w": 9.67,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 4,
+          "lag_weeks_3m": 5,
+          "consistency_score": 33.3
+        }
+      },
+      "ICLN": {
+        "current_position": {
+          "rs_ratio": 80.38,
+          "rs_momentum": 75.47,
+          "quadrant": "LAGGING",
+          "angle_deg": -136.9
+        },
+        "trajectory": {
+          "velocity_1w": 2.73,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 3,
+          "lag_weeks_3m": 8,
+          "consistency_score": 25.0
+        }
+      },
+      "IEO": {
+        "current_position": {
+          "rs_ratio": 103.87,
+          "rs_momentum": 87.17,
+          "quadrant": "WEAKENING",
+          "angle_deg": 52.3
+        },
+        "trajectory": {
+          "velocity_1w": 3.41,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 7,
+          "consistency_score": 0.0
+        }
+      },
+      "IFRA": {
+        "current_position": {
+          "rs_ratio": 94.12,
+          "rs_momentum": 90.9,
+          "quadrant": "LAGGING",
+          "angle_deg": 81.7
+        },
+        "trajectory": {
+          "velocity_1w": 1.04,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "IHI": {
+        "current_position": {
+          "rs_ratio": 106.67,
+          "rs_momentum": 126.54,
+          "quadrant": "LEADING",
+          "angle_deg": 60.2
+        },
+        "trajectory": {
+          "velocity_1w": 11.29,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 2,
+          "lag_weeks_3m": 8,
+          "consistency_score": 16.7
+        }
+      },
+      "INDA": {
+        "current_position": {
+          "rs_ratio": 96.52,
+          "rs_momentum": 105.26,
+          "quadrant": "IMPROVING",
+          "angle_deg": 66.5
+        },
+        "trajectory": {
+          "velocity_1w": 3.22,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 6,
+          "consistency_score": 0.0
+        }
+      },
+      "ITB": {
+        "current_position": {
+          "rs_ratio": 102.96,
+          "rs_momentum": 114.97,
+          "quadrant": "LEADING",
+          "angle_deg": 53.1
+        },
+        "trajectory": {
+          "velocity_1w": 10.12,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 1,
+          "lag_weeks_3m": 5,
+          "consistency_score": 8.3
+        }
+      },
+      "IWD": {
+        "current_position": {
+          "rs_ratio": 105.39,
+          "rs_momentum": 104.68,
+          "quadrant": "LEADING",
+          "angle_deg": 74.6
+        },
+        "trajectory": {
+          "velocity_1w": 1.58,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 3,
+          "lag_weeks_3m": 3,
+          "consistency_score": 25.0
+        }
+      },
+      "IWF": {
+        "current_position": {
+          "rs_ratio": 95.87,
+          "rs_momentum": 96.83,
+          "quadrant": "LAGGING",
+          "angle_deg": -75.2
+        },
+        "trajectory": {
+          "velocity_1w": 0.77,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 2,
+          "lag_weeks_3m": 3,
+          "consistency_score": 16.7
+        }
+      },
+      "IWM": {
+        "current_position": {
+          "rs_ratio": 102.3,
+          "rs_momentum": 100.28,
+          "quadrant": "LEADING",
+          "angle_deg": 43.2
+        },
+        "trajectory": {
+          "velocity_1w": 1.7,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 5,
+          "lag_weeks_3m": 1,
+          "consistency_score": 41.7
+        }
+      },
+      "IYF": {
+        "current_position": {
+          "rs_ratio": 106.06,
+          "rs_momentum": 114.01,
+          "quadrant": "LEADING",
+          "angle_deg": 63.1
+        },
+        "trajectory": {
+          "velocity_1w": 2.65,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 5,
+          "lag_weeks_3m": 4,
+          "consistency_score": 41.7
+        }
+      },
+      "IYR": {
+        "current_position": {
+          "rs_ratio": 98.14,
+          "rs_momentum": 97.11,
+          "quadrant": "LAGGING",
+          "angle_deg": 57.8
+        },
+        "trajectory": {
+          "velocity_1w": 1.42,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "IYT": {
+        "current_position": {
+          "rs_ratio": 102.71,
+          "rs_momentum": 102.07,
+          "quadrant": "LEADING",
+          "angle_deg": 48.0
+        },
+        "trajectory": {
+          "velocity_1w": 2.58,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 4,
+          "lag_weeks_3m": 2,
+          "consistency_score": 33.3
+        }
+      },
+      "JETS": {
+        "current_position": {
+          "rs_ratio": 112.55,
+          "rs_momentum": 129.39,
+          "quadrant": "LEADING",
+          "angle_deg": 104.7
+        },
+        "trajectory": {
+          "velocity_1w": 4.32,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 9,
+          "lag_weeks_3m": 2,
+          "consistency_score": 75.0
+        }
+      },
+      "JNK": {
+        "current_position": {
+          "rs_ratio": 95.92,
+          "rs_momentum": 99.49,
+          "quadrant": "LAGGING",
+          "angle_deg": 68.1
+        },
+        "trajectory": {
+          "velocity_1w": 2.09,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "KRE": {
+        "current_position": {
+          "rs_ratio": 105.55,
+          "rs_momentum": 108.08,
+          "quadrant": "LEADING",
+          "angle_deg": 78.5
+        },
+        "trajectory": {
+          "velocity_1w": 4.02,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 5,
+          "lag_weeks_3m": 2,
+          "consistency_score": 41.7
+        }
+      },
+      "LIT": {
+        "current_position": {
+          "rs_ratio": 81.8,
+          "rs_momentum": 68.81,
+          "quadrant": "LAGGING",
+          "angle_deg": 23.6
+        },
+        "trajectory": {
+          "velocity_1w": 3.28,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 8,
+          "consistency_score": 0.0
+        }
+      },
+      "NANR": {
+        "current_position": {
+          "rs_ratio": 100.36,
+          "rs_momentum": 93.6,
+          "quadrant": "WEAKENING",
+          "angle_deg": 56.6
+        },
+        "trajectory": {
+          "velocity_1w": 8.55,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 11,
+          "consistency_score": 0.0
+        }
+      },
+      "PALL": {
+        "current_position": {
+          "rs_ratio": 86.59,
+          "rs_momentum": 107.14,
+          "quadrant": "IMPROVING",
+          "angle_deg": 65.8
+        },
+        "trajectory": {
+          "velocity_1w": 8.34,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 11,
+          "consistency_score": 0.0
+        }
+      },
+      "PBW": {
+        "current_position": {
+          "rs_ratio": 81.61,
+          "rs_momentum": 78.38,
+          "quadrant": "LAGGING",
+          "angle_deg": -116.2
+        },
+        "trajectory": {
+          "velocity_1w": 3.73,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 6,
+          "lag_weeks_3m": 6,
+          "consistency_score": 50.0
+        }
+      },
+      "PLTM": {
+        "current_position": {
+          "rs_ratio": 84.69,
+          "rs_momentum": 99.45,
+          "quadrant": "LAGGING",
+          "angle_deg": 58.6
+        },
+        "trajectory": {
+          "velocity_1w": 8.52,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "QCLN": {
+        "current_position": {
+          "rs_ratio": 82.34,
+          "rs_momentum": 74.49,
+          "quadrant": "LAGGING",
+          "angle_deg": -108.9
+        },
+        "trajectory": {
+          "velocity_1w": 3.1,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 7,
+          "lag_weeks_3m": 5,
+          "consistency_score": 58.3
+        }
+      },
+      "QQQ": {
+        "current_position": {
+          "rs_ratio": 98.11,
+          "rs_momentum": 94.69,
+          "quadrant": "LAGGING",
+          "angle_deg": -104.0
+        },
+        "trajectory": {
+          "velocity_1w": 2.6,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 9,
+          "lag_weeks_3m": 2,
+          "consistency_score": 75.0
+        }
+      },
+      "REMX": {
+        "current_position": {
+          "rs_ratio": 72.57,
+          "rs_momentum": 62.87,
+          "quadrant": "LAGGING",
+          "angle_deg": 31.8
+        },
+        "trajectory": {
+          "velocity_1w": 6.55,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "SCHH": {
+        "current_position": {
+          "rs_ratio": 98.59,
+          "rs_momentum": 95.37,
+          "quadrant": "LAGGING",
+          "angle_deg": 72.7
+        },
+        "trajectory": {
+          "velocity_1w": 0.65,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 11,
+          "consistency_score": 0.0
+        }
+      },
+      "SGOV": {
+        "current_position": {
+          "rs_ratio": 95.6,
+          "rs_momentum": 99.32,
+          "quadrant": "LAGGING",
+          "angle_deg": 78.2
+        },
+        "trajectory": {
+          "velocity_1w": 1.61,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "SLV": {
+        "current_position": {
+          "rs_ratio": 80.55,
+          "rs_momentum": 92.16,
+          "quadrant": "LAGGING",
+          "angle_deg": 57.2
+        },
+        "trajectory": {
+          "velocity_1w": 9.19,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "SLX": {
+        "current_position": {
+          "rs_ratio": 96.98,
+          "rs_momentum": 91.99,
+          "quadrant": "LAGGING",
+          "angle_deg": 102.3
+        },
+        "trajectory": {
+          "velocity_1w": 2.4,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 8,
+          "consistency_score": 0.0
+        }
+      },
+      "SMH": {
+        "current_position": {
+          "rs_ratio": 100.52,
+          "rs_momentum": 83.53,
+          "quadrant": "WEAKENING",
+          "angle_deg": -107.7
+        },
+        "trajectory": {
+          "velocity_1w": 5.2,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 9,
+          "lag_weeks_3m": 0,
+          "consistency_score": 75.0
+        }
+      },
+      "SMOG": {
+        "current_position": {
+          "rs_ratio": 86.72,
+          "rs_momentum": 80.45,
+          "quadrant": "LAGGING",
+          "angle_deg": 48.5
+        },
+        "trajectory": {
+          "velocity_1w": 2.19,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "SOYB": {
+        "current_position": {
+          "rs_ratio": 97.26,
+          "rs_momentum": 91.56,
+          "quadrant": "LAGGING",
+          "angle_deg": 38.7
+        },
+        "trajectory": {
+          "velocity_1w": 1.83,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 11,
+          "consistency_score": 0.0
+        }
+      },
+      "TAN": {
+        "current_position": {
+          "rs_ratio": 78.45,
+          "rs_momentum": 76.82,
+          "quadrant": "LAGGING",
+          "angle_deg": -144.3
+        },
+        "trajectory": {
+          "velocity_1w": 3.09,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 9,
+          "consistency_score": 0.0
+        }
+      },
+      "TLT": {
+        "current_position": {
+          "rs_ratio": 92.61,
+          "rs_momentum": 97.17,
+          "quadrant": "LAGGING",
+          "angle_deg": 59.3
+        },
+        "trajectory": {
+          "velocity_1w": 2.67,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "UNG": {
+        "current_position": {
+          "rs_ratio": 86.13,
+          "rs_momentum": 113.03,
+          "quadrant": "IMPROVING",
+          "angle_deg": 107.0
+        },
+        "trajectory": {
+          "velocity_1w": 9.27,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 7,
+          "consistency_score": 0.0
+        }
+      },
+      "USO": {
+        "current_position": {
+          "rs_ratio": 84.69,
+          "rs_momentum": 50.94,
+          "quadrant": "LAGGING",
+          "angle_deg": -123.9
+        },
+        "trajectory": {
+          "velocity_1w": 3.31,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 3,
+          "lag_weeks_3m": 9,
+          "consistency_score": 25.0
+        }
+      },
+      "VBK": {
+        "current_position": {
+          "rs_ratio": 100.97,
+          "rs_momentum": 98.74,
+          "quadrant": "WEAKENING",
+          "angle_deg": 36.0
+        },
+        "trajectory": {
+          "velocity_1w": 2.26,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 2,
+          "lag_weeks_3m": 4,
+          "consistency_score": 16.7
+        }
+      },
+      "VBR": {
+        "current_position": {
+          "rs_ratio": 103.09,
+          "rs_momentum": 103.36,
+          "quadrant": "LEADING",
+          "angle_deg": 62.4
+        },
+        "trajectory": {
+          "velocity_1w": 3.29,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 2,
+          "lag_weeks_3m": 7,
+          "consistency_score": 16.7
+        }
+      },
+      "VDE": {
+        "current_position": {
+          "rs_ratio": 99.77,
+          "rs_momentum": 88.12,
+          "quadrant": "LAGGING",
+          "angle_deg": 69.6
+        },
+        "trajectory": {
+          "velocity_1w": 3.54,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "VGK": {
+        "current_position": {
+          "rs_ratio": 102.1,
+          "rs_momentum": 104.53,
+          "quadrant": "LEADING",
+          "angle_deg": 69.1
+        },
+        "trajectory": {
+          "velocity_1w": 4.61,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 2,
+          "lag_weeks_3m": 10,
+          "consistency_score": 16.7
+        }
+      },
+      "VHT": {
+        "current_position": {
+          "rs_ratio": 111.85,
+          "rs_momentum": 122.51,
+          "quadrant": "LEADING",
+          "angle_deg": 58.1
+        },
+        "trajectory": {
+          "velocity_1w": 5.65,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 5,
+          "lag_weeks_3m": 7,
+          "consistency_score": 41.7
+        }
+      },
+      "VNM": {
+        "current_position": {
+          "rs_ratio": 85.61,
+          "rs_momentum": 89.15,
+          "quadrant": "LAGGING",
+          "angle_deg": -16.5
+        },
+        "trajectory": {
+          "velocity_1w": 1.41,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "VOE": {
+        "current_position": {
+          "rs_ratio": 103.48,
+          "rs_momentum": 102.88,
+          "quadrant": "LEADING",
+          "angle_deg": 65.8
+        },
+        "trajectory": {
+          "velocity_1w": 3.3,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 1,
+          "lag_weeks_3m": 8,
+          "consistency_score": 8.3
+        }
+      },
+      "VOT": {
+        "current_position": {
+          "rs_ratio": 102.11,
+          "rs_momentum": 104.16,
+          "quadrant": "LEADING",
+          "angle_deg": 27.0
+        },
+        "trajectory": {
+          "velocity_1w": 1.33,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 6,
+          "lag_weeks_3m": 0,
+          "consistency_score": 50.0
+        }
+      },
+      "VXUS": {
+        "current_position": {
+          "rs_ratio": 99.31,
+          "rs_momentum": 97.93,
+          "quadrant": "LAGGING",
+          "angle_deg": 66.1
+        },
+        "trajectory": {
+          "velocity_1w": 3.19,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 11,
+          "consistency_score": 0.0
+        }
+      },
+      "VTV": {
+        "current_position": {
+          "rs_ratio": 104.13,
+          "rs_momentum": 104.75,
+          "quadrant": "LEADING",
+          "angle_deg": 70.9
+        },
+        "trajectory": {
+          "velocity_1w": 2.52,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 2,
+          "lag_weeks_3m": 7,
+          "consistency_score": 16.7
+        }
+      },
+      "WEAT": {
+        "current_position": {
+          "rs_ratio": 98.38,
+          "rs_momentum": 90.62,
+          "quadrant": "LAGGING",
+          "angle_deg": -47.1
+        },
+        "trajectory": {
+          "velocity_1w": 1.76,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 9,
+          "consistency_score": 0.0
+        }
+      },
+      "XAR": {
+        "current_position": {
+          "rs_ratio": 103.57,
+          "rs_momentum": 114.78,
+          "quadrant": "LEADING",
+          "angle_deg": 83.5
+        },
+        "trajectory": {
+          "velocity_1w": 6.64,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 2,
+          "lag_weeks_3m": 10,
+          "consistency_score": 16.7
+        }
+      },
+      "XBI": {
+        "current_position": {
+          "rs_ratio": 115.11,
+          "rs_momentum": 109.91,
+          "quadrant": "LEADING",
+          "angle_deg": 45.5
+        },
+        "trajectory": {
+          "velocity_1w": 8.07,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 8,
+          "lag_weeks_3m": 3,
+          "consistency_score": 66.7
+        }
+      },
+      "XES": {
+        "current_position": {
+          "rs_ratio": 89.39,
+          "rs_momentum": 70.33,
+          "quadrant": "LAGGING",
+          "angle_deg": 53.9
+        },
+        "trajectory": {
+          "velocity_1w": 3.18,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 11,
+          "consistency_score": 0.0
+        }
+      },
+      "XLB": {
+        "current_position": {
+          "rs_ratio": 98.6,
+          "rs_momentum": 96.75,
+          "quadrant": "LAGGING",
+          "angle_deg": 59.2
+        },
+        "trajectory": {
+          "velocity_1w": 6.46,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "XLC": {
+        "current_position": {
+          "rs_ratio": 91.08,
+          "rs_momentum": 94.36,
+          "quadrant": "LAGGING",
+          "angle_deg": 67.7
+        },
+        "trajectory": {
+          "velocity_1w": 2.73,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "XLE": {
+        "current_position": {
+          "rs_ratio": 100.47,
+          "rs_momentum": 89.5,
+          "quadrant": "WEAKENING",
+          "angle_deg": 72.0
+        },
+        "trajectory": {
+          "velocity_1w": 3.55,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 11,
+          "consistency_score": 0.0
+        }
+      },
+      "XLF": {
+        "current_position": {
+          "rs_ratio": 106.71,
+          "rs_momentum": 115.12,
+          "quadrant": "LEADING",
+          "angle_deg": 63.4
+        },
+        "trajectory": {
+          "velocity_1w": 2.05,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 5,
+          "lag_weeks_3m": 4,
+          "consistency_score": 41.7
+        }
+      },
+      "XLI": {
+        "current_position": {
+          "rs_ratio": 101.19,
+          "rs_momentum": 101.13,
+          "quadrant": "LEADING",
+          "angle_deg": 79.2
+        },
+        "trajectory": {
+          "velocity_1w": 3.32,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 1,
+          "lag_weeks_3m": 9,
+          "consistency_score": 8.3
+        }
+      },
+      "XLK": {
+        "current_position": {
+          "rs_ratio": 103.68,
+          "rs_momentum": 96.8,
+          "quadrant": "WEAKENING",
+          "angle_deg": -107.3
+        },
+        "trajectory": {
+          "velocity_1w": 4.7,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 11,
+          "lag_weeks_3m": 0,
+          "consistency_score": 91.7
+        }
+      },
+      "XLP": {
+        "current_position": {
+          "rs_ratio": 96.92,
+          "rs_momentum": 100.2,
+          "quadrant": "IMPROVING",
+          "angle_deg": 87.1
+        },
+        "trajectory": {
+          "velocity_1w": 2.71,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 11,
+          "consistency_score": 0.0
+        }
+      },
+      "XLU": {
+        "current_position": {
+          "rs_ratio": 92.2,
+          "rs_momentum": 90.12,
+          "quadrant": "LAGGING",
+          "angle_deg": 69.9
+        },
+        "trajectory": {
+          "velocity_1w": 2.27,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "XLV": {
+        "current_position": {
+          "rs_ratio": 111.33,
+          "rs_momentum": 122.87,
+          "quadrant": "LEADING",
+          "angle_deg": 60.5
+        },
+        "trajectory": {
+          "velocity_1w": 5.72,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 5,
+          "lag_weeks_3m": 7,
+          "consistency_score": 41.7
+        }
+      },
+      "XLY": {
+        "current_position": {
+          "rs_ratio": 95.07,
+          "rs_momentum": 100.49,
+          "quadrant": "IMPROVING",
+          "angle_deg": 56.3
+        },
+        "trajectory": {
+          "velocity_1w": 2.58,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 10,
+          "consistency_score": 0.0
+        }
+      },
+      "XME": {
+        "current_position": {
+          "rs_ratio": 94.04,
+          "rs_momentum": 97.98,
+          "quadrant": "LAGGING",
+          "angle_deg": 51.3
+        },
+        "trajectory": {
+          "velocity_1w": 9.57,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 12,
+          "consistency_score": 0.0
+        }
+      },
+      "XOP": {
+        "current_position": {
+          "rs_ratio": 99.12,
+          "rs_momentum": 81.94,
+          "quadrant": "LAGGING",
+          "angle_deg": 58.9
+        },
+        "trajectory": {
+          "velocity_1w": 2.71,
+          "velocity_direction": "DECELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 0,
+          "lag_weeks_3m": 11,
+          "consistency_score": 0.0
+        }
+      },
+      "XPH": {
+        "current_position": {
+          "rs_ratio": 116.67,
+          "rs_momentum": 114.93,
+          "quadrant": "LEADING",
+          "angle_deg": 44.8
+        },
+        "trajectory": {
+          "velocity_1w": 4.85,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 8,
+          "lag_weeks_3m": 3,
+          "consistency_score": 66.7
+        }
+      },
+      "XRT": {
+        "current_position": {
+          "rs_ratio": 101.86,
+          "rs_momentum": 109.59,
+          "quadrant": "LEADING",
+          "angle_deg": 56.2
+        },
+        "trajectory": {
+          "velocity_1w": 4.21,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 1,
+          "lag_weeks_3m": 5,
+          "consistency_score": 8.3
+        }
+      },
+      "XSW": {
+        "current_position": {
+          "rs_ratio": 118.86,
+          "rs_momentum": 135.99,
+          "quadrant": "LEADING",
+          "angle_deg": -54.1
+        },
+        "trajectory": {
+          "velocity_1w": 5.08,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 10,
+          "lag_weeks_3m": 0,
+          "consistency_score": 83.3
+        }
+      },
+      "XTN": {
+        "current_position": {
+          "rs_ratio": 101.68,
+          "rs_momentum": 98.57,
+          "quadrant": "WEAKENING",
+          "angle_deg": 73.0
+        },
+        "trajectory": {
+          "velocity_1w": 4.51,
+          "velocity_direction": "ACCELERATING"
+        },
+        "persistence": {
+          "lead_weeks_3m": 4,
+          "lag_weeks_3m": 3,
+          "consistency_score": 33.3
+        }
+      }
+    },
+    "requested_as_of_date": "2026-08-21",
+    "historical_reconstruction": true
+  }
+}

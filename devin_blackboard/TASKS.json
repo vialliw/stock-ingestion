@@ -4860,5 +4860,111 @@
         "text": "Deployment gate (orchestrator-owned): restart Flight Server; register the scheduled task and verify it exists with correct quarterly triggers; execute the finviz_classification_update skill end-to-end (latest Finviz CSV vs company_metadata diff -> metadata_load overrides -> verify 3 rows corrected: GPN, NBIS, HHH)."
       }
     ]
+  },
+  {
+    "id": "RRG-AUTO-T1",
+    "title": "rrg_weekly_pipeline.py — deterministic generate+publish pipeline for weekly RRG reports (design: docs/enhancements/rrg_weekly_automation_design.md)",
+    "role": "executor",
+    "model": "swe",
+    "status": "in_progress",
+    "assigned_to": "B",
+    "depends_on": [],
+    "input_files": [
+      "/docs/enhancements/rrg_weekly_automation_design.md",
+      "/scripts/rrg_dashboard.py",
+      "/.devin/skills/analyze_rrg/analyze_rrg.py",
+      "/.devin/skills/summarize_rrg/summarize_rrg.py",
+      "/scripts/refresh_weekly.bat"
+    ],
+    "output_files": [
+      "/scripts/rrg_weekly_pipeline.py",
+      "/scripts/rrg_weekly_pipeline.bat",
+      "/tests/test_rrg_weekly_pipeline.py",
+      "/.gitignore"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "RA1-AC1",
+        "check": "focused tests",
+        "command": "python -m pytest tests/test_rrg_weekly_pipeline.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "RA1-AC2",
+        "check": "full suite green",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "RA1-AC3",
+        "check": "loop checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "RA1-AC4",
+        "check": "generate dry-run prints plan",
+        "command": "python scripts/rrg_weekly_pipeline.py --generate --dry-run",
+        "expected_exit": 0
+      },
+      {
+        "id": "RA1-AC5",
+        "check": "publish dry-run prints plan",
+        "command": "python scripts/rrg_weekly_pipeline.py --publish --dry-run",
+        "expected_exit": 0
+      },
+      {
+        "text": "Phase A: --generate resolves as_of=last Friday, calls generate_rrg_dashboard(ETFs, as_of, json_only, output_dir=docs/rrg); drafts the dated analysis report via analyze_rrg.py ONLY when the report file is absent (never overwrites an existing file); creates weekly_summary.md via summarize_rrg.py ONLY if absent; writes docs/rrg/.rrg_pipeline_state.json"
+      },
+      {
+        "text": "Phase C gate: a dated report publishes only if it contains '> Weekly read:' (or '> Read:') AND '**Net call:**'; weekly_summary.md publishes only if it contains the resolved date; .json files are never synced"
+      },
+      {
+        "text": "Publish mirror-syncs docs/rrg/*.md -> remote report/ (clone under .tmp/rrg-dash, commit as devin-ai-integration[bot] <158243242+devin-ai-integration[bot]@users.noreply.github.com>, push only on diff); --dry-run must not clone/push"
+      },
+      {
+        "text": ".gitignore gains .tmp/ entry"
+      }
+    ]
+  },
+  {
+    "id": "RRG-AUTO-T2",
+    "title": "Register StockIngestion-RRGWeekly scheduled task (Fri 22:15 + Sat/Sun 09:00, StartWhenAvailable) via scripts/register_rrg_weekly.ps1",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "assigned_to": "B",
+    "depends_on": [
+      "RRG-AUTO-T1"
+    ],
+    "input_files": [
+      "/docs/enhancements/rrg_weekly_automation_design.md",
+      "/scripts/register_daily_task.ps1",
+      "/scripts/rrg_weekly_pipeline.py",
+      "/scripts/rrg_weekly_pipeline.bat"
+    ],
+    "output_files": [
+      "/scripts/register_rrg_weekly.ps1"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "RA2-AC1",
+        "check": "PS script parses",
+        "command": "powershell -NoProfile -Command \"$e=$null;[void][System.Management.Automation.PSParser]::Tokenize((Get-Content -Raw scripts/register_rrg_weekly.ps1),[ref]$e);if($e.Count){exit 1}else{exit 0}\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "RA2-AC2",
+        "check": "loop checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "text": "Task registered as StockIngestion-RRGWeekly with 3 triggers (Fri 22:15; Sat 09:00; Sun 09:00), StartWhenAvailable=true, user/Interactive/Limited principal, pythonw.exe interpreter running scripts/rrg_weekly_pipeline.bat, WorkingDirectory=repo root — verified via Get-ScheduledTask output captured in evidence"
+      },
+      {
+        "text": "Documented in script header (mirroring register_daily_task.ps1 conventions) that re-registration preserves these triggers; register_daily_task.ps1's /sc DAILY caveat must NOT be replicated"
+      }
+    ]
   }
 ]

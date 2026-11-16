@@ -53,12 +53,50 @@ inside those sections, not the section order.
    `--stats-only`.
 2. **Review + enrich** — read the draft; fix anything the rules
    misbucketed (e.g. a high-consistency LEADER newly in WEAKENING belongs
-   in §5 commentary), and add the analytical narrative per
-   `response_style` — theme clustering (e.g. "energy complex
-   decelerating", "precious metals accelerating"), cross-quadrant
-   divergences, and regime read. Keep tables verbatim.
+   in §4 commentary), then add the analytical narrative per
+   `response_style`. Keep tables verbatim. Enrichment is REQUIRED, not
+   optional — see the contract below.
 3. **Save** — the report lands in `docs/rrg/`; do not modify the input
    JSON. Log the run to `devin_blackboard/EVENTS.log` per AGENTS.md.
+
+## Enrichment contract (REQUIRED)
+
+Every report — single runs and batch backfills alike — gets the same
+narrative structure; there is no "compact" mode:
+
+- `> Read: ...` blockquote at the END of each of §1–§6 (after the
+  section's table, before the next heading).
+- `**Net call:** ...` bold line at the end of §7, after the bullet list.
+
+Per-section content:
+
+- **§1 Census** — regime character in one line (balanced vs lopsided,
+  where leadership/laggards cluster). In a dated series, label the week
+  in the arc (e.g. "inflection week", "post-squeeze digestion") and use
+  `> Weekly read:` instead of `> Read:`.
+- **§2 Leadership** — WHO the consistent leaders are as a group (sector/
+  asset theme), streak count changes vs prior weeks, anomalies.
+- **§3 Improving** — the dominant improving theme with named tickers +
+  velocities; bench depth (count) and whether a successor regime exists.
+- **§4 Weakening** — regime breaks (high-consistency names newly in
+  WEAKENING get called out first), then the decelerating-leader cluster
+  theme. "Trim into strength" style guidance when a whole complex
+  decelerates.
+- **§5 Velocity** — what the fastest accelerators vs decelerators say as
+  groups (velocity polarity = where capital is going vs leaving);
+  counter-trend squeezes flagged as sells, not buys.
+- **§6 Laggards** — the 2–4 thematic buckets inside the lag-list; these
+  are the funding source for the leadership bid.
+- **§7 Net call** — 2–3 sentences: the one rotation action, the core
+  hold, and the trigger that would change the call.
+
+For batch/backfill runs: extract a per-week digest first (census,
+12wk-leaders, top accelerating improvers, top decelerating leaders,
+WEAKENING list, top laggards by lag_weeks, fastest movers, dead money) —
+`analyze_rrg.py` already prints most of this; a small `json.load` loop
+over the prompt files fills the rest — then write every report's reads
+from that digest plus cross-week context (streak gains/losses, quadrant
+flips of named tickers, prior-week velocity comparisons).
 
 ## Rules / gotchas
 
