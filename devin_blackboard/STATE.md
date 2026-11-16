@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-16 (RRG-AUTO-T3 — Critic D final verification PASS)
+Last Updated: 2026-11-16 (RRG weekly automation cycle COMPLETE — pipeline live Fri 22:15 + Sat/Sun 09:00; EWTX silent-drop pending)
 Current Branch: main
 
 ## RRG-AUTO-T3 — Critic D final verification: PASS (2026-11-16)
@@ -234,6 +234,19 @@ AC note: "pythonw running .bat" implemented as pythonw + .py — a .bat
 cannot be a pythonw argument; .bat kept as manual wrapper (documented).
 
 DEFERRED to C/D: adversarial review + critic verification.
+
+## CYCLE — RRG weekly automation COMPLETE (orchestrator, 2026-11-16)
+
+RRG-AUTO-T1/T2/T3 all done + Critic-verified. scripts/rrg_weekly_pipeline.py
+(--generate/--publish/--all/--dry-run): Phase A last-Friday as_of ->
+rrg_dashboard JSON -> analyze_rrg draft only-if-absent -> state file;
+Phase C enrichment gate (report markers + summary TODO/missing-marker
+rejection) -> mirror-sync docs/rrg/*.md -> remote report/ -> bot-authored
+commit+push -> auto_index regenerates remotely. Scheduled task
+StockIngestion-RRGWeekly live: Fri 22:15 + Sat/Sun 09:00 weekly,
+StartWhenAvailable, pythonw --all. Tests 2108/2108. Deferred advisories:
+TODO-case-sensitivity, header-only-summary gap, dry-run filename cosmetic,
+battery-flag display — all LOW/INFO, documented in STATE/EVENTS.
 
 ## CYCLE — RRG weekly automation filed (orchestrator, 2026-11-16)
 
