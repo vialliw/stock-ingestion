@@ -53,6 +53,24 @@ summarizes).
 4. **Log** — append the run to `devin_blackboard/EVENTS.log` and update
    `STATE.md` per AGENTS.md.
 
+## Index mode — report_index.md (REQUIRED, deterministic)
+
+`report_index.md` is a generated index over the same dated-report set.
+It is **not** enriched — it must always reflect the directory exactly:
+
+```
+python .devin/skills/summarize_rra/summarize_rra.py --index docs/rra/report_index.md
+```
+
+- Output: `# RRA Report Index — ETF Dashboard vs SPY` + a
+  `| Date | Report | Lead | Impr | Weak | Lag |` table (report name is a
+  markdown link; quadrant counts come from each report's census line).
+- The weekly pipeline (`scripts/rrg_weekly_pipeline.py --generate`) runs
+  this step **unconditionally** after the summary check, so additions
+  and deletions are reflected on every run. Never edit the file by hand.
+- `report_index.md` bypasses the publish enrichment gate (no
+  `> Read:`/`Net call:` markers needed) — it is always shippable.
+
 ## Rules / gotchas
 
 - Regenerate the WHOLE table when new weeks land — never append rows to

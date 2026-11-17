@@ -57,6 +57,7 @@ STATE_FILE = DOCS_RRG / ".rrg_pipeline_state.json"
 ANALYZE_SCRIPT = _REPO_ROOT / ".devin" / "skills" / "analyze_rra" / "analyze_rra.py"
 SUMMARIZE_SCRIPT = _REPO_ROOT / ".devin" / "skills" / "summarize_rra" / "summarize_rra.py"
 SUMMARY_FILE = DOCS_RRG / "weekly_summary.md"
+INDEX_FILE = DOCS_RRG / "report_index.md"
 CLONE_DIR = _REPO_ROOT / ".tmp" / "rra-dash"
 EVENTS_LOG = _REPO_ROOT / "devin_blackboard" / "EVENTS.log"
 NOTIFY_SCRIPT = _SCRIPTS_DIR / "notify_done.ps1"
@@ -182,6 +183,7 @@ def plan_publish(src_dir: Path,
       date (and the pipeline's ``resolved_date`` when provided) in its
       text AND must contain no draft placeholders (``TODO`` tokens,
       ``<!-- missing`` markers) — a drafted summary never ships
+    - report_index.md -> always publishable (deterministic, no markers)
     - other .md (e.g. the flagship report) -> same marker gate as dated
     """
     publish: list[str] = []
@@ -194,6 +196,9 @@ def plan_publish(src_dir: Path,
         name = path.name
         if name == summary_name:
             continue  # gated below once dated set is known
+        if name == INDEX_FILE.name:
+            publish.append(name)  # deterministic index — always shippable
+            continue
         if report_is_enriched(path):
             publish.append(name)
             d = report_date_from_name(name)
@@ -311,6 +316,8 @@ def generate(dry_run: bool = False,
         print(f"[dry-run] weekly_summary.md: "
               f"{'exists — leave untouched' if SUMMARY_FILE.exists() else 'absent — would run summarize_rra.py --out'}")
         print(f"[dry-run] would write state file {STATE_FILE.name}")
+        print(f"[dry-run] would regenerate {INDEX_FILE.name} "
+              "(unconditional — deterministic index)")
         print("[dry-run] no files written, no subprocesses run")
         return plan
 
@@ -354,6 +361,16 @@ def generate(dry_run: bool = False,
                 f"summarize_rra.py failed (exit {proc.returncode}): "
                 f"{(proc.stderr or "").strip()[:400]}")
         summary_action = "drafted"
+
+    # report_index.md: ALWAYS regenerated — it must reflect additions and
+    # deletions immediately; output is deterministic (no enrichment step).
+    proc = _run([sys.executable, str(SUMMARIZE_SCRIPT),
+                 "--src-dir", str(DOCS_RRG),
+                 "--index", str(INDEX_FILE)], cwd=_REPO_ROOT)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"summarize_rra.py --index failed (exit {proc.returncode}): "
+            f"{(proc.stderr or '').strip()[:400]}")
 
     enriched = report_is_enriched(report_path) if report_path.exists() else False
     missing = summary_missing_dates(SUMMARY_FILE, [resolved])

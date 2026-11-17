@@ -79,6 +79,26 @@ def build_table(items: list[dict]) -> str:
     return "\n".join(L) + "\n"
 
 
+def build_index(items: list[dict]) -> str:
+    """Deterministic report_index.md — every dated report, one row."""
+    L = [
+        "# RRA Report Index — ETF Dashboard vs SPY",
+        "",
+        f"{len(items)} weekly reports, {items[0]['date']} → {items[-1]['date']} "
+        f"(12-week lookback each). Regenerated on every pipeline run — do not "
+        f"edit by hand.",
+        "",
+        "| Date | Report | Lead | Impr | Weak | Lag |",
+        "|------|--------|------|------|------|-----|",
+    ]
+    for it in items:
+        c = it["census"]
+        L.append(f"| {it['date']} | [{it['file']}]({it['file']}) | "
+                 f"{c.get('LEADING', '-')} | {c.get('IMPROVING', '-')} | "
+                 f"{c.get('WEAKENING', '-')} | {c.get('LAGGING', '-')} |")
+    return "\n".join(L) + "\n"
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -86,6 +106,9 @@ def main():
                     help="directory of dated analysis reports (default: docs/rra)")
     ap.add_argument("--out", type=Path,
                     help="write draft summary table here (default: stdout)")
+    ap.add_argument("--index", type=Path, metavar="OUT",
+                    help="write a deterministic report index (report_index.md) "
+                         "here — fully generated, no enrichment step")
     ap.add_argument("--digest", action="store_true",
                     help="print per-date extracted source material as JSON")
     args = ap.parse_args()
@@ -94,6 +117,14 @@ def main():
     if not reports:
         raise SystemExit(f"{args.src_dir}: no dated *_YYYY-MM-DD_analysis_report.md files")
     items = [extract(p) for p in reports]
+
+    if args.index:
+        index = build_index(items)
+        args.index.parent.mkdir(parents=True, exist_ok=True)
+        args.index.write_text(index, encoding="utf-8")
+        print(f"wrote {args.index} ({len(index)} bytes, {len(items)} rows)",
+              file=sys.stderr)
+        return
 
     if args.digest:
         print(json.dumps(items, indent=2))
