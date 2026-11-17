@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-17 (RRG-AUTO-T4 Critic D final verification: PASS — all ACs re-run green; clone-cleanup fix verified; cycle ready for Friday 22:15 live run)
+Last Updated: 2026-11-17 (RRG-AUTO-T4 clone-failure fix PASS + README weekly-rhythm documented; pipeline healthy for Fri 22:15)
 Current Branch: main
 
 ## RRG-AUTO-T4 — Critic D final verification: PASS (2026-11-17)
