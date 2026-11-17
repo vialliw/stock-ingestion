@@ -6288,3 +6288,19 @@ NON-BLOCKING observations (for the record, NOT a re-open):
 Scope: delta (961a4f2..87950a2) = scripts/rrg_weekly_pipeline.py + tests/test_rrg_weekly_pipeline.py + blackboard; no src/ edits, no out-of-scope. Working tree clean post-verification.
 
 Verdict: APPROVED. Next: Critic D final acceptance verification; then Friday 22:15 scheduled run validates end-to-end live.
+[2026-11-17T10:48:00+00:00] [CRITIC-D] RRG-AUTO-T4 final acceptance verification -> PASS (HEAD 84a60f6; impl 961a4f2..87950a2). Trusted nothing — re-ran EVERY acceptance_criteria command + verified all three free-text criteria directly. C's N1-N3 observations accepted by orchestrator as documented limitations — not re-flagged.
+
+AC re-run (all green, exit codes captured directly):
+- RA4-AC1 focused: python -m pytest tests/test_rrg_weekly_pipeline.py -q -> 59 passed in 0.80s, exit 0.
+- RA4-AC2 full suite: python -m pytest tests/ -q -> 2113 passed, 523 warnings in 257.83s, exit 0 (output logged .tmp/d_suite_out.txt; count consistent with B's run).
+- RA4-AC3 loops: python scripts/check_loops.py --src-dir src -> "No unjustified loops found. (17 files checked)" exit 0.
+- RA4-AC4 publish dry-run: python scripts/rrg_weekly_pipeline.py --publish --dry-run -> exit 0; 29 publishable incl. weekly_summary.md + report_index.md; plan-only "no clone, no push, no files changed".
+
+FREE-TEXT CRITERIA (independently verified):
+- (a) Both rmtree(ignore_errors) sites replaced: scripts/rrg_weekly_pipeline.py:284-309 _force_rmtree() uses shutil.rmtree(path, onexc=_writable_retry) — handler does os.chmod(p, stat.S_IWRITE) then retries func(p), OSError swallowed best-effort, outer catch warns on stderr. Pre-clone wipe (line 480) and finally cleanup (line 548) both call _force_rmtree(CLONE_DIR). grep confirms no remaining rmtree(ignore_errors) call on CLONE_DIR — only the docstring mention (line 288).
+- (b) Read-only-tree test exists + passes standalone: tests/test_rrg_weekly_pipeline.py:487 test_readonly_git_style_tree_fully_removed (S_IREAD .git/objects tree -> removed; asserts read-only bit first) plus nested-readonly, missing-dir, normal-tree and e2e pre-clone-wipe tests — TestForceRmtree 5/5 passed standalone (0.11s, exit 0).
+- (c) .tmp/rra-dash debris confirmed absent: ls .tmp/ -> only pre-existing verify_t3.log; rra-dash does not exist.
+
+Scope: delta (961a4f2..87950a2) = scripts/rrg_weekly_pipeline.py + tests/test_rrg_weekly_pipeline.py + blackboard; no src/ edits. Working tree clean post-verification.
+
+Verdict: PASS. Task status already done — reporting to orchestrator; Friday 22:15 scheduled run validates end-to-end live.

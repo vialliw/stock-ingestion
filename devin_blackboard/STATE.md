@@ -1,6 +1,34 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-17 (RRG-AUTO-T4 Challenger C review: APPROVED; readonly-aware _force_rmtree fixed the self-poisoning clone cleanup; .tmp/rra-dash debris removed; next scheduled publish Fri 22:15 will not hit clone exit 128)
+Last Updated: 2026-11-17 (RRG-AUTO-T4 Critic D final verification: PASS — all ACs re-run green; clone-cleanup fix verified; cycle ready for Friday 22:15 live run)
 Current Branch: main
+
+## RRG-AUTO-T4 — Critic D final verification: PASS (2026-11-17)
+
+**CRITIC-D verdict: PASS** (HEAD 84a60f6; impl 961a4f2..87950a2).
+Trusted nothing — re-ran every acceptance_criteria command and
+independently verified all three free-text criteria. C's N1-N3
+observations accepted by orchestrator as documented limitations —
+not re-flagged.
+
+- RA4-AC1 focused: 59/59 passed (0.80s, exit 0).
+- RA4-AC2 full suite: 2113/2113 passed (257.83s, exit 0;
+  output .tmp/d_suite_out.txt — count consistent with B's run).
+- RA4-AC3 loops: "No unjustified loops found. (17 files)" exit 0.
+- RA4-AC4 --publish --dry-run: exit 0, 29 publishable incl.
+  weekly_summary.md + report_index.md; plan-only.
+- (a) Both rmtree(ignore_errors) sites replaced by
+  `_force_rmtree` (script 284-309) — onexc handler chmods
+  S_IWRITE + retries; pre-clone wipe (480) + finally cleanup
+  (548) call it; no rmtree(ignore_errors) on CLONE_DIR remains.
+- (b) Read-only-tree test exists + passes standalone:
+  test_readonly_git_style_tree_fully_removed (test 487) asserts
+  S_IREAD bit then removes tree; TestForceRmtree 5/5 PASS.
+- (c) .tmp/rra-dash debris absent — only verify_t3.log remains.
+
+Scope clean (delta = script + tests + blackboard; no src/ edits).
+Working tree clean post-verification. Reported to orchestrator —
+task status already done; Friday 22:15 scheduled run validates
+end-to-end live.
 
 ## RRG-AUTO-T4 — Challenger C review: APPROVED (2026-11-17)
 
