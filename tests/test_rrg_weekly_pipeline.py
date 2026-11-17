@@ -8,6 +8,8 @@ never reaches the subprocess/clone layer.
 from __future__ import annotations
 
 import json
+import os
+import stat
 import subprocess
 import sys
 from datetime import date
@@ -469,3 +471,111 @@ class TestPublishGating:
         # The enriched report shipped; the draft summary did not.
         assert report_name in copied
         assert "weekly_summary.md" not in copied
+
+
+# ------------------------------------------------------------------
+# _force_rmtree — read-only debris removal (2026-11-17 incident)
+# ------------------------------------------------------------------
+
+class TestForceRmtree:
+    """Regression for the 2026-11-17 publish-clone incident: git marks
+    .git/objects read-only on Windows, a plain
+    shutil.rmtree(ignore_errors=True) silently left the tree behind,
+    and the NEXT run's clone died with exit 128 'destination path ...
+    is not an empty directory'."""
+
+    def test_readonly_git_style_tree_fully_removed(self, tmp_path):
+        clone = tmp_path / "clone"
+        obj_dir = clone / ".git" / "objects" / "ab"
+        obj_dir.mkdir(parents=True)
+        pack = obj_dir / "abcdef1234567890"
+        pack.write_bytes(b"\x00" * 32)
+        head = clone / ".git" / "HEAD"
+        head.write_text("ref: refs/heads/main\n", encoding="utf-8")
+        report = clone / "report"
+        report.mkdir()
+        (report / "x.md").write_text("x\n", encoding="utf-8")
+        # git marks pack objects read-only — the exact debris left by a
+        # real clone that broke the 09:58 publish.
+        for f in (pack, head):
+            os.chmod(f, stat.S_IREAD)
+        # Prove the debris is actually read-only before removal.
+        assert not (os.stat(pack).st_mode & stat.S_IWRITE)
+
+        rp._force_rmtree(clone)
+
+        assert not clone.exists()
+
+    def test_nested_readonly_dirs_and_files(self, tmp_path):
+        root = tmp_path / "deep"
+        leaf = root / "a" / "b" / "c"
+        leaf.mkdir(parents=True)
+        for i in range(3):
+            f = leaf / f"obj{i}"
+            f.write_text(str(i), encoding="utf-8")
+            os.chmod(f, stat.S_IREAD)
+        os.chmod(leaf, stat.S_IREAD)  # read-only directory entry too
+
+        rp._force_rmtree(root)
+
+        assert not root.exists()
+
+    def test_missing_dir_is_noop(self, tmp_path):
+        rp._force_rmtree(tmp_path / "nope")  # must not raise
+        rp._force_rmtree(tmp_path / "nope" / "nested")
+
+    def test_normal_tree_removed(self, tmp_path):
+        d = tmp_path / "plain"
+        (d / "sub").mkdir(parents=True)
+        (d / "sub" / "f.txt").write_text("f", encoding="utf-8")
+        rp._force_rmtree(d)
+        assert not d.exists()
+
+    def test_publish_preclone_wipe_clears_readonly_debris(
+            self, tmp_path, monkeypatch):
+        """End-to-end: leftover read-only .git debris from a previous
+        publish must not make the next clone step see a non-empty dir
+        — the pre-clone wipe removes it before `git clone` runs."""
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "Relative_Rotation_Dashboard_ETFs_"
+         "2026-11-13_analysis_report.md").write_text(
+            ENRICHED, encoding="utf-8")
+        monkeypatch.setattr(rp, "DOCS_RRG", src)
+        monkeypatch.setattr(rp, "SUMMARY_FILE", src / "weekly_summary.md")
+        monkeypatch.setattr(rp, "STATE_FILE",
+                            src / ".rrg_pipeline_state.json")
+        monkeypatch.setattr(rp, "EVENTS_LOG", tmp_path / "EVENTS.log")
+        monkeypatch.setattr(rp, "toast", lambda *a, **k: None)
+
+        # Simulate debris surviving from the previous run's cleanup.
+        clone = tmp_path / "clone"
+        debris = clone / ".git" / "objects" / "ab"
+        debris.mkdir(parents=True)
+        pack = debris / "pack-readonly"
+        pack.write_bytes(b"\x00" * 8)
+        os.chmod(pack, stat.S_IREAD)
+        monkeypatch.setattr(rp, "CLONE_DIR", clone)
+
+        def _fake_run(cmd, cwd=None, timeout=300):
+            if cmd[:2] == ["git", "clone"]:
+                # A real git clone exits 128 when the destination exists
+                # and is non-empty — require the wipe to have cleared it.
+                dest = Path(cmd[-1])
+                assert not dest.exists() or not any(dest.iterdir()), \
+                    "clone target not empty — read-only debris survived"
+                dest.mkdir(parents=True, exist_ok=True)
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="", stderr="")
+
+        def _fake_git(clone_dir, *a, timeout=300):
+            # Empty porcelain -> "already in sync" early return (no push).
+            return subprocess.CompletedProcess(
+                ["git", *a], 0, stdout="", stderr="")
+
+        monkeypatch.setattr(rp, "_run", _fake_run)
+        monkeypatch.setattr(rp, "_git", _fake_git)
+
+        assert rp.publish(dry_run=False) == 0
+        # finally-cleanup removed the fresh clone too.
+        assert not clone.exists()

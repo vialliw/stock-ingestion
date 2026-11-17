@@ -6190,3 +6190,70 @@ No blockers. Reporting to orchestrator — task status already done; awaiting or
 [2026-11-17T10:20:00] [ORCHESTRATOR] INCIDENT — RRG-WEEKLY publish clone FAILED toast (user-reported). Root cause PROVEN: both shutil.rmtree(CLONE_DIR, ignore_errors=True) sites (pre-clone wipe + finally cleanup) cannot delete Windows read-only .git/objects files (attrib verified 'A R' on leftover .tmp/rra-dash/.git/objects). Debris from the 09:29 publish (fea8afa) survived cleanup -> 09:58:00 pre-clone wipe silently failed -> clone exit 128 'already exists and is not empty' -> toast. 09:58:12 retry succeeded after manual wipe (publish 70a37ee) but left fresh debris -> next scheduled run (Fri 22:15) WILL fail the same way. Filed RRG-AUTO-T4 (readonly-aware removal helper + readonly-debris regression test + debris removal).
 
 [2026-11-17T10:05:50.753983+00:00] [EXECUTOR] claimed RRG-AUTO-T4
+[2026-11-17T10:35:06.594314+00:00] [EXECUTOR] completed RRG-AUTO-T4 -> _force_rmtree(path) added to scripts/rrg_weekly_pipeline.py: shutil.rmtree with onexc handler (Python 3.12) that chmods S_IWRITE then retries func(p) — best-effort but warns on stderr instead of silent ignore_errors. Replaced BOTH call sites (pre-clone wipe + finally cleanup). Tests: 5 new in TestForceRmtree (S_IREAD .git-style tree removal, nested readonly dirs, missing-dir noop, normal tree, e2e pre-clone wipe clears readonly debris before fake git clone). REAL-WORLD PROOF: leftover debris at .tmp/rra-dash survived shutil.rmtree(ignore_errors=True) then _force_rmtree removed it completely — debris now deleted. Verify: AC1 59/59 focused pass; AC2 2113/2113 suite in 240.25s; AC3 loops clean (17 files); AC4 --publish --dry-run exit 0 (29 publishable incl. weekly_summary.md, plan-only).
+Evidence map:
+[
+  {
+    "id": "RA4-AC1",
+    "check": "focused tests",
+    "command": "python -m pytest tests/test_rrg_weekly_pipeline.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "...........................................................              [100%]\n59 passed in 0.45s\n"
+  },
+  {
+    "id": "RA4-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n2113 passed, 523 warnings in 219.86s (0:03:39)\n"
+  },
+  {
+    "id": "RA4-AC3",
+    "check": "loop checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "RA4-AC4",
+    "check": "publish dry-run",
+    "command": "python scripts/rrg_weekly_pipeline.py --publish --dry-run",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "rt_index.md\n[dry-run] would ship report/weekly_summary.md\n[dry-run] would preflight: git ls-remote https://github.com/vialliw/Relative-Rotation-Analysis-Dashboard\n[dry-run] would wipe+clone https://github.com/vialliw/Relative-Rotation-Analysis-Dashboard -> B:\\projects\\stock-ingestion\\.tmp\\rra-dash\n[dry-run] would mirror-sync docs/rra/*.md -> report/ (.json never synced; remote-only .md deleted), commit as devin-ai-integration[bot], push only on diff\n[dry-run] no clone, no push, no files changed\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

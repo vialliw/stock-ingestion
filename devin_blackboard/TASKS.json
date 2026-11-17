@@ -5031,7 +5031,7 @@
     "title": "Fix self-poisoning clone cleanup — shutil.rmtree fails on read-only .git/objects (Windows), debris breaks next publish",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "assigned_to": "B",
     "depends_on": [
       "RRG-AUTO-T3"

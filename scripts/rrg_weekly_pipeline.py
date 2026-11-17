@@ -40,6 +40,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -280,6 +281,34 @@ def _git(clone: Path, *args: str, timeout: int = 300) -> subprocess.CompletedPro
     return _run(["git", "-C", str(clone), *args], timeout=timeout)
 
 
+def _force_rmtree(path: Path) -> None:
+    """Best-effort recursive delete that survives Windows read-only files.
+
+    ``git clone`` marks ``.git/objects/*`` read-only, and a plain
+    ``shutil.rmtree(..., ignore_errors=True)`` then silently leaves the
+    tree behind — debris in ``.tmp/rra-dash`` makes the NEXT run's clone
+    fail (exit 128, "already exists and is not an empty directory").
+    The ``onexc`` hook (Python 3.12+) clears the read-only attribute and
+    retries the failed operation; residual failures are reported on
+    stderr (the wipe stays best-effort, but is no longer silent).
+    """
+    if not path.exists():
+        return
+
+    def _writable_retry(func, p, exc):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except OSError:
+            pass  # best-effort: rmtree keeps going on the rest
+
+    try:
+        shutil.rmtree(path, onexc=_writable_retry)
+    except Exception as exc:  # noqa: BLE001 — cleanup must never crash the pipeline
+        print(f"WARNING: could not fully remove {path}: {exc}",
+              file=sys.stderr)
+
+
 # ------------------------------------------------------------------
 # Phase A — generate
 # ------------------------------------------------------------------
@@ -445,9 +474,10 @@ def publish(dry_run: bool = False) -> int:
         toast(f"RRA publish preflight failed: {msg[:120]}")
         return 1
 
-    # Fresh clone each run — a dirty/leftover .tmp/rrg-dash is wiped.
+    # Fresh clone each run — a dirty/leftover .tmp/rrg-dash is wiped,
+    # including read-only .git/objects debris a plain rmtree can't remove.
     if CLONE_DIR.exists():
-        shutil.rmtree(CLONE_DIR, ignore_errors=True)
+        _force_rmtree(CLONE_DIR)
     CLONE_DIR.parent.mkdir(parents=True, exist_ok=True)
     proc = _run(["git", "clone", "--depth", "1", REMOTE_URL,
                  str(CLONE_DIR)], timeout=600)
@@ -515,7 +545,7 @@ def publish(dry_run: bool = False) -> int:
               f"({commit_sha})")
         return 0
     finally:
-        shutil.rmtree(CLONE_DIR, ignore_errors=True)
+        _force_rmtree(CLONE_DIR)
 
 
 # ------------------------------------------------------------------
