@@ -6257,3 +6257,34 @@ Evidence map:
     "output": ""
   }
 ]
+[2026-11-17T10:55:00] [ORCHESTRATOR] OPS — poll_tasks.py verify timeout 300s -> 900s (executor caveat from RRG-AUTO-T4: full suite ~240-310s under load was timing out AC checks; orchestrator-editable task-management script).
+
+[2026-11-17T11:05:00+00:00] [CHALLENGER-C] RRG-AUTO-T4 independent adversarial review -> APPROVED (HEAD 87950a2; impl 961a4f2..87950a2). Trusted nothing — re-ran every AC + 5 adversarial probes on _force_rmtree + both call-site replacements + the e2e pre-clone-wipe test.
+
+AC RE-RUN (all green, exit codes captured directly):
+- RA4-AC1 focused: python -m pytest tests/test_rrg_weekly_pipeline.py -q -> 59 passed in 0.53s, exit 0.
+- RA4-AC3 loops: python scripts/check_loops.py --src-dir src -> "No unjustified loops found. (17 files checked)" exit 0.
+- RA4-AC4 publish dry-run: python scripts/rrg_weekly_pipeline.py --publish --dry-run -> exit 0, 29 publishable incl. weekly_summary.md + report_index.md, plan-only (no clone/push).
+- (AC2 full suite not re-run by C; B's 2113/2113 evidence accepted — focused run already covers the 5 new TestForceRmtree tests, all PASS standalone.)
+
+FREE-TEXT CRITERIA (independently verified):
+- BOTH call sites replaced: grep shutil\.rmtree|ignore_errors in scripts/rrg_weekly_pipeline.py -> only the docstring mention of the old ignore_errors=True (line 288) + the single shutil.rmtree(path, onexc=_writable_retry) inside _force_rmtree (line 306). Pre-clone wipe (line 480) and finally cleanup (line 548) both call _force_rmtree(CLONE_DIR). No plain rmtree on CLONE_DIR remains.
+- onexc handler correctness (lines 298-303): signature (func, p, exc) matches py3.12 onexc(func, path, excinfo) — third param is excinfo tuple, handler doesn't inspect it (cosmetic name only). Handler does os.chmod(p, stat.S_IWRITE); func(p) — the canonical Python-docs retry pattern. Inner except OSError: pass swallows retry failures so rmtree keeps going; outer except Exception (line 307) catches any non-OSError that escapes onexc and warns on stderr — publish flow never crashes on cleanup.
+- Real-world debris gone: ls .tmp/ shows only verify_t3.log (a pre-existing T3 artifact, not rra-dash); .tmp/rra-dash does not exist. AC "remove the current debris" satisfied.
+- e2e test exercises wipe-before-clone: test_publish_preclone_wipe_clears_readonly_debris (test lines 534-581) creates read-only clone/.git/objects/ab/pack-readonly, monkeypatches CLONE_DIR, runs publish(dry_run=False) with faked _run/_git. The fake `git clone` asserts `not dest.exists() or not any(dest.iterdir())` — i.e. the pre-clone wipe (line 479-480) MUST have cleared the read-only debris before clone runs. Finally-cleanup asserted too (`not clone.exists()` post-publish). Test PASSED standalone.
+
+ADVERSARIAL PROBES:
+- PROBE1 (read-only dir entry): test_nested_readonly_dirs_and_files makes a leaf directory S_IREAD-only; _force_rmtree removes it. Confirms S_IWRITE alone suffices to rmdir a read-only dir on Windows (the +S_IEXEC concern is POSIX-specific; this project is Windows-only — C:\Intel paths, Windows scheduled tasks).
+- PROBE2 (genuinely undeletable, e.g. open handle): onexc swallows the OSError on retry failure, rmtree continues, outer except warns. CLONE_DIR may still exist with residual debris -> next `git clone` exits 128 -> publish returns 1 with toast. Same observable failure as the 09:58 incident but now NON-SILENT (WARNING on stderr + clone-failed toast). Matches AC "warn-not-silent is fine". Not a regression vs. the old silent ignore.
+- PROBE3 (missing dir): test_missing_dir_is_noop passes; the `if not path.exists(): return` guard (line 295) handles it.
+- PROBE4 (normal tree): test_normal_tree_removed passes; no behavior change vs. plain rmtree for non-readonly trees.
+- PROBE5 (e2e wipe ordering): the fake `git clone` would hard-fail the test if debris survived the wipe — test passes, proving the wipe runs BEFORE clone and is effective.
+
+NON-BLOCKING observations (for the record, NOT a re-open):
+- N1 (LOW, platform): onexc sets only S_IWRITE, not S_IWRITE|S_IEXEC. On POSIX, removing a read-only directory needs +x on the dir. This project is Windows-only (paths, scheduled tasks, the incident was Windows .git/objects read-only files), and the test confirms S_IWRITE suffices on Windows. Non-blocking; would matter only if the pipeline ever runs on POSIX.
+- N2 (INFO): onexc third param named `exc` but is `excinfo` (a type/value/tb tuple). Handler doesn't inspect it — purely cosmetic. Non-blocking.
+- N3 (INFO): A genuinely undeletable file (open handle, AV lock) still breaks the NEXT publish's clone — the fix makes the failure non-silent (WARNING + toast), not impossible. Matches the AC's "warn-not-silent is fine" wording. The residual-debris case is strictly better than the old silent ignore_errors (which left no trace). Non-blocking.
+
+Scope: delta (961a4f2..87950a2) = scripts/rrg_weekly_pipeline.py + tests/test_rrg_weekly_pipeline.py + blackboard; no src/ edits, no out-of-scope. Working tree clean post-verification.
+
+Verdict: APPROVED. Next: Critic D final acceptance verification; then Friday 22:15 scheduled run validates end-to-end live.
