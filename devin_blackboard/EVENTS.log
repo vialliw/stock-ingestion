@@ -6187,3 +6187,6 @@ No blockers. Reporting to orchestrator — task status already done; awaiting or
 
 [2026-11-17T09:58:00.258680+00:00] [RRG-WEEKLY] publish clone FAILED -> git clone failed (exit 128): fatal: destination path 'B:\projects\stock-ingestion\.tmp\rra-dash' already exists and is not an empty directory.
 [2026-11-17T09:58:12.777375+00:00] [RRG-WEEKLY] published 29 file(s) -> https://github.com/vialliw/Relative-Rotation-Analysis-Dashboard/report (commit 70a37ee); skipped 0 unenriched
+[2026-11-17T10:20:00] [ORCHESTRATOR] INCIDENT — RRG-WEEKLY publish clone FAILED toast (user-reported). Root cause PROVEN: both shutil.rmtree(CLONE_DIR, ignore_errors=True) sites (pre-clone wipe + finally cleanup) cannot delete Windows read-only .git/objects files (attrib verified 'A R' on leftover .tmp/rra-dash/.git/objects). Debris from the 09:29 publish (fea8afa) survived cleanup -> 09:58:00 pre-clone wipe silently failed -> clone exit 128 'already exists and is not empty' -> toast. 09:58:12 retry succeeded after manual wipe (publish 70a37ee) but left fresh debris -> next scheduled run (Fri 22:15) WILL fail the same way. Filed RRG-AUTO-T4 (readonly-aware removal helper + readonly-debris regression test + debris removal).
+
+[2026-11-17T10:05:50.753983+00:00] [EXECUTOR] claimed RRG-AUTO-T4

@@ -5025,5 +5025,60 @@
         "text": "A3 (LOW): CLI rejects combining --all with --generate/--publish (mutually exclusive or explicit error); --all remains the default when no phase flag given"
       }
     ]
+  },
+  {
+    "id": "RRG-AUTO-T4",
+    "title": "Fix self-poisoning clone cleanup — shutil.rmtree fails on read-only .git/objects (Windows), debris breaks next publish",
+    "role": "executor",
+    "model": "swe",
+    "status": "in_progress",
+    "assigned_to": "B",
+    "depends_on": [
+      "RRG-AUTO-T3"
+    ],
+    "input_files": [
+      "/scripts/rrg_weekly_pipeline.py",
+      "/tests/test_rrg_weekly_pipeline.py",
+      "/devin_blackboard/EVENTS.log"
+    ],
+    "output_files": [
+      "/scripts/rrg_weekly_pipeline.py",
+      "/tests/test_rrg_weekly_pipeline.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "RA4-AC1",
+        "check": "focused tests",
+        "command": "python -m pytest tests/test_rrg_weekly_pipeline.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "RA4-AC2",
+        "check": "full suite green",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "RA4-AC3",
+        "check": "loop checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "RA4-AC4",
+        "check": "publish dry-run",
+        "command": "python scripts/rrg_weekly_pipeline.py --publish --dry-run",
+        "expected_exit": 0
+      },
+      {
+        "text": "Both shutil.rmtree(CLONE_DIR, ignore_errors=True) sites (pre-clone wipe ~line 450 and finally-cleanup ~line 518) replaced by a readonly-aware removal helper (chmod S_IWRITE + retry via onexc handler — Python 3.12) or equivalent; evidence that a .git-style read-only tree is fully removed"
+      },
+      {
+        "text": "New test: creates a directory tree containing read-only files (os.chmod S_IREAD), runs the removal helper, asserts tree is gone — proves the failure mode from 2026-11-17 09:58 toast cannot recur"
+      },
+      {
+        "text": "Remove the current debris: .tmp/rra-dash (contains leftover read-only .git/objects) is deleted as part of verification"
+      }
+    ]
   }
 ]
