@@ -24,6 +24,7 @@ A quantitative stock-data ingestion service that centralizes daily equity data f
   - [Interactive Report App (Streamlit)](#interactive-report-app-streamlit)
   - [Market Breadth Dashboard](#market-breadth-dashboard)
   - [RRG Dashboard](#rrg-dashboard)
+  - [Weekly RRA Pipeline (Automated)](#weekly-rra-pipeline-automated)
 - [Database Schema](#database-schema)
 - [Testing](#testing)
 - [Loop Checker](#loop-checker)
@@ -973,6 +974,18 @@ Output per preset: **`<prefix>.html`** and **`<prefix>_analysis_prompt.json`** w
 **Historical (as-of) runs.** `--as-of YYYY-MM-DD` (alias `--date`) sets an inclusive observation-date cutoff: the `weekly_close` query gains a `Date <= <cutoff>` bound (with the lookback measured backwards from the cutoff instead of today) and rows outside the window are re-filtered defensively in memory. `--json-only` writes the JSON payload without building the animated HTML. Historical artifacts are date-stamped — **`<prefix>_<YYYY-MM-DD>.html`** and **`<prefix>_<YYYY-MM-DD>_analysis_prompt.json`** — so they never overwrite the latest-data outputs. In the payload, `market_snapshot.analysis_date` is the actual last valid weekly observation on or before the cutoff (it may precede the requested date — a mid-week cutoff lands on the prior Friday), while `market_snapshot.requested_as_of_date` records the requested cutoff and `market_snapshot.historical_reconstruction` is `true`; none of those fields appear in a default latest-data payload. Historical runs require at least **12 complete (valid) RRG weeks** on or before the cutoff — the JSON's 12-week persistence metrics cannot be computed honestly with fewer — and fail without writing output when that minimum is not met. The Streamlit "Relative Rotation (RRG)" tab exposes the same feature via a "Historical snapshot (as-of)" checkbox + date picker in its Parameters expander (captioned with the actual last valid weekly date, a warning under 12 weeks, the same injected JSON fields, and a `_{YYYY-MM-DD}` download filename).
 
 **Limitation:** an as-of run is a reconstruction from the *currently persisted* `weekly_close` table only — it is not point-in-time vendor data. It does not reconstruct past raw vendor revisions, delisted constituents that are absent from today's ticker presets, split-adjustment knowledge, or any other historical state not retained in `weekly_close`.
+
+### Weekly RRA Pipeline (Automated)
+
+`scripts/rrg_weekly_pipeline.py` automates the deterministic halves of the weekly RRA report cycle that publishes `docs/rrg/` analyses to the [Relative-Rotation-Analysis-Dashboard](https://github.com/vialliw/Relative-Rotation-Analysis-Dashboard) repo's `report/` folder. Subcommands: `--generate` / `--publish` / `--all` (default) / `--dry-run`; `scripts/rrg_weekly_pipeline.bat` is the double-clickable wrapper. It runs unattended via the `StockIngestion-RRGWeekly` scheduled task — **Fri 22:15** (after the 21:30 daily load and its weekly-layer refresh) plus **Sat/Sun 09:00** publish retries, `StartWhenAvailable`, `pythonw.exe` (no console window). Registration: `scripts/register_rrg_weekly.ps1`.
+
+The weekly rhythm is semi-automated — generation and publishing are automatic; the analytical narrative is enriched manually:
+
+1. **Friday ~22:15 — auto-generate.** Resolves last-Friday `as_of`, calls `generate_rrg_dashboard(ETFs, json_only)` → `docs/rrg/*_YYYY-MM-DD_analysis_prompt.json`, then drafts `*_analysis_report.md` via `analyze_rra.py` — **only if the report doesn't already exist** (existing files, draft or enriched, are never overwritten). Writes `docs/rrg/.rrg_pipeline_state.json` recording what is pending enrichment. Nothing is published at this point.
+2. **Manual — enrich when convenient.** Open a Devin session and run the `analyze_rra` / `summarize_rra` skills on the new draft: `> Weekly read:` / `> Read:` commentary per section, a `**Net call:**` under portfolio tilts, and refresh `weekly_summary.md` (new row + arc recap). The state file shows exactly what's pending.
+3. **Auto-publish (gated).** The next trigger — or a manual `--publish` — ships only enriched artifacts: dated reports must contain the `> Weekly read:`/`> Read:` and `**Net call:**` markers, and `weekly_summary.md` must be free of `TODO`/`<!-- missing` draft placeholders. Passing files are mirror-synced to the remote `report/` folder and pushed as a `devin-ai-integration[bot]` commit; the remote `auto_index` action then regenerates `REPORT_INDEX.md`. Unenriched drafts simply wait — a half-finished report can never ship.
+
+Fully idempotent: if Friday's load failed or the PC was off, `as_of` snaps to the prior week's bar and the run no-ops; the next good week self-heals. Holiday-shortened weeks resolve to the Thursday bar automatically.
 
 ---
 
