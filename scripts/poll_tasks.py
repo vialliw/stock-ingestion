@@ -379,7 +379,7 @@ def verify_criteria(criteria_list):
 
         try:
             result = subprocess.run(
-                command, shell=True, capture_output=True, text=True, timeout=300
+                command, shell=True, capture_output=True, text=True, timeout=900
             )
             actual_exit = result.returncode
             output = result.stdout + result.stderr
