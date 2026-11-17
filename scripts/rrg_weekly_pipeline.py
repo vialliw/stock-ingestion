@@ -1,14 +1,14 @@
-"""rrg_weekly_pipeline.py — deterministic halves of the weekly RRG
+"""rrg_weekly_pipeline.py — deterministic halves of the weekly RRA
 report workflow (design: docs/enhancements/rrg_weekly_automation_design.md).
 
 Phase A ``--generate``
     Resolve ``as_of`` = last Friday, call
     ``rrg_dashboard.generate_rrg_dashboard(config, "ETFs", as_of=as_of,
-    json_only=True, output_dir="docs/rrg")``, draft the dated analysis
-    report via ``.devin/skills/analyze_rrg/analyze_rrg.py`` ONLY when the
-    report file is absent, create ``docs/rrg/weekly_summary.md`` via
-    ``.devin/skills/summarize_rrg/summarize_rrg.py`` ONLY when absent,
-    and write ``docs/rrg/.rrg_pipeline_state.json``.
+    json_only=True, output_dir="docs/rra")``, draft the dated analysis
+    report via ``.devin/skills/analyze_rra/analyze_rra.py`` ONLY when the
+    report file is absent, create ``docs/rra/weekly_summary.md`` via
+    ``.devin/skills/summarize_rra/summarize_rra.py`` ONLY when absent,
+    and write ``docs/rra/.rrg_pipeline_state.json``.
 
 Phase B — manual enrichment in a Devin session (unchanged; this script
     never writes ``> Read:`` / ``**Net call:**`` narrative).
@@ -20,7 +20,7 @@ Phase C ``--publish``
     placeholders — no ``TODO`` tokens, no ``<!-- missing`` markers),
     preflight
     ``git ls-remote``, clone into ``.tmp/rrg-dash``, mirror-sync
-    ``docs/rrg/*.md`` -> ``report/`` (json never synced), commit as
+    ``docs/rra/*.md`` -> ``report/`` (json never synced), commit as
     ``devin-ai-integration[bot]``, push only on diff, cleanup, EVENTS.log
     entry, toast via ``scripts/notify_done.ps1`` only when published.
 
@@ -52,12 +52,12 @@ for _p in (str(_REPO_ROOT), str(_SCRIPTS_DIR)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-DOCS_RRG = _REPO_ROOT / "docs" / "rrg"
+DOCS_RRG = _REPO_ROOT / "docs" / "rra"
 STATE_FILE = DOCS_RRG / ".rrg_pipeline_state.json"
-ANALYZE_SCRIPT = _REPO_ROOT / ".devin" / "skills" / "analyze_rrg" / "analyze_rrg.py"
-SUMMARIZE_SCRIPT = _REPO_ROOT / ".devin" / "skills" / "summarize_rrg" / "summarize_rrg.py"
+ANALYZE_SCRIPT = _REPO_ROOT / ".devin" / "skills" / "analyze_rra" / "analyze_rra.py"
+SUMMARIZE_SCRIPT = _REPO_ROOT / ".devin" / "skills" / "summarize_rra" / "summarize_rra.py"
 SUMMARY_FILE = DOCS_RRG / "weekly_summary.md"
-CLONE_DIR = _REPO_ROOT / ".tmp" / "rrg-dash"
+CLONE_DIR = _REPO_ROOT / ".tmp" / "rra-dash"
 EVENTS_LOG = _REPO_ROOT / "devin_blackboard" / "EVENTS.log"
 NOTIFY_SCRIPT = _SCRIPTS_DIR / "notify_done.ps1"
 CONFIG_PATH = _REPO_ROOT / "src" / "config.yaml"
@@ -74,7 +74,7 @@ DATED_REPORT_RE = re.compile(r"_(\d{4}-\d{2}-\d{2})_analysis_report\.md$")
 PROMPT_RE = re.compile(r"_analysis_prompt\.json$")
 WEEKLY_READ_RE = re.compile(r"^>\s*(?:Weekly read|Read):", re.MULTILINE)
 NETCALL_RE = re.compile(r"\*\*Net call:\*\*")
-# Draft placeholders emitted by summarize_rrg.py: the 'TODO(agent):' arc
+# Draft placeholders emitted by summarize_rra.py: the 'TODO(agent):' arc
 # line, 'TODO:' row placeholders, and '<!-- missing <field> -->' markers.
 TODO_RE = re.compile(r"\bTODO\b")
 MISSING_MARKER_RE = re.compile(r"<!--\s*missing")
@@ -153,7 +153,7 @@ def summary_missing_dates(summary_path: Path, dates: list[str]) -> list[str]:
 def summary_draft_markers(summary_path: Path) -> list[str]:
     """Draft placeholders found in the summary (empty list = polished).
 
-    A freshly drafted weekly_summary.md (raw summarize_rrg.py output
+    A freshly drafted weekly_summary.md (raw summarize_rra.py output
     before the manual enrich pass) carries 'TODO(agent):' on the arc
     line, 'TODO:' row placeholders, and/or '<!-- missing ... -->'
     markers.  Any of them means the file must never be published.
@@ -245,7 +245,7 @@ def log_event(text: str) -> None:
         print(f"WARNING: could not append EVENTS.log: {exc}", file=sys.stderr)
 
 
-def toast(message: str, title: str = "RRG weekly pipeline") -> None:
+def toast(message: str, title: str = "RRA weekly pipeline") -> None:
     """Windows toast via scripts/notify_done.ps1 (registered AUMID).
 
     Failures are reported on stderr but never raise — a notification
@@ -300,16 +300,16 @@ def generate(dry_run: bool = False,
         print(f"[dry-run] as_of (last Friday) = {as_of.isoformat()}")
         print(f"[dry-run] would call generate_rrg_dashboard(config, "
               f"{PRESET_NAME!r}, as_of={as_of.isoformat()}, json_only=True, "
-              f"output_dir='docs/rrg') -> {prompt_name}")
+              f"output_dir='docs/rra') -> {prompt_name}")
         if report_path.exists():
             state = "exists " + ("(enriched — leave untouched)"
                                  if report_is_enriched(report_path)
                                  else "(draft — needs enrichment, leave untouched)")
         else:
-            state = "absent — would run analyze_rrg.py draft"
+            state = "absent — would run analyze_rra.py draft"
         print(f"[dry-run] report {report_name}: {state}")
         print(f"[dry-run] weekly_summary.md: "
-              f"{'exists — leave untouched' if SUMMARY_FILE.exists() else 'absent — would run summarize_rrg.py --out'}")
+              f"{'exists — leave untouched' if SUMMARY_FILE.exists() else 'absent — would run summarize_rra.py --out'}")
         print(f"[dry-run] would write state file {STATE_FILE.name}")
         print("[dry-run] no files written, no subprocesses run")
         return plan
@@ -338,7 +338,7 @@ def generate(dry_run: bool = False,
                      "--out", str(report_path)], cwd=_REPO_ROOT)
         if proc.returncode != 0:
             raise RuntimeError(
-                f"analyze_rrg.py failed (exit {proc.returncode}): "
+                f"analyze_rra.py failed (exit {proc.returncode}): "
                 f"{(proc.stderr or "").strip()[:400]}")
         report_action = "drafted_needs_enrichment"
 
@@ -351,7 +351,7 @@ def generate(dry_run: bool = False,
                      "--out", str(SUMMARY_FILE)], cwd=_REPO_ROOT)
         if proc.returncode != 0:
             raise RuntimeError(
-                f"summarize_rrg.py failed (exit {proc.returncode}): "
+                f"summarize_rra.py failed (exit {proc.returncode}): "
                 f"{(proc.stderr or "").strip()[:400]}")
         summary_action = "drafted"
 
@@ -406,7 +406,7 @@ def publish(dry_run: bool = False) -> int:
             print(f"[dry-run] would ship report/{name}")
         print("[dry-run] would preflight: git ls-remote " + REMOTE_URL)
         print(f"[dry-run] would wipe+clone {REMOTE_URL} -> {CLONE_DIR}")
-        print("[dry-run] would mirror-sync docs/rrg/*.md -> report/ "
+        print("[dry-run] would mirror-sync docs/rra/*.md -> report/ "
               "(.json never synced; remote-only .md deleted), "
               "commit as devin-ai-integration[bot], push only on diff")
         print("[dry-run] no clone, no push, no files changed")
@@ -425,7 +425,7 @@ def publish(dry_run: bool = False) -> int:
                f"(exit {proc.returncode}): {(proc.stderr or "").strip()[:300]}")
         print(f"publish FAILED: {msg}", file=sys.stderr)
         log_event(f"[RRG-WEEKLY] publish preflight FAILED -> {msg}")
-        toast(f"RRG publish preflight failed: {msg[:120]}")
+        toast(f"RRA publish preflight failed: {msg[:120]}")
         return 1
 
     # Fresh clone each run — a dirty/leftover .tmp/rrg-dash is wiped.
@@ -438,7 +438,7 @@ def publish(dry_run: bool = False) -> int:
         msg = f"git clone failed (exit {proc.returncode}): {(proc.stderr or "").strip()[:300]}"
         print(f"publish FAILED: {msg}", file=sys.stderr)
         log_event(f"[RRG-WEEKLY] publish clone FAILED -> {msg}")
-        toast(f"RRG publish clone failed: {msg[:120]}")
+        toast(f"RRA publish clone failed: {msg[:120]}")
         return 1
 
     pushed = 0
@@ -473,7 +473,7 @@ def publish(dry_run: bool = False) -> int:
             "-c", f"user.name={GIT_AUTHOR_NAME}",
             "-c", f"user.email={GIT_AUTHOR_EMAIL}",
             "commit", "-m",
-            f"Weekly RRG report sync ({msg_date}) — {len(plan['publish'])} file(s)")
+            f"Weekly RRA report sync ({msg_date}) — {len(plan['publish'])} file(s)")
         if commit.returncode != 0:
             raise RuntimeError(
                 f"git commit failed: {(commit.stderr or "").strip()[:300]}")
@@ -483,7 +483,7 @@ def publish(dry_run: bool = False) -> int:
             msg = f"git push failed (exit {push.returncode}): {(push.stderr or "").strip()[:300]}"
             print(f"publish FAILED: {msg}", file=sys.stderr)
             log_event(f"[RRG-WEEKLY] publish push FAILED -> {msg}")
-            toast(f"RRG publish push failed: {msg[:120]}")
+            toast(f"RRA publish push failed: {msg[:120]}")
             return 1
 
         commit_sha = (_git(CLONE_DIR, "rev-parse", "--short", "HEAD")
@@ -494,7 +494,7 @@ def publish(dry_run: bool = False) -> int:
         log_event(f"[RRG-WEEKLY] published {pushed} file(s) -> "
                   f"{REMOTE_URL}/report (commit {commit_sha}); "
                   f"skipped {len(plan['skip'])} unenriched")
-        toast(f"RRG weekly publish: {pushed} file(s) -> report/ "
+        toast(f"RRA weekly publish: {pushed} file(s) -> report/ "
               f"({commit_sha})")
         return 0
     finally:

@@ -9,7 +9,7 @@
     present) so no console window pops up in the interactive session —
     same convention as StockInestion-DailyLoad.  Phase A generates the
     Friday-dated prompt JSON + draft report + draft summary; Phase C
-    mirror-publishes enriched docs/rrg/*.md to
+    mirror-publishes enriched docs/rra/*.md to
     vialliw/Relative-Rotation-Analysis-Dashboard:report/
     (docs/enhancements/rrg_weekly_automation_design.md).
 
@@ -136,7 +136,7 @@ $settings = New-ScheduledTaskSettingsSet `
     -DontStopIfGoingOnBatteries
 
 # Per design: user / Interactive / Limited — the pipeline writes only
-# user-owned paths (docs/rrg, .tmp, devin_blackboard) and pushes via the
+# user-owned paths (docs/rra, .tmp, devin_blackboard) and pushes via the
 # user's git credentials; it must be visible in Task Scheduler without
 # elevation and needs no admin rights.  Runs only while that user is
 # logged on (StartWhenAvailable still catches missed runs).

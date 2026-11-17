@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-16 (RRG weekly automation cycle COMPLETE — pipeline live Fri 22:15 + Sat/Sun 09:00; EWTX silent-drop pending)
+Last Updated: 2026-11-17 (remote REPORT_INDEX.md reformatted — As of column + newest-first sort)
 Current Branch: main
 
 ## RRG-AUTO-T3 — Critic D final verification: PASS (2026-11-16)

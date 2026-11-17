@@ -1,6 +1,6 @@
 """
 =============================================================================
-RELATIVE ROTATION GRAPH (RRG) DASHBOARD GENERATOR (stock-ingestion port)
+RELATIVE ROTATION ANALYSIS (RRA) DASHBOARD GENERATOR (stock-ingestion port)
 =============================================================================
 
 Flight-sourced port of the legacy
@@ -621,7 +621,7 @@ def gen_ai_prompt(clean_ratio, clean_momo, benchmark="SPY"):
     # 2. Define the Institutional Prompt Wrapper
     full_payload = {
         "system_prompt": "You are an institutional market technician specializing in relative rotation analysis, sector rotation, and momentum regimes.",
-        "analysis_query": "Analyze the RRG data to identify consistent leaders, high-velocity improvers, decaying momentum, and actionable portfolio tilts.",
+        "analysis_query": "Analyze the RRA data to identify consistent leaders, high-velocity improvers, decaying momentum, and actionable portfolio tilts.",
         "instructions": {
             "focus_priority": ["leadership_regime", "improving_trends", "weakening_momentum", "velocity_analysis"],
             "interpretation_rules": {
@@ -656,7 +656,7 @@ def export_rotation_summary(clean_ratio, clean_momo, output_path, dashboard_pref
     tickers = clean_ratio.columns
     lookback = 12  # Approximately 3 months of weekly data
 
-    summary = [f"RRG_SUMMARY|DATE:{latest_date}|LOOKBACK:12W"]
+    summary = [f"RRA_SUMMARY|DATE:{latest_date}|LOOKBACK:12W"]
     summary.append("TICKER|QUAD|RATIO|MOMENTUM|VELOCITY_1WEEK|ANGLE|LEAD_WEEKS|LAG_WEEKS")
 
     # justified: one pipe-delimited line per ticker — per-column string
@@ -689,7 +689,7 @@ def export_rotation_summary(clean_ratio, clean_momo, output_path, dashboard_pref
         summary.append(f"{t}|{quad}|{r_curr:.2f}|{m_curr:.2f}|{velocity:.2f}|{angle:.0f}|{lead_wks}|{lag_wks}")
 
     SUMMARY_TEXT = "\n".join(summary)
-    PROMPT = "Act as a Market Technician. Analyze these 12 weeks ofRRG stats. Identify consistent leaders (high LEAD_WEEKS), high-velocity improvers, and decaying momentum in WEAK/LAG; Summarize the groups belonging to Leadership Regime, Secondary Strength, Improving, and Avoid / Underweight; Suggest Actionable Technician’s Framework (Core overweight, Tactical adds, Fade / hedge, Risk signal); Rank best LEAD entries vs late-cycle exhaustion risks; Translate into portfolio tilt recommendations (risk-on vs defensive)."
+    PROMPT = "Act as a Market Technician. Analyze these 12 weeks of RRA stats. Identify consistent leaders (high LEAD_WEEKS), high-velocity improvers, and decaying momentum in WEAK/LAG; Summarize the groups belonging to Leadership Regime, Secondary Strength, Improving, and Avoid / Underweight; Suggest Actionable Technician’s Framework (Core overweight, Tactical adds, Fade / hedge, Risk signal); Rank best LEAD entries vs late-cycle exhaustion risks; Translate into portfolio tilt recommendations (risk-on vs defensive)."
 
     with open(f'{output_path}{os.sep}{dashboard_prefix}.txt', "w") as f:
         f.write(f"{PROMPT}\n\n{SUMMARY_TEXT}")
