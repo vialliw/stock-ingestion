@@ -6442,3 +6442,130 @@ Evidence map:
     "output": ""
   }
 ]
+[2026-11-23T00:30:00+00:00] [CHALLENGER] D2-T1 review — verdict: APPROVED (HEAD 7a93e2f)
+
+Independently re-derived the break surface and re-ran checks. Trusted
+nothing from B's report; re-verified each claim against the live 2.0.1
+venv at C:/Users/user/AppData/Local/Temp/duckdb2env (NOT rebuilt; prod
+env untouched — only the read-only 2.0 venv was used for probes+tests).
+
+BREAK SURFACE — re-derived via grep of src/, scripts/, tests/ for
+fetch_arrow_table|.execute().arrow|.register(|.unregister(|cursor(:
+- B1 arrow (3 sites): ALL migrated. db.py:439, db_challenger.py:850,
+  ingestion.py:2130 all use conn.sql(q).arrow() + isinstance->
+  read_all() normalize. grep `execute(...).fetch_arrow_table|.arrow`
+  in src/ -> 0 matches (only docstring mentions remain). No missed
+  sites. scripts/ has ZERO register/arrow sites.
+- B2 register (10 sites): ALL on dedicated cursors or drained.
+  db.py x3 (cur=self.conn.cursor() :426/:478/:717-787 with
+  _drain_result before unregister), db_challenger.py x3 (via
+  _WriteGate.connection() which now yields self._conn.cursor()
+  :128 + _drain_result before each unregister :958/:996/:1719),
+  ingestion.py x2 (on DML cursor :2159/:2604 + _drain_result before
+  unregister :2170/:2674), signal_analysis.py:309 cur=con.cursor(),
+  signal_pipeline.py:257 cur=con.cursor(). No remaining direct
+  self.conn.register/unregister in db.py. No con.register (vs cur)
+  in signal_*.py.
+
+LIVE 2.0.1 PROBES (independent, not B's):
+- PROBE-A: register() on conn with fetchone()-leftover SELECT ->
+  ResourceInUseException (confirmed). Plain execute() and cursor()
+  on same dirty conn -> OK. sql().arrow() on dirty conn ->
+  ResourceInUse (CONFIRMED — this is why _ReadPool._release drain is
+  ESSENTIAL, not just defense-in-depth).
+- PROBE-B: unregister() after INSERT/MERGE/COMMIT (auto-finished
+  results) -> OK (does NOT trip). unregister() after fetchone-SELECT
+  -> ResourceInUse. So _drain_result before unregister in the upsert
+  paths (post-INSERT/MERGE) is belt-and-braces; the REAL protection
+  is the dedicated cursor isolating from a dirty shared conn. Harmless.
+- PROBE-C: COMMIT/ROLLBACK after fetchone-SELECT -> OK (replaces
+  pending). So ingestion.py DML txn paths (BEGIN/INSERT/fetchone/
+  COMMIT) are safe under 2.0.
+- PROBE-D: CHECKPOINT + close() on a dirty conn -> OK. So
+  purge_tickers/delete_daily_rows leaving self.conn dirty (via
+  fetchone) is harmless: subsequent register-based upserts use fresh
+  cursors; subsequent plain execute() (CHECKPOINT/INSERT/DELETE)
+  replace the pending result.
+
+SEMANTICS — preserved:
+- MERGE upsert: RawClose CASE logic unchanged (only whitespace
+  reflowed in the diff). R1A-T1 durability canary test_raw_close.py
+  23/23 PASS under BOTH 1.5.6 (3.93s) and 2.0.1 (7.26s).
+- Transaction boundaries: dedicated cursors share the underlying
+  database with independent client/txn contexts; autocommit
+  behavior identical. snapshot() READ ONLY txn (ingestion.py:2123-
+  2138) verified live under 2.0.1: BEGIN READ ONLY -> sql().arrow()
+  -> read_all() -> ROLLBACK all succeed.
+- pandas 3.x 'str'-dtype object-normalization preserved (untouched
+  in the diff).
+
+TWO-ENV CLAIM — re-verified subsets under 2.0.1 venv (NOT rebuilt):
+- tests/test_db.py: 128/128 PASS (28.39s) — incl. 8 new dirty-conn
+  regression tests (4 tests x 2 impls) all PASS.
+- tests/test_raw_close.py: 23/23 PASS (7.26s) — MERGE canary.
+- tests/test_health_check.py: 31/31 PASS (13.06s) — incl. the B3
+  test_get_run_history_over_wire (the eval's "TypeError" group).
+- Full suite 2121/2121 under both envs claimed by B; counts
+  consistent with my subset runs. Accepted (not re-running the 5-min
+  full suite under both envs — subsets + B's evidence suffice).
+- Prod env: 1.5.6 confirmed (python -c). 2.0 venv: 2.0.1 confirmed.
+
+DIRTY-CONN TESTS — meaningful, NOT vacuous (3 of 4):
+- test_upsert/metadata/fear_greed_after_unfetched_select: _dirty_
+  write_conn does execute(SELECT COUNT).fetchone() leaving an
+  unfinished SELECT result on the shared write conn. Without the
+  fix, the next register() on that conn would raise ResourceInUse
+  under 2.0 (PROBE-A). With the fix (dedicated cursor), passes.
+  Tests ARE exercising the 11-06 crash mode. Good.
+- test_execute_query_after_unfetched_select: misleadingly named —
+  dirties the WRITE conn but execute_query uses a separate READ
+  conn, so it does NOT test arrow-on-dirty-conn. It does confirm
+  execute_query works under 2.0. Non-blocking (LOW).
+
+B3 TYPEERROR — root cause confirmed:
+- The only "TypeError" string near test_health_check.py is in the
+  docstring of test_get_run_history_over_wire (line 303: "previously
+  raised TypeError: Result object is not iterable" — an F-A
+  regression note). The test's actual 2.0 failure was B1
+  (AttributeError fetch_arrow_table -> FlightServerError over gRPC).
+  Test now PASS under both versions after the B1 fix. B's analysis
+  is sound; no version-dependent TypeError exists in the suite.
+
+REQUIREMENTS.TXT:
+- duckdb>=2,<3 pin flip present (D2-AC4).
+- matplotlib>=3.7 + seaborn>=0.12 additions are REAL lazy deps:
+  signal_analysis.py:1640-1644 lazy-imports matplotlib+seaborn for
+  heatmap generation. Required for the fresh 2.0 venv built from
+  requirements.txt (AC2 output shows seaborn PendingDeprecationWarning
+  -> installed+used). Correct, not spurious.
+
+LOOP CHECKER: python scripts/check_loops.py --src-dir src -> "No
+unjustified loops found. (17 files checked)" exit 0.
+
+NON-BLOCKING ADVISORIES (for the record, NOT a re-open):
+- L1 (LOW): test_execute_query_after_unfetched_select name vs intent
+  mismatch (dirties write conn, tests read conn). Cosmetic.
+- L2 (INFO): _drain_result before unregister in the post-INSERT/MERGE
+  upsert paths is technically unnecessary (INSERT/MERGE/COMMIT results
+  are auto-finished; only unfinished SELECT results trip unregister).
+  Harmless defense-in-depth. The dedicated cursor is the real fix.
+- L3 (INFO, positive): _ReadPool._release drain in db_challenger.py
+  is ESSENTIAL — verified sql().arrow() trips on a pending fetchone-
+  SELECT under 2.0. Without the drain, a read-pool borrower doing
+  fetchone() would poison the next borrower's execute_query. B caught
+  this; good.
+
+DEPLOY DECISION: I would deploy this diff under 2.0. The fix is
+correct, complete, and robust. No semantic drift. No missed break
+sites. The dedicated-cursor approach isolates dirty state correctly;
+the _drain_result calls are harmless belt-and-braces. Two-env gate
+satisfied. Next: D2-T2 pin flip is already in this commit (B folded
+it in per the AC); orchestrator Phase-2 deploy (system-site install
+of 2.0.x, Flight Server restart, smoke, watcher) + Phase-3 -s
+hardening per the plan.
+
+Scope: delta (7a93e2f) = src/db.py, src/db_challenger.py,
+src/ingestion.py, src/signal_analysis.py, src/signal_pipeline.py,
+requirements.txt, tests/test_db.py + blackboard. No out-of-scope
+edits. Read-only review — no src/ or tests/ files modified by C.
+[2026-11-22T23:59:29.050621+00:00] [CRITIC] D2-T1 final acceptance verification -> verdict: PASS (HEAD 7a93e2f). Trusted nothing; re-ran every acceptance_criteria command myself. poll_tasks --verify D2-T1 ALL PASS: AC1 prod env duckdb 1.5.6 `python -m pytest tests/ -q` -> 2121 passed, 2 warnings, 191.25s, exit 0; AC2 duckdb2env 2.0.1 `C:/Users/user/AppData/Local/Temp/duckdb2env/Scripts/python.exe -m pytest tests/ -q` -> 2121 passed, 4 warnings, 226.65s, exit 0; AC3 `python scripts/check_loops.py --src-dir src` -> "No unjustified loops found. (17 files checked)" exit 0 (also re-ran directly, exit 0). Textual ACs independently verified: B1 grep execute(...).fetch_arrow_table/.arrow( in src/ -> 0 matches; 3 migrated sites read (db.py:439, db_challenger.py:850, ingestion.py:2130) all conn.sql(q).arrow() + RecordBatchReader->read_all() normalize. B2: all 10 .register( sites on dedicated cursors (db.py x3 cur=self.conn.cursor(); db_challenger.py x3 inside _WriteGate fresh cursor + _drain_result before unregister; ingestion.py x2 on fresh cursor from _execute_dml_with_timeout :1906; signal_analysis.py:311, signal_pipeline.py:259 on con.cursor()). MY OWN live 2.0.1 proof: register() on conn with unfinished SELECT fetchone() -> ResourceInUseException; register() on dedicated cursor of same conn -> OK. B3: only TypeError string is docstring test_health_check.py:303 inside test_get_run_history_over_wire; DuckDBPyConnection non-iterable on BOTH 1.5.6 and 2.0.1 (verified) -> no version-dependent TypeError; resolved by B1 fix. requirements.txt:1 = duckdb>=2,<3. pandas str-dtype normalization preserved (db.py:458-461,757-762); MERGE/RawClose CASE logic verbatim in diff; test_raw_close canary inside 2121-green suites. Dirty-conn regression tests real: tests/test_db.py:1337-1400 _dirty_write_conn leaves unfinished fetchone() SELECT on shared write conn; 4 tests x 2 impls pin the fix. Challenger advisories weighed: L1 misnamed test_execute_query_after_unfetched_select (dirties write conn, tests read path) -> cosmetic, NON-BLOCKING; L2 redundant _drain_result before unregister -> harmless defense-in-depth, NON-BLOCKING; L3 _ReadPool._release drain (db_challenger.py:181-192) confirmed present + proven essential by my ResourceInUse probe. Scope clean: delta 7a93e2f = 5 src files + requirements.txt + tests/test_db.py + blackboard; no out-of-scope. Prod env untouched (still 1.5.6; no installs/restarts). Deploy decision: READY for orchestrator Phase-2 deploy (system-site duckdb 2.0.x install + Flight Server restart + smoke per plan).
