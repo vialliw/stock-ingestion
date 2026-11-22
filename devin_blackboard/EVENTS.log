@@ -6365,3 +6365,80 @@ PENDING USER DECISIONS: (a) config symbol swaps MGPI->CASK, PTLE->ZYN, TCBI->TXC
 [2026-11-22T22:45:00] [ORCHESTRATOR] duckdb 2.0 upgrade plan drafted -> docs/dev_plan/duckdb2_upgrade_plan.md. Basis: 11-08 eval (362/2054 fail -> 3 root causes) + live 2.0.0 probes today. Fix surface: 3 arrow sites (conn.sql().arrow() is dual-compat on 1.5.6 AND 2.0 — verified), 10 register sites (ResourceInUse on pending results -> dedicated-cursor pattern), 1 unknown TypeError. Phases: venv repro -> dual-compat code (B) -> pin flip + deploy (orchestrator) -> -s hardening. Awaiting user go-ahead to register D2 tasks.
 
 [2026-11-22T22:46:46.446394+00:00] [EXECUTOR] claimed D2-T1
+[2026-11-22T23:33:40+00:00] [EXECUTOR] D2-T1 Phase-0/Phase-1 evidence -> B1 arrow: `grep -rnE 'execute\([^)]*\)\s*\.(fetch_arrow_table|arrow)\s*\(' src/` -> 0 matches; 3 sites migrated to conn.sql(q).arrow() + isinstance RecordBatchReader->read_all() (src/db.py:439 execute_query, src/db_challenger.py:850 execute_query, src/ingestion.py:2130 DML snapshot). B2 register: all 10 .register( sites now run on dedicated cursors or drained results (db.py x3 cur=self.conn.cursor() :426/:478/:717-772; db_challenger.py x3 inside _WriteGate cursor :128-136 with _drain_result before each unregister :958/:996/:1719; ingestion.py x2 on DML cursor :2159/:2604 + _drain_result before unregister :2170/:2674; signal_analysis.py:309-319 cur=con.cursor(); signal_pipeline.py:257 cur=con.cursor()). LIVE duckdb 2.0.1 proof: conn.execute('SELECT 1') left unfetched -> con.register raises ResourceInUseException; protected DatabaseManager.upsert_dataframe on the same dirty conn -> 1 row OK. B3 TypeError root cause IDENTIFIED: the 11-08 eval's '1 TypeError' group is tests/test_health_check.py::test_get_run_history_over_wire — exact eval reproduction on commit 2bb9c12 under duckdb 2.0.0 yields 362 failed/1692 passed (2054 total, matches eval) and the ONLY 'TypeError' string in the whole traceback log is inside that test's docstring ('previously raised TypeError: Result object is not iterable' — an F-A regression note). Its actual failure is pure B1: AttributeError fetch_arrow_table -> FlightServerError over gRPC. Probed: DuckDBPyConnection is non-iterable on BOTH 1.5.6 and 2.0.0, so no version-dependent TypeError exists in the suite; the eval grouped that single test by the docstring keyword. 'Fix' = B1 fix; test now green. requirements.txt -> duckdb>=2,<3. Suites: installed duckdb 1.5.6 -> 2121 passed; duckdb2env 2.0.1 -> 2121 passed. check_loops exit 0 (17 files).
+[2026-11-22T23:46:23.919280+00:00] [EXECUTOR] completed D2-T1 -> duckdb 2.0 dual-compat complete. B1: 3 arrow sites -> conn.sql(q).arrow()+RecordBatchReader.read_all() (db.py:439, db_challenger.py:850, ingestion.py:2130); grep execute().fetch_arrow_table/.arrow in src/ -> 0. B2: all 10 register sites on dedicated cursors/drained results (db x3, db_challenger x3 via _WriteGate cursor, ingestion x2, signal_analysis x1, signal_pipeline x1); live 2.0.1 proof: raw register on dirty conn -> ResourceInUseException, protected upsert_dataframe -> 1 row OK. B3 TypeError root cause IDENTIFIED: eval-era repro on commit 2bb9c12 under duckdb 2.0.0 gives exactly 362 failed/1692 passed (2054, matches eval); the only 'TypeError' in the whole log is inside the docstring of test_health_check.py::test_get_run_history_over_wire (F-A regression note) whose actual failure is B1 AttributeError->FlightServerError; DuckDBPyConnection non-iterable on BOTH 1.5.6 and 2.0.0 so no version-dependent TypeError exists; resolved by B1 fix. requirements.txt duckdb>=2,<3 (+matplotlib/seaborn deps needed by lazy signal_analysis imports). Suites: 1.5.6 -> 2121 passed (236s); 2.0.1 -> 2121 passed (276s). check_loops exit 0. tests/test_db.py +8 dirty-conn regression tests.
+Evidence map:
+[
+  {
+    "id": "D2-AC1",
+    "check": "full suite green under installed env (duckdb 1.5.6)",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n2121 passed, 2 warnings in 257.80s (0:04:17)\n"
+  },
+  {
+    "id": "D2-AC2",
+    "check": "full suite green under duckdb 2.0 venv (created at C:/Users/user/AppData/Local/Temp/duckdb2env from the FLIPPED requirements.txt)",
+    "command": "C:/Users/user/AppData/Local/Temp/duckdb2env/Scripts/python.exe -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "r_signal_analysis\ntests/test_signal_analysis.py::TestRunSignalAnalysis::test_reports_under_report_dir_signal_analysis\n  C:\\Users\\user\\AppData\\Local\\Temp\\duckdb2env\\Lib\\site-packages\\seaborn\\matrix.py:243: PendingDeprecationWarning: The set_bad function will be deprecated in a future version. Use cmap.with_extremes(bad=...) or Colormap(bad=...) instead.\n    self.cmap.set_bad(bad)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n2121 passed, 4 warnings in 306.17s (0:05:06)\n"
+  },
+  {
+    "id": "D2-AC3",
+    "check": "loop checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

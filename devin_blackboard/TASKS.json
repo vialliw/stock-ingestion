@@ -5086,7 +5086,7 @@
     "title": "duckdb 2.0 dual-compat migration: arrow-result API, register() pending-result rule, TypeError — suite green under 1.5.6 AND 2.0.x; flip requirements pin",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "assigned_to": "B",
     "depends_on": [],
     "input_files": [

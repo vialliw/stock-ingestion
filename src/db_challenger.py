@@ -71,6 +71,21 @@ SCHEMA_VERSION = 5
 _READ_POOL_CAP = 8
 
 
+def _drain_result(con) -> None:
+    """Consume any pending result so the connection is clean for 2.0.
+
+    duckdb 2.0 raises ``ResourceInUse`` when ``register()``/
+    ``unregister()``/relation execution runs on a connection holding an
+    *unfinished* result (a SELECT never fetched to exhaustion).
+    ``fetchall()`` drains whatever is pending on both 1.x and 2.x; on a
+    finished/absent result it raises, which is harmless and ignored.
+    """
+    try:
+        con.fetchall()
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Internal collaborators
 # ---------------------------------------------------------------------------
@@ -96,9 +111,25 @@ class _WriteGate:
 
     @contextmanager
     def connection(self):
-        """Acquire the write lock and yield the read-write connection."""
+        """Acquire the write lock and yield a fresh write cursor.
+
+        duckdb 2.0 raises ``ResourceInUse`` on ``register()``/
+        ``unregister()``/relation execution when the connection holds an
+        *unfinished* result (a SELECT left unfetched to exhaustion — e.g.
+        a single-row ``fetchone()``).  Yielding a dedicated cursor per
+        write unit means each unit runs on a fresh client context with no
+        pending result, and any result state a unit leaves behind dies
+        with the cursor instead of poisoning the shared connection's
+        next unit.  All write blocks in this manager are self-contained
+        autocommit units, so a cursor is semantically identical to the
+        shared connection.
+        """
         with self._lock:
-            yield self._conn
+            cur = self._conn.cursor()
+            try:
+                yield cur
+            finally:
+                cur.close()
 
     def new_cursor(self) -> duckdb.DuckDBPyConnection:
         """Return a new cursor sharing the read-write instance (for reads)."""
@@ -148,6 +179,16 @@ class _ReadPool:
         return self._idle.get()
 
     def _release(self, conn: duckdb.DuckDBPyConnection) -> None:
+        # duckdb 2.0: a borrower that leaves an unfinished result on the
+        # cursor (a SELECT never fetched to exhaustion — e.g. a
+        # single-row fetchone()) makes the NEXT borrower's register()/
+        # relation work raise ResourceInUse.  Drain whatever is pending
+        # before the cursor goes back to the pool; fetchall() on a
+        # finished/absent result raises and is ignored.
+        try:
+            conn.fetchall()
+        except Exception:
+            pass
         self._idle.put(conn)
 
     @contextmanager
@@ -800,11 +841,18 @@ class DatabaseManager:
         """
         _validate_select_only(query)
         with self._reads.read() as conn:
-            result = conn.execute(query).arrow()
-        # DuckDB 1.4+ returns a RecordBatchReader from .arrow(); older
-        # versions return a pa.Table directly.  Normalize to pa.Table.
-        if isinstance(result, pa.RecordBatchReader):
-            result = result.read_all()
+            # duckdb 2.0 removed .arrow() from execute() results; a
+            # relation .arrow() is identical on 1.x and 2.x and returns
+            # a RecordBatchReader.  Consume it (read_all) BEFORE the
+            # cursor goes back to the pool — an open streaming result
+            # would poison the next borrower under 2.0's
+            # ResourceInUse rule.
+            result = conn.sql(query).arrow()
+            # DuckDB returns a RecordBatchReader from .arrow(); older
+            # versions may return a pa.Table directly.  Normalize to
+            # pa.Table while the cursor is still checked out.
+            if isinstance(result, pa.RecordBatchReader):
+                result = result.read_all()
         return result
 
     def get_existing_tickers(self) -> Set[str]:
@@ -905,6 +953,9 @@ class DatabaseManager:
             try:
                 conn.execute(_COMPANY_METADATA_UPSERT_SQL)
             finally:
+                # Drain any unfinished result before unregister — see
+                # _WriteGate.connection for the 2.0 ResourceInUse rule.
+                _drain_result(conn)
                 conn.unregister("staging_metadata")
         return len(rows)
 
@@ -942,6 +993,7 @@ class DatabaseManager:
             try:
                 conn.execute(_FEAR_GREED_UPSERT_SQL)
             finally:
+                _drain_result(conn)
                 conn.unregister("staging_fear_greed")
         return len(records)
 
@@ -1664,6 +1716,7 @@ class DatabaseManager:
             try:
                 conn.execute(_UPSERT_SQL)
             finally:
+                _drain_result(conn)
                 conn.unregister("staging_df")
         return len(df)
 

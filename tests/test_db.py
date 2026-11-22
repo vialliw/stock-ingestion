@@ -1311,3 +1311,90 @@ def test_metadata_health_check_failed_on_missing_table(manager):
     assert report["health_status"] == "CHECK_FAILED"
     assert "error" in report
     json.dumps(report)
+
+
+# ---------------------------------------------------------------------------
+# duckdb 2.0 dual-compatibility (D2-T1)
+# ---------------------------------------------------------------------------
+#
+# duckdb 2.0 raises ``ResourceInUse`` when ``register()``/``unregister()``/
+# relation execution runs on a connection holding an *unfinished* result —
+# a SELECT that was never fetched to exhaustion (a single-row
+# ``fetchone()`` does NOT exhaust: duckdb cannot know it produced the last
+# row until another fetch returns no rows).  On 1.x the next ``execute()``
+# silently replaces that state, so dirtying the connection below is a
+# no-op there and the tests pass on BOTH versions; on 2.0 they pin the
+# dedicated-cursor-per-write-unit fix (the 11-06 daily_load crash mode).
+
+
+def _write_conn(manager):
+    """The shared read-write ``DuckDBPyConnection`` behind either impl."""
+    if hasattr(manager, "conn"):
+        return manager.conn
+    return manager._write._conn
+
+
+def _dirty_write_conn(manager):
+    """Leave an unfinished streaming result on the shared write conn."""
+    _write_conn(manager).execute(
+        "SELECT COUNT(*) FROM daily_close"
+    ).fetchone()
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_upsert_after_unfetched_select(manager):
+    """register() on the write path must not trip on a dirty conn."""
+    manager.upsert_dataframe(
+        make_df("AAPL", ["2026-01-01"], [100.0], [1000.0])
+    )
+    _dirty_write_conn(manager)
+    n = manager.upsert_dataframe(
+        make_df("MSFT", ["2026-01-01"], [200.0], [2000.0])
+    )
+    assert n == 1
+    tbl = manager.execute_query(
+        "SELECT COUNT(*) AS c FROM daily_close"
+    )
+    assert tbl.column("c").to_pylist()[0] == 2
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_metadata_upsert_after_unfetched_select(manager):
+    _dirty_write_conn(manager)
+    n = manager.upsert_company_metadata(
+        [
+            {
+                "ticker": "AAPL",
+                "company_name": "Apple",
+                "sector": "Tech",
+                "industry": "Hardware",
+                "quote_type": "EQUITY",
+            }
+        ]
+    )
+    assert n == 1
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_fear_greed_upsert_after_unfetched_select(manager):
+    from src.db import FEAR_GREED_UPSERT_COLUMNS
+
+    row = {c: None for c in FEAR_GREED_UPSERT_COLUMNS}
+    row["date"] = pd.Timestamp("2026-01-08")
+    row["fg_score"] = 42.0
+    row["fg_rating"] = "neutral"
+    _dirty_write_conn(manager)
+    n = manager.upsert_fear_greed(pd.DataFrame([row]))
+    assert n == 1
+
+
+@pytest.mark.parametrize("manager", IMPLEMENTATIONS, indirect=True)
+def test_execute_query_after_unfetched_select(manager):
+    """The Arrow read path (conn.sql().arrow()) works on a dirty conn."""
+    manager.upsert_dataframe(
+        make_df("AAPL", ["2026-01-01"], [100.0], [1000.0])
+    )
+    _dirty_write_conn(manager)
+    tbl = manager.execute_query("SELECT Ticker, Close FROM daily_close")
+    assert tbl.num_rows == 1
+    assert tbl.column("Ticker").to_pylist() == ["AAPL"]

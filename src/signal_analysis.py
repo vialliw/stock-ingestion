@@ -299,13 +299,26 @@ def ingest_signals(
                 if str_cols:
                     df[str_cols] = df[str_cols].astype(object)
 
-                con.register("df_temp", df)
+                # duckdb 2.0: register()/unregister() raise
+                # ResourceInUse on a connection holding an unfinished
+                # result — the caller's shared connection may carry one
+                # from earlier unexhausted SELECTs.  Run the
+                # register->INSERT->unregister unit on a dedicated
+                # cursor (a fresh client context has no pending
+                # result).
+                cur = con.cursor()
                 try:
-                    inserted_rows = len(
-                        con.execute(insert_sql, [cutoff_date]).fetchall()
-                    )
+                    cur.register("df_temp", df)
+                    try:
+                        inserted_rows = len(
+                            cur.execute(
+                                insert_sql, [cutoff_date]
+                            ).fetchall()
+                        )
+                    finally:
+                        cur.unregister("df_temp")
                 finally:
-                    con.unregister("df_temp")
+                    cur.close()
 
                 result["sheets_processed"] += 1
                 result["inserted"] += inserted_rows

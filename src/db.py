@@ -63,6 +63,22 @@ FEAR_GREED_VALID_RATINGS: Tuple[str, ...] = (
 )
 
 
+def _drain_result(con) -> None:
+    """Consume any pending result so the connection is clean for 2.0.
+
+    duckdb 2.0 raises ``ResourceInUse`` when ``register()``/
+    ``unregister()``/relation execution runs on a connection holding an
+    *unfinished* result (a SELECT that was never fetched to exhaustion —
+    e.g. a single-row ``fetchone()``).  ``fetchall()`` drains whatever is
+    pending on both 1.x and 2.x; on a finished/absent result it raises,
+    which is harmless and ignored.
+    """
+    try:
+        con.fetchall()
+    except Exception:
+        pass
+
+
 class DatabaseManager:
     """Thread-safe DuckDB manager: single write conn + read-only read conns."""
 
@@ -414,7 +430,16 @@ class DatabaseManager:
     def execute_query(self, query: str) -> pa.Table:
         conn = self._read_only_conn()
         try:
-            return conn.execute(query).fetch_arrow_table()
+            # duckdb 2.0 removed .fetch_arrow_table()/.arrow() from
+            # execute() results.  A DuckDBPyRelation's .arrow() works
+            # identically on 1.x and 2.x and returns a
+            # RecordBatchReader — consume it fully (read_all) before
+            # closing, because 2.0 also treats a still-open streaming
+            # result as a hard error on the connection.
+            result = conn.sql(query).arrow()
+            if isinstance(result, pa.RecordBatchReader):
+                result = result.read_all()
+            return result
         finally:
             conn.close()
 
@@ -444,30 +469,46 @@ class DatabaseManager:
         if "RawClose" not in work.columns:
             work["RawClose"] = None
         with self._write_lock:
-            self.conn.register("staging_df", work)
-            self.conn.execute("""
-                MERGE INTO daily_close AS target
-                USING staging_df AS source
-                ON target.Date = source.Date AND target.Ticker = source.Ticker
-                WHEN MATCHED THEN UPDATE SET
-                    Open = source.Open,
-                    High = source.High,
-                    Low = source.Low,
-                    Close = source.Close,
-                    Volume = source.Volume,
-                    RawClose = CASE
-                        WHEN source.RawClose IS NOT NULL
-                             AND isfinite(source.RawClose)
-                        THEN source.RawClose
-                        ELSE target.RawClose
-                    END
-                WHEN NOT MATCHED THEN INSERT
-                    (Date, Ticker, Open, High, Low, Close, Volume, RawClose)
-                VALUES
-                    (source.Date, source.Ticker, source.Open, source.High,
-                     source.Low, source.Close, source.Volume, source.RawClose);
-            """)
-            self.conn.unregister("staging_df")
+            # duckdb 2.0: register()/unregister() raise ResourceInUse on
+            # a connection holding an unfinished result — the shared
+            # write conn's last SELECT may have been left unexhausted
+            # (e.g. a fetchone()).  Run the register->MERGE->unregister
+            # unit on a dedicated cursor: a fresh client context never
+            # has a pending result.
+            cur = self.conn.cursor()
+            try:
+                cur.register("staging_df", work)
+                try:
+                    cur.execute("""
+                        MERGE INTO daily_close AS target
+                        USING staging_df AS source
+                        ON target.Date = source.Date
+                           AND target.Ticker = source.Ticker
+                        WHEN MATCHED THEN UPDATE SET
+                            Open = source.Open,
+                            High = source.High,
+                            Low = source.Low,
+                            Close = source.Close,
+                            Volume = source.Volume,
+                            RawClose = CASE
+                                WHEN source.RawClose IS NOT NULL
+                                     AND isfinite(source.RawClose)
+                                THEN source.RawClose
+                                ELSE target.RawClose
+                            END
+                        WHEN NOT MATCHED THEN INSERT
+                            (Date, Ticker, Open, High, Low, Close, Volume,
+                             RawClose)
+                        VALUES
+                            (source.Date, source.Ticker, source.Open,
+                             source.High, source.Low, source.Close,
+                             source.Volume, source.RawClose);
+                    """)
+                finally:
+                    _drain_result(cur)
+                    cur.unregister("staging_df")
+            finally:
+                cur.close()
             return len(df)
 
     def purge_ticker(self, ticker: str):
@@ -671,21 +712,30 @@ class DatabaseManager:
         if str_cols:
             work[str_cols] = work[str_cols].astype(object)
         with self._write_lock:
-            self.conn.register("staging_metadata", work)
+            # Dedicated cursor per write unit — see upsert_dataframe for
+            # the duckdb 2.0 ResourceInUse rationale.
+            cur = self.conn.cursor()
             try:
-                self.conn.execute("""
-                    INSERT INTO company_metadata AS target
-                        (ticker, company_name, sector, industry, quote_type)
-                    SELECT ticker, company_name, sector, industry, quote_type
-                    FROM staging_metadata
-                    ON CONFLICT (ticker) DO UPDATE SET
-                        company_name = EXCLUDED.company_name,
-                        sector = EXCLUDED.sector,
-                        industry = EXCLUDED.industry,
-                        quote_type = EXCLUDED.quote_type;
-                """)
+                cur.register("staging_metadata", work)
+                try:
+                    cur.execute("""
+                        INSERT INTO company_metadata AS target
+                            (ticker, company_name, sector, industry,
+                             quote_type)
+                        SELECT ticker, company_name, sector, industry,
+                               quote_type
+                        FROM staging_metadata
+                        ON CONFLICT (ticker) DO UPDATE SET
+                            company_name = EXCLUDED.company_name,
+                            sector = EXCLUDED.sector,
+                            industry = EXCLUDED.industry,
+                            quote_type = EXCLUDED.quote_type;
+                    """)
+                finally:
+                    _drain_result(cur)
+                    cur.unregister("staging_metadata")
             finally:
-                self.conn.unregister("staging_metadata")
+                cur.close()
         return len(rows)
 
     def upsert_fear_greed(self, df: pd.DataFrame) -> int:
@@ -717,19 +767,26 @@ class DatabaseManager:
             f"{c} = EXCLUDED.{c}" for c in cols if c != "date"
         )
         with self._write_lock:
-            self.conn.register("staging_fear_greed", work[cols])
+            # Dedicated cursor per write unit — see upsert_dataframe for
+            # the duckdb 2.0 ResourceInUse rationale.
+            cur = self.conn.cursor()
             try:
-                self.conn.execute(f"""
-                    INSERT INTO fear_greed_history AS target
-                        ({", ".join(cols)})
-                    SELECT {", ".join(cols)}
-                    FROM staging_fear_greed
-                    ON CONFLICT (date) DO UPDATE SET
-                        {set_clause},
-                        ingested_at = now();
-                """)
+                cur.register("staging_fear_greed", work[cols])
+                try:
+                    cur.execute(f"""
+                        INSERT INTO fear_greed_history AS target
+                            ({", ".join(cols)})
+                        SELECT {", ".join(cols)}
+                        FROM staging_fear_greed
+                        ON CONFLICT (date) DO UPDATE SET
+                            {set_clause},
+                            ingested_at = now();
+                    """)
+                finally:
+                    _drain_result(cur)
+                    cur.unregister("staging_fear_greed")
             finally:
-                self.conn.unregister("staging_fear_greed")
+                cur.close()
         return len(work)
 
     # ------------------------------------------------------------------

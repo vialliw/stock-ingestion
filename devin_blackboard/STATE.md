@@ -2572,3 +2572,31 @@ REV-si_hraw_review-g2. Awaiting user direction.
   source lag self-recovered. GH issues #31-#36.
 - Pending user: symbol-swap decisions (MGPI->CASK, PTLE->ZYN, TCBI->TXCP),
   Flight Server -s hardening, do_get-coverage defect task.
+
+## 2026-11-22 — D2-T1 duckdb 2.0 dual-compat migration (executor B, verify-pending)
+
+- B1 arrow API: 3 sites migrated from removed `execute().fetch_arrow_table()`/
+  `.arrow()` to `conn.sql(q).arrow()` + RecordBatchReader->read_all()
+  normalization (src/db.py:439, src/db_challenger.py:850, src/ingestion.py:2130).
+- B2 register pending-result: all 10 `.register(` sites protected — dedicated
+  cursor per write unit + `_drain_result` before `unregister()` where needed
+  (db.py x3, db_challenger.py x3 via _WriteGate cursor, ingestion.py x2 on the
+  DML cursor, signal_analysis.py x1, signal_pipeline.py x1). Live 2.0.1 proof:
+  raw register on dirty conn -> ResourceInUseException; protected
+  upsert_dataframe -> OK.
+- B3 TypeError: root cause identified — eval-era repro (commit 2bb9c12, duckdb
+  2.0.0) gives EXACTLY 362 failed/1692 passed (2054, matches the 11-08 eval);
+  the only "TypeError" in the full log is inside the docstring of
+  tests/test_health_check.py::test_get_run_history_over_wire, whose real
+  failure is B1 (fetch_arrow_table -> FlightServerError). DuckDBPyConnection
+  is non-iterable on BOTH versions — no version-dependent TypeError exists.
+  Resolved by the B1 fix.
+- requirements.txt: duckdb>=1.5,<2 -> duckdb>=2,<3.
+- Suites: duckdb 1.5.6 -> 2121 passed; duckdb 2.0.1 (Temp\duckdb2env) ->
+  2121 passed. scripts/check_loops.py --src-dir src -> exit 0 (17 files).
+- tests/test_db.py +87 lines: dirty-connection register/upsert regression
+  coverage on both impls.
+- DEPLOYMENT (orchestrator Phase 2, NOT done here): production env still on
+  duckdb 1.5.6 — deliberate `pip install duckdb==2.0.x` into system site +
+  Flight Server restart + smoke + DB snapshot per plan; storage stays
+  old-format on existing files. pythonw -s hardening remains pending.

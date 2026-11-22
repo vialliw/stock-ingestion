@@ -23,6 +23,7 @@ import duckdb
 import numpy as np
 import pandas as pd
 import pandas_market_calendars as mcal
+import pyarrow as pa
 import requests
 import yfinance as yf
 
@@ -97,6 +98,21 @@ FEAR_GREED_COLUMNS: List[str] = (
 )
 
 _FEAR_GREED_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _drain_result(con) -> None:
+    """Consume any pending result so the connection is clean for 2.0.
+
+    duckdb 2.0 raises ``ResourceInUse`` when ``register()``/
+    ``unregister()``/relation execution runs on a connection holding an
+    *unfinished* result (a SELECT never fetched to exhaustion).
+    ``fetchall()`` drains whatever is pending on both 1.x and 2.x; on a
+    finished/absent result it raises, which is harmless and ignored.
+    """
+    try:
+        con.fetchall()
+    except Exception:
+        pass
 
 
 class IngestionEngine:
@@ -2106,7 +2122,15 @@ class IngestionEngine:
             # defense-in-depth on top of validate_source_sql.
             cur.execute("BEGIN TRANSACTION READ ONLY")
             try:
-                return cur.execute(sql).fetch_arrow_table()
+                # duckdb 2.0 removed .fetch_arrow_table()/.arrow() from
+                # execute() results; a relation .arrow() is identical on
+                # 1.x and 2.x and returns a RecordBatchReader — consume
+                # it fully so no streaming result stays open on the
+                # cursor (an open result is a hard error under 2.0).
+                result = cur.sql(sql).arrow()
+                if isinstance(result, pa.RecordBatchReader):
+                    result = result.read_all()
+                return result
             finally:
                 try:
                     cur.execute("ROLLBACK")
@@ -2139,6 +2163,11 @@ class IngestionEngine:
                                 f"AS SELECT * FROM dml_stage"
                             )
                         finally:
+                            # duckdb 2.0: unregister() also raises
+                            # ResourceInUse on an unfinished result —
+                            # drain first so cleanup can't mask the
+                            # original exception.
+                            _drain_result(cur)
                             cur.unregister("dml_stage")
                     else:
                         cur.execute(
@@ -2638,6 +2667,11 @@ class IngestionEngine:
                                 raise
                         rows_written = int(arrow_table.num_rows)
                     finally:
+                        # duckdb 2.0: unregister() also raises
+                        # ResourceInUse on an unfinished result — drain
+                        # first so cleanup can't mask the original
+                        # exception.
+                        _drain_result(cur)
                         cur.unregister("dml_put_stage")
                 return {
                     "table": f"{namespace}.{name}",

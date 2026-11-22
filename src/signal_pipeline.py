@@ -249,11 +249,20 @@ def ingest_signal_folder(
             continue
 
         stage = _normalize_signal_frame(df, file_name)
-        con.register("signal_stage", stage)
+        # duckdb 2.0: register()/unregister() raise ResourceInUse on a
+        # connection holding an unfinished result — the caller's shared
+        # connection may carry one from earlier unexhausted SELECTs.
+        # Run the register->INSERT->unregister unit on a dedicated
+        # cursor (a fresh client context has no pending result).
+        cur = con.cursor()
         try:
-            inserted_rows = con.execute(insert_sql).fetchall()
+            cur.register("signal_stage", stage)
+            try:
+                inserted_rows = cur.execute(insert_sql).fetchall()
+            finally:
+                cur.unregister("signal_stage")
         finally:
-            con.unregister("signal_stage")
+            cur.close()
 
         file_inserted = len(inserted_rows)
         file_skipped = len(stage) - file_inserted
