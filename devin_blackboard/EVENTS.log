@@ -6306,3 +6306,62 @@ Scope: delta (961a4f2..87950a2) = scripts/rrg_weekly_pipeline.py + tests/test_rr
 Verdict: PASS. Task status already done — reporting to orchestrator; Friday 22:15 scheduled run validates end-to-end live.
 
 [2026-11-17T11:30:00] [ORCHESTRATOR] INCIDENT CLOSED — RRG-AUTO-T4 PASS (B->C->D). _force_rmtree (onexc chmod S_IWRITE+retry) at both clone wipe sites; 59/59 focused, 2113/2113 suite; read-only-debris e2e test; debris removed. Friday 22:15 run is the live validation. Also done this session: README weekly-rhythm section (68a2a97), poll_tasks verify timeout 300->900s.
+
+## 2026-11-17 — Orchestrator research: GLD/GDX 2025-26 boom-bust analysis
+- User request: volume profiles as of 2026/03, stage decomposition of the GLD/GDX
+  boom-bust, AUM-based inflow/outflow estimates at the pivot, as reference for
+  potential semiconductor (SMH) correction magnitude.
+- Method: daily_close via Flight (GLD/GDX/SMH through 2026-11-16), uniform H-L
+  volume-profile approximation, public flow anchors (SEC 10-Q, WGC, Morningstar,
+  Bloomberg/Finbold, ETF.com, Frenzy Capital).
+- Key findings: two-part top (climax 1/29-30, GDX nominal peak 2/27, March war
+  breakdown); GDX -38.9% peak->trough (Jul 20), GLD -28.8% still falling; GLD
+  record -$8.5B March outflow, -$14.4B Mar-Jul; SMH already -33.1%, GDX-analog
+  -39% target ~408 confluent with SMH HVN shelf 388-414/POC ~395; SMH Oct began
+  first real redemptions -> capitulation phase likely underway.
+- Output: research/gld_gdx_2026_boom_bust.md (+ .tmp/gld_gdx_analysis.py). No
+  src/tests changes; research/analysis scope only.
+
+## 2026-11-17 — Orchestrator: as-of volume profiles (first week of 2026/03)
+- User asked for grok03B-style volume profile charts as of first week of Mar 2026.
+- Reused VolumeProfileVisualizer_grok03B.py verbatim (import+monkeypatch) with
+  DuckDB Flight data; window 2025-09-06..2026-03-06 (6M lookback), 20 close-price
+  bins. Output: R:/spiderhive0/{GLD,GDX,SMH}_VolumeProfile_6M_asof20260306.html
+  (live files untouched; nav links between the 3 as-of files + GEX link kept).
+- POCs (their binning method): GLD 378.57, GDX 72.55, SMH 344.56.
+
+## 2026-11-17 — Orchestrator: SMH volume profile as of Jun-22 weekend
+- Generated R:/spiderhive0/SMH_VolumeProfile_6M_asof20260619.html via grok03B
+  visualizer + DuckDB data; window 2025-12-19..2026-06-18 (6/19 Juneteenth).
+  POC 393.22, close range 355.12-659.88. Pre-peak snapshot.
+
+[2026-11-17T13:55:00+00:00] [ORCHESTRATOR] GLD/GDX boom-bust research request reviewed against existing deliverables. `research/gld_gdx_2026_boom_bust.md` already contains the stage analysis, March volume-profile approximations, AUM/flow estimates, and SMH magnitude analogy; March 6 HTML profiles and their POCs were recorded earlier. No source or research files changed in this review.
+
+[2026-11-17T14:12:00+00:00] [ORCHESTRATOR] Independent LLM research pass completed: recomputed GLD/GDX/SMH stages and March 31 60-bin OHLCV volume-profile approximations from daily_close; cross-checked GLD flows against SPDR SEC 10-Q and third-party March reports (vendor estimates differ $7.9B-$8.5B), GDX flows against SEC-derived monthly data, and semi ETF flow reports. Added separate analysis research/gld_gdx_2026_boom_bust_independent.md without overwriting prior report. Main distinctions: GLD primary high Jan 29 vs GDX close high Feb 27 / intraday Mar 2; GLD Q1 official net flow -$3.34B vs March-only vendor estimate; GDX low -39.8 percent from close high; SMH GDX-severity scenario ~$403, explicitly not a timing forecast. The post-March SMH profile is labeled hindsight-only. Verification: scenario arithmetic rechecked; git diff --check clean.
+
+## 2026-11-17 — Orchestrator: list semiconductor tickers in Flight DB
+- Queried distinct daily_close tickers joined to company_metadata, industry
+  Semiconductors: 28 tickers. Semiconductor Equipment & Materials: 9 additional.
+  No source changes.
+
+[2026-11-20T22:15:11.083788+00:00] [RRG-WEEKLY] pipeline FAILED -> Error querying weekly_close: Flight server unreachable and direct read-only DuckDB fallback failed.
+[2026-11-21T09:00:12.725019+00:00] [RRG-WEEKLY] pipeline FAILED -> Error querying weekly_close: Flight server unreachable and direct read-only DuckDB fallback failed.
+[2026-11-22T09:00:14.589973+00:00] [RRG-WEEKLY] pipeline FAILED -> Error querying weekly_close: Flight server unreachable and direct read-only DuckDB fallback failed.
+[2026-11-22T22:30:00] [ORCHESTRATOR] Incident queue worked (incident-handle skill) — 6 open folders, all resolved + recorded (GH issues #31-#36 closed).
+
+ENV FIX FIRST (recurrence of the 11-08 duckdb incident): do_get was dead — '_duckdb.DuckDBPyConnection' has no 'fetch_arrow_table'. Cause: duckdb 2.0.0 had been RE-installed into USER site-packages (Roaming\Python\Python312, mtime 2026-11-18 — likely another adbc_driver_duckdb-adjacent pip --user install; pip list --user showed only duckdb). User site shadows the pinned system-site 1.5.6, and the Flight Server restarted 11-21 20:27 -> all do_get reads broken for ~26h; dashboards dead, and Monday's daily_load would have crashed mid-write at register() exactly like 11-06. The watcher never noticed because it only exercises do_action (data_health path is unaffected). FIX: pip uninstall duckdb (removed the whole user-site tree) -> import resolves to system 1.5.6 -> restarted 'Flight Server' scheduled task -> do_get verified. MONITORING GAP flagged: no check covers the do_get read path — candidate defect task for the blackboard. HARDENING suggestion for user: register the Flight Server task with pythonw.exe -s (no user site) so future user-site installs can't shadow the pinned env again.
+
+INCIDENTS:
+1. 20261119_sev2_gap_PCRX (SEV2 after 3 unacked checks): PCRX acquired by Viatris ($36.50 cash tender; merger closed 2026-11-17 pre-open, halted that day, Nasdaq suspension effective 11-18 — confirmed via Viatris PR + Nasdaq CorpAction #2026-809 + 8-K). Gap days 11-18..20 are post-delisting. Stored 11-17 bar was a vendor terminal placeholder (flat 36.48 O=H=L=C, Vol=0 on halted day, still served upstream) -> quarantined: delete_daily_rows + ingestion.exclude_rows + weekly_refresh + quarantined_rows audit entry. PCRX -> acknowledged_delisted. resolution_note + GH #31.
+2. 20261121_sev3_gap_BKH: GENUINE fetch miss — upstream served 11-20. on_request_load 11-19..11-22 -> 2 rows upserted matching vendor. GH #32.
+3. 20261121_sev3_gap_TCBI: Texas Capital moved listing Nasdaq -> TXSE (2026-10-08, 8-K Item 3.01 + Form 25) and renamed TCBI -> TXCP on 11-09. Yahoo served the TCBI alias (mapped to TXSE feed — stored bars match TXCP exactly, 97.05 on 11-19) until 11-19 then withdrew it. TCBI -> acknowledged_delisted. Yahoo DOES serve TXCP — config swap is user's decision. GH #33.
+4. 20261121_sev3_stale_MGPI: MGP Ingredients renamed Sempreon + ticker MGPI -> CASK effective 2026-11-02 (8-K 10-15, 10-Q, MIAX alert). Yahoo served MGPI alias until 11-13 (CASK 11-13 close 16.97 = MGPI stored bar — same series) then stopped. MGPI -> acknowledged_delisted; config swap MGPI->CASK is user's decision. GH #34.
+5. 20261121_sev3_gap_PTLE: PTL Ltd renamed PTLE -> ZYN on Nasdaq effective 2026-11-13 (6-K filed 11-12). Yahoo served PTLE alias until 11-19 then dropped it; 11-20 exists only under ZYN. PTLE -> acknowledged_delisted; config swap PTLE->ZYN is user's decision. GH #35.
+6. 20261120_sev3_fear_greed_warn: source lagged 2 sessions (11-18 vs 11-20). fear_greed refresh (BKH on_request_load side-effect) repopulated through 11-20 — self-recovered. GH #36.
+
+VERIFICATION: python scripts/incident_watch.py -> resolved=6, new=0, open/ empty, suppressed=24 (stale 9, gap 4/11 days, integrity 11). Flight Server running duckdb 1.5.6 with updated config (exclude_rows PCRX 11-17 live). Committed: 6598e8f (config.yaml exclude_rows). suppressions.json updated (acknowledged_delisted +PCRX/TCBI/MGPI/PTLE; quarantined_rows +PCRX 11-17).
+PENDING USER DECISIONS: (a) config symbol swaps MGPI->CASK, PTLE->ZYN, TCBI->TXCP + exclude_tickers for dead symbols; (b) harden Flight Server task with -s flag; (c) blackboard defect task: watcher has no coverage of the do_get read path (26h silent outage).
+
+[2026-11-22T22:45:00] [ORCHESTRATOR] duckdb 2.0 upgrade plan drafted -> docs/dev_plan/duckdb2_upgrade_plan.md. Basis: 11-08 eval (362/2054 fail -> 3 root causes) + live 2.0.0 probes today. Fix surface: 3 arrow sites (conn.sql().arrow() is dual-compat on 1.5.6 AND 2.0 — verified), 10 register sites (ResourceInUse on pending results -> dedicated-cursor pattern), 1 unknown TypeError. Phases: venv repro -> dual-compat code (B) -> pin flip + deploy (orchestrator) -> -s hardening. Awaiting user go-ahead to register D2 tasks.
+
+[2026-11-22T22:46:46.446394+00:00] [EXECUTOR] claimed D2-T1

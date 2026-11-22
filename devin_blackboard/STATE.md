@@ -1,5 +1,5 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-17 (RRG-AUTO-T4 clone-failure fix PASS + README weekly-rhythm documented; pipeline healthy for Fri 22:15)
+Last Updated: 2026-11-17 (Flight DB semiconductor ticker list queried; 28 semiconductor + 9 equipment/materials tickers)
 Current Branch: main
 
 ## RRG-AUTO-T4 — Critic D final verification: PASS (2026-11-17)
@@ -2540,3 +2540,35 @@ Challenger C spawn for HRAW-T3 failed — weekly subagent quota exhausted.
 HRAW-T3 impl is committed (cba4f93). Remaining: C review -> D gate ->
 deploy gate (watcher-only, no Flight restart needed) -> v3 resubmit to
 REV-si_hraw_review-g2. Awaiting user direction.
+
+## 2026-11-17 — Orchestrator: GLD/GDX request review
+- Confirmed the requested event staging, March volume-profile approximation,
+  AUM-based pivot flow estimates, and SMH analogy are already documented in
+  `research/gld_gdx_2026_boom_bust.md`; March 6 chart paths and POCs are
+  recorded in EVENTS.log. No source or research files changed in this review.
+
+## 2026-11-17 — Independent GLD/GDX research pass
+- Added separate report `research/gld_gdx_2026_boom_bust_independent.md`; left the
+  earlier analysis intact. Recomputed 2025-10-01..2026-03-31 60-bin OHLCV
+  volume profiles for GLD, GDX, and SMH from Flight `daily_close`.
+- Cross-checked GLD official quarter flows against its Mar 31 SEC 10-Q and
+  distinguished them from provider estimates of March-only outflows; reconciled
+  GDX SEC-derived monthly flows and checked SMH flow-provider disagreement.
+- Fresh read: GLD's primary high was Jan 29; GDX's close high was Feb 27 with a
+  Mar 2 intraday high. GDX severity maps to about $403 on SMH, but is a scenario
+  only; later SMH profile is explicitly labeled hindsight, not March evidence.
+- Verification: scenario arithmetic rechecked; `git diff --check` clean.
+
+## 2026-11-22 — Incident queue cleared + duckdb 2.0 recurrence fixed
+- do_get outage root cause: duckdb 2.0.0 reinstalled into USER site-packages on
+  11-18 (shadowed pinned system 1.5.6); Flight Server restart 11-21 absorbed it.
+  Uninstalled -> 1.5.6 live, server restarted, do_get verified. Watcher never
+  saw it (data_health path unaffected) — do_get read-path coverage is a
+  monitoring gap (candidate defect). Suggest registering task with pythonw -s.
+- 6 incidents resolved: PCRX delisted (Viatris $36.50 cash, placeholder bar
+  quarantined), BKH fetch miss re-fetched, TCBI->TXCP (Nasdaq->TXSE),
+  MGPI->CASK (Sempreon rename), PTLE->ZYN (rename) — all three dead symbols
+  suppressed via acknowledged_delisted pending user config swaps; fear_greed
+  source lag self-recovered. GH issues #31-#36.
+- Pending user: symbol-swap decisions (MGPI->CASK, PTLE->ZYN, TCBI->TXCP),
+  Flight Server -s hardening, do_get-coverage defect task.

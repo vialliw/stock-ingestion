@@ -5080,5 +5080,68 @@
         "text": "Remove the current debris: .tmp/rra-dash (contains leftover read-only .git/objects) is deleted as part of verification"
       }
     ]
+  },
+  {
+    "id": "D2-T1",
+    "title": "duckdb 2.0 dual-compat migration: arrow-result API, register() pending-result rule, TypeError — suite green under 1.5.6 AND 2.0.x; flip requirements pin",
+    "role": "executor",
+    "model": "swe",
+    "status": "in_progress",
+    "assigned_to": "B",
+    "depends_on": [],
+    "input_files": [
+      "/docs/dev_plan/duckdb2_upgrade_plan.md",
+      "/src/db.py",
+      "/src/ingestion.py",
+      "/src/db_challenger.py",
+      "/src/signal_analysis.py",
+      "/src/signal_pipeline.py",
+      "/requirements.txt",
+      "/devin_blackboard/EVENTS.log"
+    ],
+    "output_files": [
+      "/src/db.py",
+      "/src/ingestion.py",
+      "/src/db_challenger.py",
+      "/src/signal_analysis.py",
+      "/src/signal_pipeline.py",
+      "/requirements.txt",
+      "/tests/"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "D2-AC1",
+        "check": "full suite green under installed env (duckdb 1.5.6)",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "D2-AC2",
+        "check": "full suite green under duckdb 2.0 venv (created at C:/Users/user/AppData/Local/Temp/duckdb2env from the FLIPPED requirements.txt)",
+        "command": "C:/Users/user/AppData/Local/Temp/duckdb2env/Scripts/python.exe -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "D2-AC3",
+        "check": "loop checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "text": "B1 arrow: NO `execute(...)`-result `.fetch_arrow_table()`/`.arrow()` calls remain in src/ — the 3 sites (db.py execute_query, ingestion.py snapshot, db_challenger.py execute_query) use the dual-compat pattern `conn.sql(q).arrow()` + RecordBatchReader->read_all() normalize (or `to_arrow_table()`). Evidence: grep output in EVENTS.log"
+      },
+      {
+        "text": "B2 register: all 10 `.register(` sites are immune to the duckdb-2.0 ResourceInUse-on-pending-results rule (dedicated cursor per write unit, or drained results). Evidence MUST include a live 2.0-venv proof: a write-path register() preceded by an unfetched execute() on the same connection no longer raises"
+      },
+      {
+        "text": "B3: the single TypeError root cause from the 11-08 eval is identified in EVENTS.log and fixed"
+      },
+      {
+        "text": "requirements.txt reads `duckdb>=2,<3` (pin flip included so the fresh 2.0 venv can be built from it)"
+      },
+      {
+        "text": "pandas 3.x 'str'-dtype object-normalization workarounds preserved; MERGE/RawClose semantics unchanged (R1A-T1 durability tests are the canary)"
+      }
+    ]
   }
 ]
