@@ -5266,7 +5266,7 @@
     "title": "Emit trajectory semantics in RRG analysis-prompt JSON (heading, quadrant_change, prev position) + analyze_rra consumer update",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "assigned_to": "B",
     "depends_on": [],
     "context": "Root cause of a verified report defect: 2026-11-20 ETF report called ARKK 'accelerating back toward LEADING' — actually LEADING->IMPROVING on a heading of ~-163deg (down-left, toward LAGGING). velocity_direction ACCELERATING/DECELERATING is speed magnitude only, not direction. gen_ai_prompt already computes r_prev/m_prev at t=-2 but discards them. Fix the JSON so consumers get direction natively; same function serves both the file pipeline (rrg_dashboard.generate_rrg_dashboard) and the report_app.py Streamlit endpoint.",

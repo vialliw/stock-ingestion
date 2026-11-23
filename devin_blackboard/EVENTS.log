@@ -6847,3 +6847,70 @@ Scope clean: delta = scripts/rrg_enrich_headless.py + scripts/register_rrg_enric
 [2026-11-23T00:00:00] [ORCHESTRATOR] Registered RRG-TRAJ-T1 (user-approved design option b): nest prev_rs_ratio/prev_rs_momentum/delta_*/heading/prev_quadrant/quadrant_change inside trajectory in gen_ai_prompt (serves both file pipeline and report_app endpoint); update tests + analyze_rra.py consumer (native fields, legacy fallback) + SKILL.md contract. Next: executor B claims.
 
 [2026-11-23T13:56:55.981840+00:00] [EXECUTOR] claimed RRG-TRAJ-T1
+[2026-11-23T14:16:56.107154+00:00] [EXECUTOR] completed RRG-TRAJ-T1 -> Trajectory semantics nested inside trajectory dict in gen_ai_prompt (entry keys preserved {current_position,trajectory,persistence}): prev_rs_ratio/prev_rs_momentum (2dp), delta_rs_ratio/delta_rs_momentum (curr-prev, 2dp), heading NE/NW/SE/SW (zero delta counts positive, documented), prev_quadrant (same >=100 logic), quadrant_change UNCHANGED|PREV->CURR. Tests +5 (all-four headings, zero-delta convention, delta sign/rounding, LEADING->IMPROVING crossing + UNCHANGED, keys-present). analyze_rra.py: Hdg column in per-ticker tables, ### Quadrant Crossings block in sec.5 with 8-label bias taxonomy (default 'discontinuous — treat with suspicion'), SW heading barred from Overweight bucket, legacy fallback diffs prior *YYYY-MM-DD_analysis_prompt.json (verified: 21 crossings 11-13->11-20 match independent diff; ARKK SW/-6.89/-2.07 derived == native), graceful omission w/o prior, stdlib only. SKILL.md: input contract + heading semantics table + crossing taxonomy + 2 narrative rules (no 'toward LEADING' unless delta_rs_ratio>0; no SW in Overweight) + updated velocity_direction gotcha. VERIFY ALL PASS: AC1 focused 49/49 (9.30s); AC2 suite 2162/2162 (271.51s); AC3 loops clean (17 files); AC4 live ARKK SW LEADING->IMPROVING deltas -6.89/-2.07.
+Evidence map:
+[
+  {
+    "id": "TRAJ-AC1",
+    "check": "focused tests",
+    "command": "python -m pytest tests/test_rrg_dashboard.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ".................................................                        [100%]\n49 passed in 8.37s\n"
+  },
+  {
+    "id": "TRAJ-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n2162 passed, 2 warnings in 314.40s (0:05:14)\n"
+  },
+  {
+    "id": "TRAJ-AC3",
+    "check": "loop checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "TRAJ-AC4",
+    "check": "live generation emits new fields",
+    "command": "python -c \"import sys;sys.path.insert(0,'scripts');sys.path.insert(0,'src');import json,rrg_dashboard,config;cfg=config.PipelineConfig.from_yaml('src/config.yaml');p=rrg_dashboard.generate_rrg_dashboard(cfg,'ETFs',as_of='2026-11-20',json_only=True,output_dir='.tmp/rrg_traj_check');e=json.load(open(p['json']))['market_snapshot']['ticker_data']['ARKK'];t=e['trajectory'];assert {'prev_rs_ratio','prev_rs_momentum','delta_rs_ratio','delta_rs_momentum','heading','prev_quadrant','quadrant_change'}<=set(t);assert t['heading'] in ('NE','NW','SE','SW');assert t['quadrant_change']=='LEADING->IMPROVING';print('OK',t)\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "weekly_close data: 5141 rows\nHistorical cutoff: 2026-11-20; last valid weekly observation: 2026-11-20\nJSON analysis file generated at: .tmp\\rrg_traj_check\\Relative_Rotation_Dashboard_ETFs_2026-11-20_analysis_prompt.json\nOK {'velocity_1w': 7.19, 'velocity_direction': 'ACCELERATING', 'prev_rs_ratio': 104.48, 'prev_rs_momentum': 114.37, 'delta_rs_ratio': -6.89, 'delta_rs_momentum': -2.07, 'heading': 'SW', 'prev_quadrant': 'LEADING', 'quadrant_change': 'LEADING->IMPROVING'}\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]
