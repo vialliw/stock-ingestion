@@ -1,6 +1,65 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-23 (Executor B enriched RRA reports 10-09..11-20 crash arc incl. 11-20 defect-week fix; earlier passes covered 05-15..10-02)
+Last Updated: 2026-11-23 (Executor B shipped RRG-TRAJ-T2: analyze_rra v4 report format)
 Current Branch: main
+
+## RRG-TRAJ-T2 — DONE (executor B, 2026-11-23)
+
+analyze_rra v4 report format — the ChatGPT-approved design (thread
+REV-rra_crossover_section-g1; preview .tmp/rra_v4_preview_2026-11-20.md
+is the target). Skill-only: extractor derives everything, no
+gen_ai_prompt/JSON changes. Commit bd769f6.
+
+- **§1 Quadrant Census:** bold counts line + traditional 2x2 markdown
+  grid (`| RS-Momentum ↓ / RS-Ratio → | **< 100** | **≥ 100** |`;
+  rows ≥100 = IMPROVING|LEADING, <100 = LAGGING|WEAKENING). Each cell =
+  `**QUADRANT (n)**` + `<br>• Theme: \`TKR\`↙ …` bullets via THEME_MAP
+  (10 named themes + 'Other' fallback covering all 96 tickers;
+  alphabetical within bullets; verified: 96 tickers exactly once).
+- **Arrows everywhere:** NE→↗ SE→↘ SW→↙ NW→↖ + new FLAT heading
+  (|Δratio|<0.05 AND |Δmom|<0.05, checked before the arrow map; renders
+  'FLAT'; native JSON headings get the FLAT override since the field
+  predates it). Column 'Hdg'→'Heading'. New 'Persist' column rides
+  wherever Heading renders (§2–§4 + §6 tables) — quadrant_persistence
+  is a per-ticker field, needed somewhere visible since crossers are
+  always TEMPORARY (AC5 observability).
+- **§5 Quadrant Crossings standalone:** sections renumbered (Velocity→6,
+  Laggards→7, Tilts→8, Caveats→9). Summary line 'N crossings this week:
+  **C confirmed / P provisional** (geometric deadband 1.0 pt …). By
+  type: kx A->B … . No diagonal/discontinuous transitions.' then
+  ### Counter-clockwise — abrupt reversals / ### Clockwise — normal
+  rotation / ### Diagonal — discontinuous groups, bold '**A->B** —
+  probabilistic label' headers, entries '- `TKR` STATUS — ↙, Δratio
+  x, Δmom y (landed axis v, d past boundary); quadrant_persistence P'
+  (provisional: 'only d … — whipsaw watch'). Confirmed first then
+  provisional, velocity desc inside.
+- **crossing_status** (derived): per crossed axis — ratio for
+  L↔I & W↔L(ag), momentum for L↔W & I↔L(ag), both for diagonals —
+  |landed−100|≥1.0 → CONFIRMED else PROVISIONAL_CROSSING; UNCHANGED
+  otherwise. Verified vs preview: ARKK CONFIRMED 2.41, GDX PROVISIONAL
+  0.66, 15/6 split.
+- **quadrant_persistence** (derived): consecutive weeks in current
+  quadrant walking back dated *_analysis_prompt*.json files in same
+  dir; 1→TEMPORARY, 2→PENDING, ≥3→CONFIRMED. On 11-13 run: 29
+  CONFIRMED + 2 PENDING in tables (e.g. 12/12 leaders CONFIRMED).
+- **§9 caveat:** near-verbatim preview line — crossing_status deadband
+  doc + persistence occupancy-only doc + FLAT note (occurrence count
+  computed per input).
+- **Legacy fallback intact:** legacy+prior derives semantics via diff
+  (same 21 crossings 15/6 + derivation caveat); legacy-alone-in-dir →
+  no Heading/Persist columns, §5 shows 'unavailable' note, caveat in
+  §9 — exit 0, no crash.
+- **SKILL.md:** v4 section list, grid spec, arrow table + FLAT row,
+  probabilistic taxonomy, crossing_status/persistence contract
+  (occupancy ≠ crossing validity), enrichment contract ('> Weekly
+  read:' before grid, one sentence per '>' line, '> Read:' end of
+  §2–§7, '**Net call:**' end of §8), hard rules with ↙ wording.
+
+Verification (poll_tasks --verify, ALL PASS): T2-AC1 exit 0; T2-AC2
+grid/section/Heading/arrow/PROVISIONAL_CROSSING assertions OK.
+Manual: AC3 preview-structure match; AC4 96-ticker census check;
+AC5 11-13 PENDING/CONFIRMED; AC6 both legacy paths exit 0; AC7 SKILL.md.
+Loops clean (17 files); --stats-only unaffected.
+Next: Challenger C / Critic D.
 
 ## RRA enrichment — trajectory-era reports, batch 10-09..11-20 (executor B, 2026-11-23)
 
@@ -189,6 +248,34 @@ focused 49/49 (9.30s); full suite 2162/2162 (271.51s); loops clean
 (17 files); live AC4 — ARKK `{SW, LEADING->IMPROVING, −6.89/−2.07}`.
 Commits: impl 5a29c9f, claim 722e150, done 0fe2646.
 Next: Challenger C / Critic D; orchestrator regenerates docs/rra.
+
+## ChatGPT consultation — Quadrant Crossings section: APPROVED (orchestrator, 2026-11-23)
+
+4-round review in thread REV-rra_crossover_section-g1 -> APPROVED.
+Approved design deltas vs shipped RRG-TRAJ-T1 (candidate follow-up
+task): standalone Crossings section (between Weakening + Velocity);
+probabilistic labels; new fields crossing_status (geometric, per-axis
+boundary, deadband 1.0 / A-B 0.5) + quadrant_persistence (TEMPORARY/
+PENDING/CONFIRMED occupancy, NOT crossing validity); FLAT heading
+(tol 0.05, validated 0/2688 wks); grouped presentation w/ counts +
+identifiable collapsed provisionals. Artifacts:
+%APPDATA%/devin/skills/chatgpt-review/rev/rra_crossover_section_v{1-4}
++ _advices.md. Thread title rename failed (MANUAL_RENAME) — slug->URL
+recorded in state.json.
+
+## RRG-TRAJ-T1 — cycle COMPLETE + docs/rra regenerated & published (orchestrator, 2026-11-23)
+
+Full user-requested sequence done. B impl 5a29c9f -> C APPROVED -> D
+PASS (2162/2162 full suite). All 28 dated ETF prompt JSONs regenerated
+with trajectory.{prev_*,delta_*,heading,prev_quadrant,quadrant_change};
+all 28 reports regenerated + re-enriched (Hdg column, Quadrant
+Crossings block, SW-heading bar on Overweight). The original defect is
+fixed: 11-20 report now reads ARKK/GDX as broken leaders accelerating
+toward LAGGING (Watch, not Overweight). weekly_summary.md rewritten
+(heading-aware arc); report_index.md regenerated. Published 30 files
+to GitHub report/ (remote commit 1224623). C advisories N1-N4 accepted
+as documented limitations (0.01 delta rounding, prefix-agnostic prior
+glob, (0,0)->NE convention, iloc[-2] robustness).
 
 ## ENRICH-T1 — DONE (executor B, 2026-11-23)
 

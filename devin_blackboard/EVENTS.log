@@ -6963,3 +6963,79 @@ Verdict: APPROVED. Missed failure modes: NONE. Would deploy: YES. Next: Critic D
 [2026-11-23T17:05] [EXECUTOR-B] RRA enrichment pass: 7 regenerated trajectory-format reports (2026-07-03..2026-08-14) enriched per analyze_rra SKILL contract. Each file: 1x > Weekly read (S1) + 5x > Read (S2-S6) + 1x **Net call:** (S7); all placed after tables/crossings blocks; git diff shows additions only, tables byte-verbatim. Heading-aware rewrites vs prior enriched versions: (1) 07-24 S3/Net call — prior called ARKK/AWAY/VOT "improving probes sticking better"; new data shows all three are SW-heading LEADING->IMPROVING regime breaks (bearish shocks) — rewritten as exits not entries. (2) 07-24 S4 — prior said VTV/WEAT "slip to WEAKENING"; actually NE LAGGING->WEAKENING squeezes — reframed as sells-not-buys. (3) 07-31 S5/Net call — prior "SMH re-accelerating, crack repaired"; heading shows SMH/XLK/QQQ accelerating SW (toward LAGGING) — rewritten. (4) 07-31 S4 — prior "defensive complex keeps bleeding"; 9/12 WEAKENING names are NE squeezes — rewritten. (5) S2 reads across 07-03..08-14 now flag the SW-heading 12/12 leaders (streaks intact, trajectory down-left) instead of endorsing the regime. (6) 08-07 IEO corrected to NW (momentum-only) after JSON audit; GLD verified NE both weeks. Reports now narrate the rotation arc: growth regime cracking (mega-caps SW) -> financials/healthcare confirmed crossings -> metals NE bottoming -> 08-14 breadth explosion (25 LEADING).
 [2026-11-23T17:40] [EXECUTOR-B] RRA enrichment pass: 7 regenerated trajectory-format reports (2026-05-15..2026-06-26, the commodity-regime arc segment) enriched per analyze_rra SKILL contract. Each file: 1x > Weekly read (S1) + 5x > Read (S2-S6) + 1x **Net call:** (S7), placed after tables/crossings blocks; git diff = additions only, tables byte-verbatim. Heading-aware rewrites vs HEAD~1 prior reads: (1) 05-15 S5 — UNG +18.6/EWZ +14.2 are SW-heading collapses, not "energy bid extending" (EWZ = discontinuous LEADING->LAGGING). (2) 05-29 S3/S7 — prior "ags takeover" contradicted: SOYB/CORN/CANE are SW regime breaks (LEADING->IMPROVING), not rotation within hard assets; successor is the NE tech cluster (XSW/ARKK confirmed to LEADING). (3) 06-05 S3 — WEAT +7.1 and ARKK are SW regime breaks, only AWAY is a genuine NE improver; all 8 crossings bearish. (4) 06-12 S3/S7 — prior "ARKK second probe" failed on heading (SW); USO +28.1A is parabolic down-left; five LAGGING->WEAKENING names reframed as squeezes-sell-not-buy. (5) 06-19 — regime-break week: COMT/DBC discontinuous LEADING->LAGGING, XSW/IWF/ARKK probes all SW; SMH identified as sole NE consistent leader. (6) 06-26 S4 — 16-name WEAKENING is 15/16 NE squeezes not distribution; USO +38.6A SW collapse (LEADING->LAGGING, -24.5 ratio) = rotation completed, not midpoint. Arc now narrates: 15->10->5->4->3(4)->2->1 perfect leaders ending on SMH handoff.
 [2026-11-23T14:46] [EXECUTOR-B] RRA enrichment pass: 7 regenerated trajectory-format reports (2026-10-09..2026-11-20, the crash arc incl. the original ARKK-defect week) enriched per analyze_rra SKILL contract. Each file: 1x > Weekly read (S1) + 5x > Read (S2-S6) + 1x **Net call:** (S7), placed after tables/crossings blocks; git diff = additions only, zero content lines removed, tables/Hdg/crossings byte-verbatim. Heading-aware rewrites vs HEAD~1 prior reads: (1) 10-09 S3 — prior "XBI +12.8 accelerating = healthcare's high-beta leg" contradicted: XBI is a LEADING->IMPROVING SW regime break (-7.4/-10.5); rewritten as broken leader. (2) 10-16 S2 — all five 12/12 leaders head SW/NW incl. IBB +9.8 "ACCELERATING" toward LAGGING; net call reframed (healthcare hold-on-streak, no adds). (3) 10-23 S3 — prior "WEAT +9.0 ags bottoming" contradicted: LEADING->IMPROVING SW regime break; genuine NE bid = defensive bottoming (XLP/XLU/TLT/XLB/XME). (4) 10-30 S3/S7 — prior "ags accelerate hard (WEAT +12.8/CORN +10.4)" contradicted: both accelerating SW, CORN a regime break; ag trade redirected to healthcare-NE + EM-Asia (VNM/XLB); energy heading flip NE->SW downgraded to reduce. (5) 11-06 S4/S5 — XBI "healthcare crack" reframed as NE LAGGING->WEAKENING squeeze (sell); energy squeeze #6 identified as SW-accelerating distribution, exit not sell-into-strength. (6) 11-13 — prior "metals complex dominant improving theme (SLV/PLTM/PALL/COPX/XME accelerating)" contradicted wholesale: ALL heading SW; rewritten as metals breaking together + energy final distribution + SGOV promotion = distribution climax. (7) 11-20 DEFECT WEEK fixed — prior "ARKK accelerating back toward LEADING" and "GDX re-accelerating earns overweight" rewritten: both are SW-heading LEADING->IMPROVING regime breaks accelerating toward LAGGING (ARKK -6.9/-2.1, GDX -4.9/-14.3); §3 reframed as junkyard of broken leaders, genuine rotation = defensive cluster TLT/XLU/HYG/JNK/UNG/INDA/CORN/ITB; net call = rotate into confirmed defensive rotation, exit SW energy/ag leadership, GDX/ARKK watch-list not overweight.
+
+[2026-11-23T14:50:07.295781+00:00] [RRG-WEEKLY] published 30 file(s) -> https://github.com/vialliw/Relative-Rotation-Analysis-Dashboard/report (commit 1224623); skipped 0 unenriched
+[2026-11-23T00:00:00] [ORCHESTRATOR] RRG-TRAJ-T1 full cycle COMPLETE (user-requested sequence). (1) Task registered + B/C/D cycle: impl 5a29c9f (7 trajectory fields inside trajectory), C APPROVED (N1-N4 non-blocking), D PASS (49/49 focused, 2162/2162 full, AC4-7 verified). (2) Regenerated all 28 dated ETFs prompt JSONs via generate_rrg_dashboard --as-of loop (7s, 0 fails) — ARKK now natively heading=SW quadrant_change=LEADING->IMPROVING. (3) Regenerated all 28 report drafts via updated analyze_rra.py (Hdg col + Quadrant Crossings + SW-bar); 4 parallel executor agents re-enriched all 28 (6 reads + Net call each, tables verbatim; dozens of heading-contradicted prior reads rewritten). weekly_summary.md rewritten 28 rows + heading-aware arc; report_index.md regenerated. (4) Published: rrg_weekly_pipeline --publish -> 30/30 publishable, pushed to vialliw/Relative-Rotation-Analysis-Dashboard report/ commit 1224623. Commits: regen 6a9dbbc, enrich 30f498c.
+
+[2026-11-23T00:00:00] [ORCHESTRATOR] ChatGPT consultation — Quadrant Crossings section design (thread REV-rra_crossover_section-g1, new chat; user-requested new thread). 4 rounds -> STATUS: APPROVED. Approved design deltas vs shipped RRG-TRAJ-T1: (1) crossings promoted to standalone numbered section between Weakening Momentum and Velocity Analysis; (2) probabilistic labels replace deterministic bias (e.g. WEAKENING->LAGGING = 'potential bearish continuation — confirm persistence'; diagonals = 'discontinuous — investigate'); (3) NEW fields trajectory.crossing_status {UNCHANGED|PROVISIONAL_CROSSING|CONFIRMED} geometric — evaluated per crossed axis (ratio for L<->I & W<->L, momentum for L<->W & I<->L, diagonals both; deadband default 1.0, A/B 0.5/1.0) AND trajectory.quadrant_persistence {TEMPORARY|PENDING|CONFIRMED} = consecutive-weeks occupancy, explicitly NOT crossing validity; (4) grouped-by-transition, confirmed/provisional split, counts, collapsed provisionals stay identifiable, full enum in JSON; (5) FLAT 5th heading state tol 0.05 (validated 0/2688 ticker-weeks); heading != rotation direction — independent of speed/transition/confirmation. Advices files: rev/rra_crossover_section_v{1..4}_advices.md.
+
+[2026-11-23T00:00:00] [ORCHESTRATOR] v4-design preview built for manual user review (not committed, not for publish): .tmp/rra_v4_preview_2026-11-20.md — Quadrant Crossings promoted to standalone section 5 (Velocity->6..Caveats->9), probabilistic labels, per-axis deadband 1.0 (21 crossings: 15 confirmed / 6 provisional — GDX L->I break PROVISIONAL at 99.34 vs ARKK CONFIRMED at 97.59), quadrant_persistence=TEMPORARY on all crossers, FLAT heading 0 occurrences. Awaiting user review before any pipeline change.
+
+[2026-11-23T23:27:38.891207+00:00] [EXECUTOR] claimed RRG-TRAJ-T2
+[2026-11-23T23:37:32.624983+00:00] [EXECUTOR] completed RRG-TRAJ-T2 -> v4 report format shipped (impl bd769f6). S1: counts + 2x2 grid w/ THEME_MAP bullets, arrows on all 96 tickers (verified 1x each). Arrows+FLAT (0.05 tol, before arrow map) everywhere; Hdg->Heading + new Persist column (quadrant_persistence visible for non-crossers). S5 standalone: '21 crossings: 15 confirmed/6 provisional', CCW->CW->diagonal groups, probabilistic labels, per-axis deadband crossing_status (ARKK CONFIRMED 2.41, GDX PROVISIONAL 0.66 whipsaw), quadrant_persistence walk-back (11-13 run: 29 CONFIRMED+2 PENDING occupants). S9 caveat added. Legacy fallback: prior-diff works (same 21/15-6), alone-in-dir omits gracefully exit 0. SKILL.md fully updated. --verify: AC1+AC2 PASS; AC3-7 manually verified.
+Evidence map:
+[
+  {
+    "id": "T2-AC1",
+    "check": "extractor runs clean",
+    "command": "python .devin/skills/analyze_rra/analyze_rra.py docs/rra/Relative_Rotation_Dashboard_ETFs_2026-11-20_analysis_prompt.json --out .tmp/t2_draft.md",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "wrote .tmp\\t2_draft.md (13474 bytes)\n"
+  },
+  {
+    "id": "T2-AC2",
+    "check": "2x2 grid + arrows + Heading col + standalone S5 + renumber",
+    "command": "python -c \"t=open('.tmp/t2_draft.md',encoding='utf-8').read();assert '| RS-Momentum \u2193 / RS-Ratio \u2192 |' in t;assert '## 5. Quadrant Crossings' in t and '## 6. Velocity Analysis' in t and '## 9. Data Caveats' in t;assert '| Heading |' in t;assert '\u2199' in t and '\u2197' in t;import re;assert not re.search(r'\bHdg\b|\\| (NE|NW|SE|SW) \\|',t);assert 'PROVISIONAL_CROSSING' in t and 'quadrant_persistence' in t;print('OK')\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "OK\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]
