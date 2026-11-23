@@ -81,9 +81,12 @@ Subcommands: `--generate`, `--publish`, `--all` (default), `--dry-run`
 `scripts/rrg_enrich_headless.py` (stdlib-only wrapper) runs on the
 `StockIngestion-RRGEnrich` triggers:
 
-1. Reads `docs/rra/.rrg_pipeline_state.json`. No-ops (exit 0) when
-   `report_enriched` is true **and** `weekly_summary.md` already covers
-   `resolved_date` — the same condition the Phase C publish gate checks.
+1. Reads `docs/rra/.rrg_pipeline_state.json`. No-ops (exit 0) when the
+   report is enriched by ANY evidence — the `report_enriched` flag OR
+   the report file's on-disk `> Weekly read:`/`**Net call:**` markers
+   (the flag can lag a manual enrichment until the next `--generate`;
+   the markers are what the publish gate actually reads) — **and**
+   `weekly_summary.md` already covers `resolved_date`.
 2. Otherwise takes `devin_blackboard/locks/rrg_enrich.lock`
    (`O_CREAT | O_EXCL`, stale >10 min recovered per `poll_tasks.py`
    conventions — a held lock exits without spawning) and spawns ONE

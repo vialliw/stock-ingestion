@@ -4,9 +4,11 @@ automate the enrichment step via a headless local Devin session
 
 Reads ``docs/rra/.rrg_pipeline_state.json`` (written by
 ``scripts/rrg_weekly_pipeline.py --generate``).  When the report is
-still a draft (``report_enriched`` false) OR ``weekly_summary.md`` does
-not yet cover ``resolved_date`` — the same criteria the Phase C publish
-gate applies — this wrapper spawns ONE headless session:
+still a draft (``report_enriched`` flag false AND the file itself lacks
+the ``> Weekly read:``/``**Net call:**`` markers — the flag can lag a
+manual enrichment) OR ``weekly_summary.md`` does not yet cover
+``resolved_date`` — the same criteria the Phase C publish gate applies —
+this wrapper spawns ONE headless session:
 
     devin.exe -p "<ENRICHMENT PROMPT>"
 
@@ -193,16 +195,24 @@ def summary_draft_markers(summary_path: Path) -> list:
 
 
 def enrichment_complete(state: dict, summary_path: Path) -> bool:
-    """No-op check: report_enriched flag AND summary covers resolved_date.
+    """No-op check mirroring the Phase C publish gate.
 
-    Mirrors the Phase C publish-gate condition: the summary must mention
-    the resolved week date.  A missing resolved_date means the summary
-    check cannot be satisfied -> treat as not complete.
+    Complete when (a) the report is enriched by ANY evidence — the
+    ``report_enriched`` state flag OR the actual on-disk markers
+    (``> Weekly read:``/``> Read:`` + ``**Net call:**``, the same
+    regexes the publish gate applies) — AND (b) ``weekly_summary.md``
+    mentions the resolved week date.  Checking the file itself covers
+    the stale-flag case: a report enriched in a manual session leaves
+    ``report_enriched=false`` until the next --generate, and must not
+    trigger a wasted headless session.
     """
-    if not state.get("report_enriched"):
-        return False
     resolved = resolved_date_of(state)
     if not resolved:
+        return False
+    report_path = DOCS_RRA / str(state.get("report_md", ""))
+    report_done = bool(state.get("report_enriched")) \
+        or report_is_enriched(report_path)
+    if not report_done:
         return False
     return not summary_missing_dates(summary_path, [resolved])
 
@@ -366,8 +376,8 @@ def run(dry_run: bool = False) -> int:
 
     resolved = resolved_date_of(state)
     if enrichment_complete(state, SUMMARY_FILE):
-        msg = (f"no-op: report_enriched=true and weekly_summary.md "
-               f"already covers {resolved}")
+        msg = (f"no-op: report already enriched (flag or markers) and "
+               f"weekly_summary.md already covers {resolved}")
         print(f"[dry-run] {msg}" if dry_run else f"enrich: {msg}")
         return 0
 

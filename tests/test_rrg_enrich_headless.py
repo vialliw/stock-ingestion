@@ -128,6 +128,54 @@ class TestNoOpWhenEnriched:
         assert not sandbox["lock"].exists()  # no lock
         assert "no-op" in capsys.readouterr().out
 
+    def test_stale_flag_but_ondisk_enriched_noop(
+            self, sandbox, monkeypatch, capsys):
+        """Live-state scenario: report_enriched=false in the state file
+        but the report on disk already carries the enrichment markers
+        and the summary covers the date -> must NOT spawn (the flag
+        lags manual enrichment until the next --generate)."""
+        fake = _FakePopen()
+        _patch_popen(monkeypatch, fake)
+        _write_state(sandbox, PENDING_STATE)  # report_enriched stays false
+        (sandbox["docs"] / PENDING_STATE["report_md"]).write_text(
+            "# RRG Analysis Report — 2026-11-20\n\n"
+            "## 1. Quadrant Census\n\n"
+            "> Weekly read: metals lead.\n\n"
+            "## 7. Actionable Portfolio Tilts\n\n"
+            "**Net call:** overweight metals.\n",
+            encoding="utf-8")
+        sandbox["summary"].write_text(
+            "| Date | Weekly summary |\n| 2026-11-20 | metals lead. |\n",
+            encoding="utf-8")
+        assert reh.run() == 0
+        assert fake.calls == []                  # no spawn
+        assert not sandbox["lock"].exists()
+        assert "no-op" in capsys.readouterr().out
+
+    def test_flag_false_and_report_is_draft_spawns(
+            self, sandbox, monkeypatch):
+        """Complement: flag=false AND the report file lacks markers ->
+        genuinely pending -> spawn."""
+        fake = _FakePopen(rc=0)
+        _patch_popen(monkeypatch, fake)
+        _write_state(sandbox, PENDING_STATE)
+        (sandbox["docs"] / PENDING_STATE["report_md"]).write_text(
+            "# RRG Analysis Report — 2026-11-20\n\n(no narrative)\n",
+            encoding="utf-8")
+        sandbox["summary"].write_text("x\n", encoding="utf-8")
+        assert reh.run() == 0
+        assert len(fake.calls) == 1
+
+    def test_flag_false_report_missing_entirely_spawns(
+            self, sandbox, monkeypatch):
+        """report_md absent from disk -> markers check False -> pending."""
+        fake = _FakePopen(rc=0)
+        _patch_popen(monkeypatch, fake)
+        _write_state(sandbox, PENDING_STATE)
+        sandbox["summary"].write_text("x\n", encoding="utf-8")
+        assert reh.run() == 0
+        assert len(fake.calls) == 1
+
     def test_report_enriched_but_summary_missing_date_spawns(
             self, sandbox, monkeypatch):
         """Publish-gate mirror: flag alone is not enough — the summary

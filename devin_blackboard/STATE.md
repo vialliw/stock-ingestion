@@ -49,6 +49,9 @@ User challenged ARKK's IMPROVING placement vs QQQ. Verified end-to-end:
   LEADING" is wrong — heading -163deg is toward LAGGING; ACCELERATING
   measures speed not direction. sec.7 Overweight incl. ARKK is the
   same mechanical misread. Reported to user; fix offered, not applied.
+- Follow-up: GDX is the ONLY other LEADING->IMPROVING crosser
+  (104.21/147.05 -> 99.34/132.78, -16.2% wk) — identical artifact +
+  identical "re-accelerating" mischaracterization in the report.
 
 ## ANALYSIS — summarize_rra verification (orchestrator, 2026-11-23)
 
