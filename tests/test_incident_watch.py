@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 
 import pytest
+import pyarrow.flight as flight
+from types import SimpleNamespace
 
 # Add scripts dir to path so incident_watch can be imported (same
 # pattern as tests/test_scheduler.py).
@@ -67,11 +69,18 @@ def _health() -> dict:
     }
 
 
-def _run(root: Path, health, notify=None, probe_error=None) -> dict:
+def _run(root: Path, health, notify=None, probe_error=None,
+         flight_read=None) -> dict:
     """run_watch with toasts stubbed out unless a spy is supplied."""
     return incident_watch.run_watch(
-        root, health=health, probe_error=probe_error, now=_NOW,
+        root, health=health, probe_error=probe_error,
+        flight_read=flight_read, now=_NOW,
         notify=notify or (lambda *a, **k: None))
+
+
+def _heartbeat(root: Path) -> dict:
+    return json.loads(
+        (root / "_last_check.json").read_text(encoding="utf-8"))
 
 
 def _open_names(root: Path):
@@ -1698,3 +1707,225 @@ class TestPostWindowHRAW3:
         assert any(f"_sev2_integrity_WBD_{_POST_WE}" in n
                    for n in names)
         assert not any("_sev3_integrity_WBD" in n for n in names)
+
+
+# ---------------------------------------------------------------------
+# IW-T1 — do_get read-path liveness probe
+#
+# The watcher must exercise the client-facing do_get path on every run:
+# data_health (do_action) uses different server code and stayed green
+# through two real do_get outages (2026-11-06 and 2026-11-21, ~26h of
+# dead client reads each).  A failed SELECT-1 probe -> SEV1
+# 'flight_read' finding; a passing probe -> zero noise; an unreachable
+# server -> only the pre-existing probe='unreachable' SEV1.
+# ---------------------------------------------------------------------
+
+class _FakeReader:
+    """Stand-in for pyarrow.flight.FlightStreamReader."""
+
+    def __init__(self, error=None):
+        self._error = error
+
+    def read_all(self):
+        if self._error is not None:
+            raise self._error
+        return "batches-drained"
+
+
+class _FakeFlightClient:
+    """Minimal FlightClient stand-in: records wire calls and replays
+    canned do_get/do_action behavior — tests never open a socket."""
+
+    def __init__(self, do_get_error=None, read_all_error=None,
+                 health=None):
+        self._do_get_error = do_get_error
+        self._read_all_error = read_all_error
+        self._health = health
+        self.do_get_calls = []
+        self.do_action_calls = []
+
+    def wait_for_available(self, timeout=None):
+        self.wait_timeout = timeout
+
+    def do_get(self, ticket, options=None):
+        self.do_get_calls.append({"ticket": ticket, "options": options})
+        if self._do_get_error is not None:
+            raise self._do_get_error
+        return _FakeReader(self._read_all_error)
+
+    def do_action(self, action, options=None):
+        self.do_action_calls.append({"action": action,
+                                     "options": options})
+        return [flight.Result(
+            json.dumps({"health": self._health}).encode("utf-8"))]
+
+
+def _ticket_sql(ticket) -> str:
+    return json.loads(ticket.ticket.decode("utf-8"))["sql"]
+
+
+class TestFlightReadProbeIW1:
+    # ---- probe helper: real do_get call shape, success + failure ----
+
+    def test_probe_success_issues_select1_and_returns_ok(self):
+        client = _FakeFlightClient()
+        assert incident_watch._probe_flight_read(client) == "ok"
+        assert len(client.do_get_calls) == 1
+        call = client.do_get_calls[0]
+        # real client-facing contract: JSON {"sql"} Ticket, bounded call
+        assert _ticket_sql(call["ticket"]) == "SELECT 1"
+        assert isinstance(call["options"], flight.FlightCallOptions)
+
+    def test_probe_do_get_raise_returns_error_not_ok(self):
+        client = _FakeFlightClient(
+            do_get_error=flight.FlightServerError(
+                "Query Execution Error: read path dead"))
+        err = incident_watch._probe_flight_read(client)
+        assert err != "ok"
+        assert "read path dead" in err
+
+    def test_probe_stream_failure_on_read_all(self):
+        # The real outage mode: do_get accepts the ticket but reading
+        # the stream fails (server-side fetch_arrow_table breakage).
+        client = _FakeFlightClient(
+            read_all_error=RuntimeError("fetch_arrow_table broke"))
+        err = incident_watch._probe_flight_read(client)
+        assert err != "ok"
+        assert "fetch_arrow_table" in err
+
+    # ---- run_watch integration: finding, heartbeat, lifecycle ----
+
+    def test_flight_read_failure_creates_sev1_incident(self, tmp_path):
+        stats = _run(tmp_path, _health(),
+                     flight_read="FlightServerError: boom")
+        names = _open_names(tmp_path)
+        assert len(names) == 1
+        assert "_sev1_flight_read_do_get" in names[0]
+        inc = _incident(tmp_path, "open", names[0])
+        assert inc["severity"] == "SEV1"
+        assert inc["check"] == "flight_read"
+        assert inc["state"] == "open"
+        # evidence lands verbatim in report.json
+        report = json.loads(
+            (tmp_path / "open" / names[0] / "report.json").read_text(
+                encoding="utf-8"))
+        assert report["query"] == "SELECT 1"
+        assert "boom" in report["flight_read_error"]
+        # heartbeat: health probe OK (server reachable) but read FAILED
+        hb = _heartbeat(tmp_path)
+        assert hb["probe"] == "ok"
+        assert hb["flight_read"] == "fail"
+        # SEV1 pages through the normal toast path
+        assert len(stats["toasts"]) == 1
+        assert stats["toasts"][0][0] == 1
+
+    def test_flight_read_success_zero_noise(self, tmp_path):
+        stats = _run(tmp_path, _health(), flight_read="ok")
+        assert _open_names(tmp_path) == []
+        assert stats["toasts"] == []
+        assert stats["new"] == []
+        hb = _heartbeat(tmp_path)
+        assert hb["probe"] == "ok"
+        assert hb["flight_read"] == "ok"
+
+    def test_unreachable_still_only_probe_finding(self, tmp_path):
+        # Server down: the do_get probe could not run (flight_read
+        # stays None) -> ONLY the pre-existing probe=unreachable SEV1.
+        # This is what keeps 'server unreachable' distinct from
+        # 'server reachable but do_get broken'.
+        _run(tmp_path, None, probe_error="connection refused",
+             flight_read=None)
+        names = _open_names(tmp_path)
+        assert len(names) == 1
+        assert "_sev1_probe_" in names[0]
+        assert "flight_read" not in names[0]
+        hb = _heartbeat(tmp_path)
+        assert hb["probe"] == "unreachable"
+        assert hb["flight_read"] is None
+
+    def test_flight_read_failure_plus_unreachable_health(self, tmp_path):
+        # Read probe ran + failed, then the health action also failed:
+        # both SEV1 findings materialize (distinct incident keys).
+        _run(tmp_path, None, probe_error="action timed out",
+             flight_read="FlightServerError: Query Execution Error")
+        names = _open_names(tmp_path)
+        assert any("_sev1_probe_" in n for n in names)
+        assert any("_sev1_flight_read_" in n for n in names)
+
+    def test_flight_read_dedup_and_unacked_flow(self, tmp_path):
+        # Repeat failure updates the same incident via the normal
+        # escalation path — no second folder.
+        h = _health()
+        _run(tmp_path, h, flight_read="FlightServerError: boom")
+        stats = _run(tmp_path, h, flight_read="FlightServerError: boom")
+        names = _open_names(tmp_path)
+        assert len(names) == 1
+        assert stats["updated"] == names
+        inc = _incident(tmp_path, "open", names[0])
+        assert inc["unacked_checks"] == 2
+
+    def test_flight_read_auto_resolves_when_probe_recovers(
+            self, tmp_path):
+        h = _health()
+        _run(tmp_path, h, flight_read="FlightServerError: boom")
+        stats = _run(tmp_path, h, flight_read="ok")
+        assert _open_names(tmp_path) == []
+        assert len(stats["resolved"]) == 1
+        resolved = [p.name for p in (tmp_path / "resolved").iterdir()]
+        assert any("flight_read" in n for n in resolved)
+
+    # ---- main() wiring: probe runs against the connected client ----
+
+    def _wire_main(self, monkeypatch, client):
+        r"""Patch config/logging/connect/notify so main() runs against
+        the fake client and never touches C:\Intel or the network."""
+        monkeypatch.setattr(
+            incident_watch, "PipelineConfig",
+            SimpleNamespace(from_yaml=lambda *a, **k: object()))
+        monkeypatch.setattr(
+            incident_watch, "_configure_logging", lambda cfg: None)
+        monkeypatch.setattr(
+            incident_watch, "_connect", lambda cfg: client)
+        monkeypatch.setattr(
+            incident_watch, "_notify", lambda *a, **k: None)
+
+    def test_main_probes_do_get_and_stays_silent_on_success(
+            self, tmp_path, monkeypatch):
+        client = _FakeFlightClient(health=_health())
+        self._wire_main(monkeypatch, client)
+        code = incident_watch.main(
+            ["--incidents-root", str(tmp_path)])
+        assert code == 0
+        # the probe ran BEFORE/alongside data_health on the same client
+        assert len(client.do_get_calls) == 1
+        assert _ticket_sql(client.do_get_calls[0]["ticket"]) == "SELECT 1"
+        assert len(client.do_action_calls) == 1
+        assert client.do_action_calls[0]["action"].type == "data_health"
+        # clean run -> zero findings
+        assert _open_names(tmp_path) == []
+        hb = _heartbeat(tmp_path)
+        assert hb["probe"] == "ok"
+        assert hb["flight_read"] == "ok"
+
+    def test_main_do_get_failure_pages_sev1_even_with_green_health(
+            self, tmp_path, monkeypatch):
+        """The exact 11-06/11-21 blind spot: data_health returns a
+        clean report while the client-facing read path is dead ->
+        SEV1 flight_read incident must materialize."""
+        client = _FakeFlightClient(
+            do_get_error=flight.FlightServerError(
+                "Query Execution Error: duckdb.duckdb.Error"),
+            health=_health())  # health report stays GREEN
+        self._wire_main(monkeypatch, client)
+        code = incident_watch.main(
+            ["--incidents-root", str(tmp_path)])
+        assert code == 0
+        names = _open_names(tmp_path)
+        assert len(names) == 1
+        assert "_sev1_flight_read_do_get" in names[0]
+        # health action still ran and arrived clean
+        assert len(client.do_action_calls) == 1
+        hb = _heartbeat(tmp_path)
+        assert hb["probe"] == "ok"          # NOT unreachable
+        assert hb["flight_read"] == "fail"  # the read path is the fault
+        assert hb["health_status"] == "OK"

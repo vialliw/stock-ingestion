@@ -6579,3 +6579,61 @@ edits. Read-only review — no src/ or tests/ files modified by C.
 [2026-11-23T00:40:00] [ORCHESTRATOR] R1A-T1 blocked -> done (user approved). Evidence recorded on task + here: the Oct-17 zero-NULL deployment criterion is met — NULLs eliminated by exclusion purge (DBRG/QRVO/WBD, designed behavior on user config change) + LESL do_put repair; live audit today shows zero NULL/non-finite RawClose. No quant.duckdb import performed or needed.
 
 [2026-11-23T12:10:17.529714+00:00] [EXECUTOR] claimed IW-T1
+[2026-11-23T12:29:14.110721+00:00] [EXECUTOR] completed IW-T1 -> do_get liveness probe added to every watch run: _probe_flight_read issues SELECT 1 via FlightClient.do_get(Ticket) on the same connection BEFORE the data_health action (30s bounded, stream drained so server-side fetch_arrow_table-style failures surface); failure -> SEV1 check=flight_read finding with error text in report.json; success -> zero noise. probe=unreachable heartbeat semantics preserved (flight_read stays None when the server cannot be connected). Heartbeat + stdout digest carry the new flight_read status. 11 new tests (95->106 focused, 2132 total): mocked-flight probe success/failure/stream-failure, SEV1 folder+evidence+toast, dedup/unacked/auto-resolve lifecycle, unreachable-vs-broken distinction, and main()-level wiring tests incl. the green-health+dead-do_get regression. Live sanity: _probe_flight_read against production server returned ok.
+Evidence map:
+[
+  {
+    "id": "IW-AC1",
+    "check": "focused tests",
+    "command": "python -m pytest tests/test_incident_watch.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "........................................................................ [ 67%]\n..................................                                       [100%]\n106 passed in 4.32s\n"
+  },
+  {
+    "id": "IW-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n2132 passed, 2 warnings in 243.05s (0:04:03)\n"
+  },
+  {
+    "id": "IW-AC3",
+    "check": "loop checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

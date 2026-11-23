@@ -5150,7 +5150,7 @@
     "title": "Watcher blind spot: incident_watch never exercises the do_get read path — add a liveness probe that opens a SEV1 incident on do_get failure",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "assigned_to": "B",
     "depends_on": [],
     "input_files": [

@@ -4,7 +4,17 @@ Scheduled after the daily load (INC-T2 registers the watch task).  Each
 run calls the Flight ``data_health`` action, classifies the composite
 health report per ``docs/incident_management_requirements.md`` §2.1
 severity rules, and materializes one folder per incident in the
-centralized store (doc §7)::
+centralized store (doc §7).
+
+IW-T1 — every run ALSO issues a trivial client-facing ``do_get`` probe
+(``SELECT 1`` through ``FlightClient.do_get(Ticket)``) on the same
+connection.  The ``data_health`` action rides different server code and
+stayed green through two real do_get outages (2026-11-06 and 2026-11-21:
+``conn.execute().fetch_arrow_table()`` broke under an accidental duckdb
+2.0 install — all client reads dead ~26h each while the watcher reported
+nothing).  A failed read probe raises a SEV1 ``flight_read`` finding,
+distinct from the ``probe``/unreachable SEV1 that only fires when the
+server cannot be connected to at all::
 
     <root>/open/<YYYYMMDD>_sev<N>_<check>_<detail>/
         incident.json   {incident_key, severity, check, first_seen,
@@ -105,6 +115,10 @@ _JSON_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 # Flight call bounds — same values as scripts/data_health_report.py.
 _FLIGHT_CONNECT_TIMEOUT_S = 10
 _FLIGHT_ACTION_TIMEOUT_S = 120
+# IW-T1 — bound for the do_get liveness probe.  SELECT 1 returns in
+# milliseconds on a healthy server; 30s is generous without letting a
+# wedged read path stall the watch cycle.
+_FLIGHT_GET_TIMEOUT_S = 30
 
 # Doc §2.1 thresholds.
 _STALE_SEV2_THRESHOLD = 25        # ~2% of the ~1214 configured tickers
@@ -521,12 +535,17 @@ def _prior_evidence_tickers(root: Path) -> set:
     return seen
 
 
-def classify_health(health, *, probe_error=None, benign=None,
-                    ack_delisted=frozenset(), prior_data=frozenset()):
+def classify_health(health, *, probe_error=None, flight_read=None,
+                    benign=None, ack_delisted=frozenset(),
+                    prior_data=frozenset()):
     """Classify a data_health report into findings (doc §2.1).
 
     ``health`` is the composite report dict, or ``None`` when the probe
     failed (Flight unreachable / non-JSON) — that alone is a SEV1.
+    ``flight_read`` is the do_get liveness-probe outcome (IW-T1):
+    ``None`` when the probe could not run (server unreachable — the
+    ``probe`` finding covers that case), ``"ok"`` on success, otherwise
+    the captured error text -> a SEV1 ``flight_read`` finding.
     Accepts a plain dict so tests never touch the Flight server.
     Returns a list of ``_Finding`` sorted SEV1-first; SEV4-level items
     come back with ``suppressed=True``.
@@ -535,6 +554,32 @@ def classify_health(health, *, probe_error=None, benign=None,
     ack = set(ack_delisted or ())
     prior_data = set(prior_data or ())
     findings = []
+
+    # ---- SEV1: client-facing do_get read path is broken (IW-T1) ----
+    # The health report rides do_action — different server code that
+    # stayed green through both real do_get outages (2026-11-06 and
+    # 2026-11-21, ~26h of dead client reads each).  A failed SELECT-1
+    # probe therefore pages in its own right even when the health
+    # report arrives clean.  ``flight_read`` stays ``None`` when the
+    # probe could not run at all (server unreachable), so a down server
+    # keeps producing ONLY the probe finding below — the two outage
+    # modes remain distinguishable.
+    if flight_read is not None and flight_read != "ok":
+        findings.append(_Finding(
+            check="flight_read", detail="do_get", severity=1,
+            summary=("Flight do_get read path failed — server reachable "
+                     "but a trivial client SELECT (SELECT 1) errored: "
+                     f"{flight_read}"),
+            evidence={"check": "flight_read", "query": "SELECT 1",
+                      "flight_read_error": flight_read},
+            suggested_action=(
+                "The Flight server accepts connections/actions but the "
+                "do_get read path is broken — all client reads are "
+                "dead. Check duckdb version drift (the 11-06/11-21 "
+                "outages were fetch_arrow_table breaking under an "
+                "accidental duckdb 2.0 install) and the Flight server "
+                "logs, then restart the StockIngestion-FlightServer "
+                "scheduled task per scripts/register_flight_service.ps1.")))
 
     if not isinstance(health, dict):
         findings.append(_Finding(
@@ -1336,13 +1381,18 @@ def _archive_report(root: Path, health, probe_error,
 
 
 def _write_heartbeat(root: Path, probe: str, health_status,
-                     stats: dict) -> None:
+                     stats: dict, flight_read=None) -> None:
     """Write ``<root>/_last_check.json`` — the watcher liveness signal
-    (doc §7.3: open/ empty + fresh heartbeat = healthy)."""
+    (doc §7.3: open/ empty + fresh heartbeat = healthy).
+
+    ``flight_read`` (IW-T1) is ``"ok"``/``"fail"``/``None``: the do_get
+    probe outcome, or ``None`` when the probe could not run (server
+    unreachable / self-test) — ``probe`` already carries that case."""
     _write_json(root / "_last_check.json", {
         "ts": _dt.datetime.now().astimezone().isoformat(
             timespec="seconds"),
         "probe": probe,
+        "flight_read": flight_read,
         "health_status": health_status,
         "new": len(stats.get("new", [])),
         "updated": len(stats.get("updated", [])),
@@ -1370,13 +1420,16 @@ def _notify(severity: int, summary: str) -> None:
         logger.warning("toast notification failed (non-fatal): %s", exc)
 
 
-def run_watch(root, health=None, *, probe_error=None, now=None,
-              notify=None) -> dict:
+def run_watch(root, health=None, *, probe_error=None, flight_read=None,
+              now=None, notify=None) -> dict:
     """One full watch cycle against store ``root``; returns stats.
 
     ``health`` is the composite data_health dict (``None`` = probe
-    failure -> SEV1).  ``notify`` defaults to the real toast — tests
-    inject a stub.  Always writes the heartbeat and report snapshot.
+    failure -> SEV1).  ``flight_read`` is the do_get probe outcome
+    (IW-T1): ``None`` = probe could not run, ``"ok"`` = passed, other
+    text = the error -> SEV1 ``flight_read`` finding.  ``notify``
+    defaults to the real toast — tests inject a stub.  Always writes
+    the heartbeat and report snapshot.
     """
     root = Path(root)
     now = now or _dt.datetime.now().astimezone()
@@ -1388,8 +1441,8 @@ def run_watch(root, health=None, *, probe_error=None, now=None,
     benign, ack_delisted = _load_suppressions(root)
     prior_data = _prior_evidence_tickers(root)
     findings = classify_health(
-        health, probe_error=probe_error, benign=benign,
-        ack_delisted=ack_delisted, prior_data=prior_data)
+        health, probe_error=probe_error, flight_read=flight_read,
+        benign=benign, ack_delisted=ack_delisted, prior_data=prior_data)
     stats = _apply_findings(
         root, findings, _report_yyyymmdd(health, now), now_iso)
     _archive_report(root, health, probe_error, now)
@@ -1398,6 +1451,8 @@ def run_watch(root, health=None, *, probe_error=None, now=None,
         probe="ok" if isinstance(health, dict) else "unreachable",
         health_status=health.get("health_status") if isinstance(
             health, dict) else None,
+        flight_read=(None if flight_read is None else
+                     "ok" if flight_read == "ok" else "fail"),
         stats=stats)
     sender = notify if notify is not None else _notify
     # justified: at most one toast per new/escalated incident — paging
@@ -1414,13 +1469,49 @@ def run_watch(root, health=None, *, probe_error=None, now=None,
 # Live probe + entrypoint
 # ---------------------------------------------------------------------
 
-def _fetch_health(config: PipelineConfig, gap_days: int) -> dict:
-    """Call the ``data_health`` action and return the health dict —
-    same client pattern as scripts/data_health_report._fetch_health."""
+def _connect(config: PipelineConfig):
+    """Open a ``FlightClient`` and wait for the server — the
+    reachability probe.  Raises on refusal/timeout; the caller maps
+    that to ``probe_error`` (server unreachable)."""
     client = flight.FlightClient(
         f"grpc://{config.server.flight_host}:{config.server.flight_port}"
     )
     client.wait_for_available(timeout=_FLIGHT_CONNECT_TIMEOUT_S)
+    return client
+
+
+def _probe_flight_read(client) -> str:
+    """IW-T1 — liveness probe for the client-facing do_get read path.
+
+    Issues ``SELECT 1`` through ``FlightClient.do_get(Ticket)`` — the
+    exact wire call a consumer makes — and drains the stream so a
+    server-side execution failure surfaces here.  This path runs
+    different server code than ``data_health`` (do_action): during the
+    2026-11-06 and 2026-11-21 outages ``fetch_arrow_table`` broke under
+    an accidental duckdb 2.0 install, every client read was dead ~26h,
+    and the health action still reported green.
+
+    Returns ``"ok"`` on success, otherwise the captured error text.
+    Never raises — the caller maps a non-``"ok"`` result to a SEV1
+    ``flight_read`` finding.
+    """
+    try:
+        ticket = flight.Ticket(
+            json.dumps({"sql": "SELECT 1"}).encode("utf-8"))
+        reader = client.do_get(
+            ticket,
+            options=flight.FlightCallOptions(
+                timeout=_FLIGHT_GET_TIMEOUT_S))
+        reader.read_all()
+    except Exception as exc:
+        return f"{type(exc).__name__}: {exc}"
+    return "ok"
+
+
+def _fetch_health(client, gap_days: int) -> dict:
+    """Call the ``data_health`` action on an already-connected client
+    and return the health dict — same client pattern as
+    scripts/data_health_report._fetch_health."""
     action = flight.Action(
         "data_health", json.dumps({"gap_days": gap_days}).encode("utf-8")
     )
@@ -1551,13 +1642,15 @@ def _resolve_root(arg: "str | None", self_test: bool) -> Path:
 
 
 def _print_summary(root: Path, stats: dict, health,
-                   probe_error) -> None:
+                   probe_error, flight_read=None) -> None:
     """Short stdout summary for the Task Scheduler log + SEV3/4 digest."""
     status = health.get("health_status") if isinstance(health, dict) \
         else "PROBE_FAILED"
+    fr = ("skipped" if flight_read is None
+          else "ok" if flight_read == "ok" else "FAIL")
     print(f"incident_watch: health_status={status} "
           f"probe={'ok' if isinstance(health, dict) else 'unreachable'} "
-          f"root={root}")
+          f"flight_read={fr} root={root}")
     print(f"  new={len(stats['new'])} updated={len(stats['updated'])} "
           f"resolved={len(stats['resolved'])} "
           f"suppressed={stats['suppressed']}")
@@ -1609,19 +1702,36 @@ def main(argv=None) -> int:
     root = _resolve_root(args.incidents_root, args.self_test)
     if args.self_test:
         health, probe_error = _self_test_health(), None
+        flight_read = None  # offline self-test never opens a socket
         logger.info("self-test: synthetic fixture -> %s", root)
     elif config is None:
-        health, probe_error = None, "config unavailable"
+        health, probe_error, flight_read = None, "config unavailable", None
     else:
+        health, probe_error, flight_read = None, None, None
         try:
-            health = _fetch_health(config, args.gap_days)
-            probe_error = None
+            client = _connect(config)
         except Exception as exc:
-            health, probe_error = None, str(exc)
-            logger.error("data_health probe failed: %s", exc)
+            # Server unreachable — the do_get probe cannot run, so the
+            # run keeps producing ONLY the probe='unreachable' SEV1
+            # (pre-IW-T1 semantics preserved).
+            probe_error = str(exc)
+            logger.error("flight connect probe failed: %s", exc)
+        else:
+            # IW-T1 — exercise the client-facing do_get read path on the
+            # same connection BEFORE data_health: the do_action health
+            # path stayed green through both real do_get outages.
+            flight_read = _probe_flight_read(client)
+            if flight_read != "ok":
+                logger.error("do_get read probe failed: %s", flight_read)
+            try:
+                health = _fetch_health(client, args.gap_days)
+            except Exception as exc:
+                probe_error = str(exc)
+                logger.error("data_health probe failed: %s", exc)
 
     try:
-        stats = run_watch(root, health=health, probe_error=probe_error)
+        stats = run_watch(root, health=health, probe_error=probe_error,
+                          flight_read=flight_read)
     except Exception:
         logger.exception(
             "incident_watch crashed during the watch cycle.")
@@ -1635,13 +1745,16 @@ def main(argv=None) -> int:
                 root, probe="error",
                 health_status=health.get("health_status") if isinstance(
                     health, dict) else None,
+                flight_read=(None if flight_read is None else
+                             "ok" if flight_read == "ok" else "fail"),
                 stats={"new": [], "updated": [], "resolved": [],
                        "suppressed": 0})
         except Exception:
             pass
         return 1
 
-    _print_summary(Path(root), stats, health, probe_error)
+    _print_summary(Path(root), stats, health, probe_error,
+                   flight_read=flight_read)
     return 0
 
 
