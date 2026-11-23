@@ -602,6 +602,128 @@ class TestGenAiPrompt:
         }
         assert payload["market_snapshot"]["benchmark"] == "BENCH"
 
+    @staticmethod
+    def _prompt(ratio_series: dict, momo_series: dict) -> dict:
+        """Build a payload from hand-made clean frames: 3 weekly
+        rows — [-3] == [-2] so the final-week deltas are exactly
+        ``series[-1] - series[-2]`` and ``velocity_direction`` is a
+        deterministic DECELERATING (velocity 0 vs 0 -> else branch)."""
+        idx = pd.date_range("2026-01-02", periods=3, freq="W-FRI")
+        clean_ratio = pd.DataFrame(ratio_series, index=idx)
+        clean_momo = pd.DataFrame(momo_series, index=idx)
+        return json.loads(
+            rrg_dashboard.gen_ai_prompt(clean_ratio, clean_momo, "BENCH")
+        )
+
+    def test_trajectory_keys_present_for_every_ticker(self):
+        """The new trajectory-semantics keys nest inside ``trajectory``
+        for every ticker; the entry-level contract is unchanged."""
+        payload = self._prompt(
+            {"AAA": [101.0, 102.0, 103.0], "BBB": [99.0, 98.0, 97.0]},
+            {"AAA": [101.0, 102.0, 103.0], "BBB": [99.0, 98.0, 97.0]},
+        )
+        expected = {
+            "prev_rs_ratio",
+            "prev_rs_momentum",
+            "delta_rs_ratio",
+            "delta_rs_momentum",
+            "heading",
+            "prev_quadrant",
+            "quadrant_change",
+        }
+        for entry in payload["market_snapshot"]["ticker_data"].values():
+            assert set(entry) == {
+                "current_position",
+                "trajectory",
+                "persistence",
+            }
+            assert expected <= set(entry["trajectory"])
+            assert entry["trajectory"]["heading"] in {
+                "NE",
+                "NW",
+                "SE",
+                "SW",
+            }
+
+    def test_all_four_headings(self):
+        """One ticker per sign(delta_ratio), sign(delta_momentum)
+        combination verifies the NE/SE/NW/SW compass mapping."""
+        payload = self._prompt(
+            {
+                "NE_": [100.0, 100.0, 102.0],
+                "SE_": [100.0, 100.0, 102.0],
+                "NW_": [100.0, 100.0, 98.0],
+                "SW_": [100.0, 100.0, 98.0],
+            },
+            {
+                "NE_": [100.0, 100.0, 103.0],
+                "SE_": [100.0, 100.0, 97.0],
+                "NW_": [100.0, 100.0, 103.0],
+                "SW_": [100.0, 100.0, 97.0],
+            },
+        )
+        headings = {
+            t: e["trajectory"]["heading"]
+            for t, e in payload["market_snapshot"]["ticker_data"].items()
+        }
+        assert headings == {
+            "NE_": "NE",
+            "SE_": "SE",
+            "NW_": "NW",
+            "SW_": "SW",
+        }
+
+    def test_heading_zero_delta_counts_positive(self):
+        """Documented convention: a flat axis (delta == 0) resolves
+        as positive — (0, +) -> NE, (0, -) -> SE."""
+        payload = self._prompt(
+            {"FLAT_UP": [100.0, 100.0, 100.0], "FLAT_DN": [100.0, 100.0, 100.0]},
+            {"FLAT_UP": [100.0, 100.0, 101.0], "FLAT_DN": [100.0, 100.0, 99.0]},
+        )
+        data = payload["market_snapshot"]["ticker_data"]
+        assert data["FLAT_UP"]["trajectory"]["heading"] == "NE"
+        assert data["FLAT_UP"]["trajectory"]["delta_rs_ratio"] == 0.0
+        assert data["FLAT_DN"]["trajectory"]["heading"] == "SE"
+
+    def test_delta_sign_and_magnitude(self):
+        """delta_* = current - previous, rounded to 2dp like
+        current_position; prev_* echo the t=-2 values."""
+        payload = self._prompt(
+            {"AAA": [104.0, 104.0, 97.0]},
+            {"AAA": [114.0, 114.0, 112.0]},
+        )
+        traj = payload["market_snapshot"]["ticker_data"]["AAA"]["trajectory"]
+        assert traj["prev_rs_ratio"] == 104.0
+        assert traj["prev_rs_momentum"] == 114.0
+        assert traj["delta_rs_ratio"] == pytest.approx(-7.0)
+        assert traj["delta_rs_momentum"] == pytest.approx(-2.0)
+        # Fractional deltas round to 2dp.
+        payload2 = self._prompt(
+            {"AAA": [100.0, 100.0, 100.456]},
+            {"AAA": [100.0, 100.0, 99.999]},
+        )
+        traj2 = payload2["market_snapshot"]["ticker_data"]["AAA"][
+            "trajectory"
+        ]
+        assert traj2["delta_rs_ratio"] == pytest.approx(0.46)
+        assert traj2["delta_rs_momentum"] == pytest.approx(0.0)
+
+    def test_quadrant_change_crossing_and_unchanged(self):
+        """A real crossing reports PREV->CURR (104/114 LEADING ->
+        97/112 IMPROVING — the ARKK-style defect case); a same-
+        quadrant move reports UNCHANGED with matching prev_quadrant."""
+        payload = self._prompt(
+            {"CROSS": [104.0, 104.0, 97.0], "SAME": [101.0, 101.0, 103.0]},
+            {"CROSS": [114.0, 114.0, 112.0], "SAME": [101.0, 101.0, 104.0]},
+        )
+        data = payload["market_snapshot"]["ticker_data"]
+        cross = data["CROSS"]["trajectory"]
+        assert cross["prev_quadrant"] == "LEADING"
+        assert cross["quadrant_change"] == "LEADING->IMPROVING"
+        same = data["SAME"]["trajectory"]
+        assert same["prev_quadrant"] == "LEADING"
+        assert same["quadrant_change"] == "UNCHANGED"
+
 
 # ------------------------------------------------------------------
 # generate_rrg_dashboard — monkeypatched fetch, file output

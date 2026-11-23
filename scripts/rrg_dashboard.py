@@ -594,6 +594,31 @@ def gen_ai_prompt(clean_ratio, clean_momo, benchmark="SPY"):
         else:
             quad = "IMPROVING"
 
+        # Previous-Week Quadrant (same >=100/<100 boundaries)
+        if r_prev >= 100 and m_prev >= 100:
+            prev_quad = "LEADING"
+        elif r_prev >= 100 and m_prev < 100:
+            prev_quad = "WEAKENING"
+        elif r_prev < 100 and m_prev < 100:
+            prev_quad = "LAGGING"
+        else:
+            prev_quad = "IMPROVING"
+
+        # Heading — compass direction of the week-over-week move.
+        # Convention: a zero delta counts as positive (>= 0 -> "+"),
+        # so a flat axis resolves deterministically to the clockwise
+        # neighbour (e.g. 0,+ -> NE, not NW).
+        dr = r_curr - r_prev
+        dm = m_curr - m_prev
+        if dr >= 0 and dm >= 0:
+            heading = "NE"
+        elif dr >= 0 and dm < 0:
+            heading = "SE"
+        elif dr < 0 and dm >= 0:
+            heading = "NW"
+        else:
+            heading = "SW"
+
         # Persistence (Historical Consistency)
         hist_r = clean_ratio[t].iloc[-lookback:]
         hist_m = clean_momo[t].iloc[-lookback:]
@@ -609,7 +634,14 @@ def gen_ai_prompt(clean_ratio, clean_momo, benchmark="SPY"):
             },
             "trajectory": {
                 "velocity_1w": round(velocity, 2),
-                "velocity_direction": "ACCELERATING" if velocity > np.sqrt((clean_ratio[t].iloc[-2] - clean_ratio[t].iloc[-3]) ** 2 + (clean_momo[t].iloc[-2] - clean_momo[t].iloc[-3]) ** 2) else "DECELERATING"
+                "velocity_direction": "ACCELERATING" if velocity > np.sqrt((clean_ratio[t].iloc[-2] - clean_ratio[t].iloc[-3]) ** 2 + (clean_momo[t].iloc[-2] - clean_momo[t].iloc[-3]) ** 2) else "DECELERATING",
+                "prev_rs_ratio": round(r_prev, 2),
+                "prev_rs_momentum": round(m_prev, 2),
+                "delta_rs_ratio": round(dr, 2),
+                "delta_rs_momentum": round(dm, 2),
+                "heading": heading,
+                "prev_quadrant": prev_quad,
+                "quadrant_change": "UNCHANGED" if prev_quad == quad else f"{prev_quad}->{quad}"
             },
             "persistence": {
                 "lead_weeks_3m": lead_wks,
