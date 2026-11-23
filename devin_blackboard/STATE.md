@@ -1,6 +1,40 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-23 (ENRICH-T1 done — headless `devin -p` enrichment wrapper + StockIngestion-RRGEnrich task script; awaiting C/D review)
+Last Updated: 2026-11-23 (RRG-TRAJ-T1 done — trajectory semantics in RRG prompt JSON + analyze_rra consumer; awaiting C/D review)
 Current Branch: main
+
+## RRG-TRAJ-T1 — DONE (executor B, 2026-11-23)
+
+Trajectory semantics (the verified ARKK misread fix): direction is now
+native data, not narrative inference.
+
+- **scripts/rrg_dashboard.py `gen_ai_prompt()`:** inside each ticker's
+  existing `trajectory` dict (option b — entry keys stay
+  `{current_position, trajectory, persistence}`) — `prev_rs_ratio`/
+  `prev_rs_momentum` (t=-2, 2dp), `delta_rs_ratio`/`delta_rs_momentum`
+  (curr−prev, 2dp), `heading` ∈ NE/NW/SE/SW (zero axis counts positive,
+  comment-documented), `prev_quadrant` (same >=100 logic),
+  `quadrant_change` = UNCHANGED or `PREV->CURR`. Serves both the file
+  pipeline and the report_app endpoint.
+- **tests/test_rrg_dashboard.py:** +5 tests (49 total) — per-ticker
+  key contract, all four headings, zero-delta convention, delta
+  sign/rounding, LEADING->IMPROVING crossing vs UNCHANGED.
+- **analyze_rra.py (stdlib only):** `Hdg` column in per-ticker tables;
+  `### Quadrant Crossings` block at end of §5 with the 8-label bias
+  taxonomy + "discontinuous" default; SW heading barred from
+  Overweight; legacy payloads derive the same fields by diffing the
+  prior `*YYYY-MM-DD_analysis_prompt.json` (verified: 21 crossings
+  11-13→11-20 == independent diff; ARKK SW −6.89/−2.07); graceful
+  omission + caveat when no prior file.
+- **SKILL.md:** heading semantics table (NE→LEADING, SW→LAGGING,
+  NW momentum-only, SE rolling), crossing taxonomy, two narrative rules
+  (no "toward LEADING" unless delta_rs_ratio>0; no SW in Overweight),
+  velocity_direction gotcha updated to point at heading.
+
+Verification (poll_tasks --verify + --done re-verify, ALL PASS):
+focused 49/49 (9.30s); full suite 2162/2162 (271.51s); loops clean
+(17 files); live AC4 — ARKK `{SW, LEADING->IMPROVING, −6.89/−2.07}`.
+Commits: impl 5a29c9f, claim 722e150, done 0fe2646.
+Next: Challenger C / Critic D; orchestrator regenerates docs/rra.
 
 ## ENRICH-T1 — DONE (executor B, 2026-11-23)
 
