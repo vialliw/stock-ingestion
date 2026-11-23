@@ -6699,3 +6699,97 @@ Scope clean: delta 6bd1823 = scripts/incident_watch.py + tests/test_incident_wat
 [2026-11-23T00:55:00] [ORCHESTRATOR] IW-T1 CYCLE COMPLETE — B (6bd1823) -> C APPROVED (N1-N3 non-blocking) -> D PASS (106/106 focused, 2132/2132 suite, loops clean, live probe 'ok'). Watcher now probes client-facing do_get every run; dead do_get = SEV1 'flight_read' finding. Effective next watcher run (22:30 nightly) — no restart needed (script-invoked). The ~26h silent do_get-outage blind spot is closed.
 
 [2026-11-23T12:59:53.322533+00:00] [EXECUTOR] claimed ENRICH-T1
+[2026-11-23T13:20:13.722539+00:00] [EXECUTOR] completed ENRICH-T1 -> Implemented Phase B headless enrichment: scripts/rrg_enrich_headless.py (stdlib-only; state-driven no-op gate mirroring publish criteria; O_CREAT|O_EXCL lock devin_blackboard/locks/rrg_enrich.lock with >10min stale recovery; spawns bundled devin.exe -p with filled ENRICHMENT_PROMPT cwd=repo root; 30-min kill; always exits 0; [ENRICH-T1] EVENTS.log lines for spawn/pid/exit/post-run marker verification; --dry-run touches nothing) + scripts/register_rrg_enrich.ps1 (StockIngestion-RRGEnrich, Fri 22:45 + Sat/Sun 08:30 weekly multi-triggers, StartWhenAvailable, Interactive/Limited, pythonw, repo-root cwd, -Unregister) + tests/test_rrg_enrich_headless.py (22 tests: no-op gate, spawn argv/prompt fill, lock mutual exclusion + stale recovery, missing/empty/corrupt state, dry-run, non-blocking failures, prompt contract) + design doc enrichment-engine flipped to auto headless devin -p and moved out of Decisions locked. Verify: focused 22/22 PASS; full suite 2154/2154 PASS; loops clean; --dry-run exit 0. PS1 parse-checked. Scheduled task NOT registered (orchestrator post-Critic-D) and no real devin -p spawned.
+Evidence map:
+[
+  {
+    "id": "ENRICH-AC1",
+    "check": "focused tests",
+    "command": "python -m pytest tests/test_rrg_enrich_headless.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "......................                                                   [100%]\n22 passed in 0.31s\n"
+  },
+  {
+    "id": "ENRICH-AC2",
+    "check": "full suite green",
+    "command": "python -m pytest tests/ -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3036: RuntimeWarning:\n  \n  invalid value encountered in divide\n\ntests/test_correlation_dashboard.py::TestBuildScatterFigure::test_nan_corr_renders_na_in_title\n  C:\\Intel\\python\\3.12\\Lib\\site-packages\\numpy\\lib\\_function_base_impl.py:3037: RuntimeWarning:\n  \n  invalid value encountered in divide\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n2154 passed, 2 warnings in 252.28s (0:04:12)\n"
+  },
+  {
+    "id": "ENRICH-AC3",
+    "check": "loop checker",
+    "command": "python scripts/check_loops.py --src-dir src",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n"
+  },
+  {
+    "id": "ENRICH-AC4",
+    "check": "dry-run exits 0 and touches nothing",
+    "command": "python scripts/rrg_enrich_headless.py --dry-run",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "fts), append one line to\n   devin_blackboard/EVENTS.log describing what failed, and stop \u2014 do not\n   retry in a loop.\n\nConstraints:\n- Edit ONLY docs/rra/*.md files plus append to\n  devin_blackboard/EVENTS.log (tag your line [ENRICH-T1] or [SKILL]).\n  Do NOT modify src/, tests/, scripts/, config files, or any .json input.\n- Do NOT git commit, push, or run the publish phase.\n- Do NOT ask questions; there is no human on this session.\n\"\n[dry-run] no lock taken, nothing spawned, EVENTS.log untouched\n"
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "unknown",
+    "check": "unknown",
+    "command": "",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  }
+]

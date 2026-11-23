@@ -5197,7 +5197,7 @@
     "title": "Automate weekly RRG Phase B enrichment via headless local devin -p (rrg_enrich_headless.py + StockIngestion-RRGEnrich task)",
     "role": "executor",
     "model": "swe",
-    "status": "in_progress",
+    "status": "done",
     "assigned_to": "B",
     "depends_on": [],
     "input_files": [

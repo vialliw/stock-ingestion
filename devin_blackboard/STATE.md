@@ -1,6 +1,35 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-23 (ARKK RRA verification done — data/math correct, report narrative defective; IW-T1 awaiting Critic D)
+Last Updated: 2026-11-23 (ENRICH-T1 implemented — headless `devin -p` enrichment wrapper + StockIngestion-RRGEnrich task script; IW-T1 done)
 Current Branch: main
+
+## ENRICH-T1 — in progress (executor B, 2026-11-23)
+
+Automated Phase B of the weekly RRA pipeline via a headless local
+Devin session:
+
+- **scripts/rrg_enrich_headless.py** (stdlib-only): reads
+  `docs/rra/.rrg_pipeline_state.json`; no-ops when `report_enriched`
+  AND `weekly_summary.md` covers `resolved_date` (mirrors the Phase C
+  publish gate). Otherwise takes
+  `devin_blackboard/locks/rrg_enrich.lock` (O_CREAT|O_EXCL, >10min stale
+  recovery per poll_tasks) and spawns `devin.exe -p "<prompt>"` from the
+  bundled `%LOCALAPPDATA%\Programs\Devin\...\bin\devin.exe` (fallback
+  `devin` on PATH), cwd=repo root, 30-min kill. Always exits 0 —
+  non-zero session exit/spawn failure/timeout only log `[ENRICH-T1]`
+  warnings to EVENTS.log; publish gate still holds drafts. `--dry-run`
+  prints the filled command and touches nothing.
+- **scripts/register_rrg_enrich.ps1**: registers
+  `StockIngestion-RRGEnrich` — Fri 22:45 + Sat/Sun 08:30 weekly
+  multi-triggers (NOT /sc DAILY), StartWhenAvailable, Interactive/
+  Limited, pythonw, WorkingDirectory=repo root. NOT yet registered —
+  orchestrator does it after Critic D passes.
+- **tests/test_rrg_enrich_headless.py**: 22 tests (no-op gate, spawn
+  argv + filled prompt, lock mutual exclusion/stale recovery, state
+  file edge cases, dry-run touches nothing, non-blocking failures,
+  prompt contract).
+- **docs/enhancements/rrg_weekly_automation_design.md**: enrichment
+  engine flipped from semi-auto to auto headless `devin -p`; moved out
+  of Decisions locked; Phase B′ section added.
 
 ## ANALYSIS — ARKK in "Improving Trends" (2026-11-20 report, orchestrator 2026-11-23)
 

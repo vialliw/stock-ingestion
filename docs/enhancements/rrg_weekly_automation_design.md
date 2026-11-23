@@ -1,20 +1,27 @@
-# RRG Weekly Report Automation — Design (steps 2–5, semi-auto)
+# RRG Weekly Report Automation — Design (steps 2–5)
 
-Status: approved by user 2026-11-16 (enrichment = semi-auto, timing = Fri 22:15, implement via agents)
+Status: approved by user 2026-11-16 (timing = Fri 22:15, implement via
+agents); **enrichment engine updated to auto via headless local
+`devin -p` 2026-11-23** (was semi-auto).
 
 ## Goal
 
 Automate the deterministic halves of the weekly RRG report workflow that
-ships `docs/rrg/*.md` to `vialliw/Relative-Rotation-Analysis-Dashboard:report/`:
+ships `docs/rra/*.md` to `vialliw/Relative-Rotation-Analysis-Dashboard:report/`:
 
 - **Step 2 (generate JSON)** — automated
-- **Step 3 (analyze → report)** — draft automated; narrative enrichment manual
-- **Step 4 (summarize)** — draft automated; enriched rows manual
+- **Step 3 (analyze → report)** — draft automated; narrative enrichment
+  automated via headless `devin -p` (Phase B′ below); manual Devin
+  session remains a supported fallback
+- **Step 4 (summarize)** — draft automated; enriched rows automated via
+  the same headless session
 - **Step 5 (publish)** — automated, gated on enrichment markers
 
-User enriches drafts in a Devin session whenever convenient (the
-`analyze_rrg` / `summarize_rrg` skills already encode the contract); the
-publish phase ships only files that pass the enrichment gate.
+A headless local Devin session enriches drafts shortly after generation
+(the `analyze_rra` / `summarize_rra` skills already encode the
+contract); the publish phase ships only files that pass the enrichment
+gate, so a failed or skipped enrichment run just delays shipping — it
+can never ship a draft.
 
 ## Trigger
 
@@ -31,6 +38,18 @@ New scheduled task `StockIngestion-RRGWeekly`:
 
 Every trigger runs the SAME command (`--all`); idempotency makes weekend
 runs no-ops when nothing changed.
+
+Companion task `StockIngestion-RRGEnrich` (Phase B′, see below):
+
+- Triggers: **Fri 22:45** (30 min after the 22:15 RRGWeekly trigger —
+  generation has finished and the state file is in place) plus
+  **Sat + Sun 08:30** (30 min *before* the 09:00 publish retries, so an
+  enrichment run lands its markers in time for the same-morning publish
+  instead of waiting a week).
+- `StartWhenAvailable`, user / Interactive / Limited, `pythonw.exe`,
+  WorkingDirectory = repo root — same conventions as RRGWeekly.
+  The wrapper exits cheaply without spawning once the markers verify, so
+  repeat triggers are near-no-ops.
 
 ## Pipeline — `scripts/rrg_weekly_pipeline.py`
 
@@ -57,11 +76,35 @@ Subcommands: `--generate`, `--publish`, `--all` (default), `--dry-run`
    summary_has_date, generated_at}` — the state file is what a later
    Devin session reads to know "enrich X, refresh summary, then publish".
 
-### Phase B — enrichment (MANUAL, unchanged)
+### Phase B′ — enrichment (AUTO, headless `devin -p`)
 
-User opens a Devin session and asks to run the `analyze_rrg` /
-`summarize_rrg` skills — enrich `> Read:` / `> Weekly read:` /
-`**Net call:**` per contract, add the new summary row + arc line.
+`scripts/rrg_enrich_headless.py` (stdlib-only wrapper) runs on the
+`StockIngestion-RRGEnrich` triggers:
+
+1. Reads `docs/rra/.rrg_pipeline_state.json`. No-ops (exit 0) when
+   `report_enriched` is true **and** `weekly_summary.md` already covers
+   `resolved_date` — the same condition the Phase C publish gate checks.
+2. Otherwise takes `devin_blackboard/locks/rrg_enrich.lock`
+   (`O_CREAT | O_EXCL`, stale >10 min recovered per `poll_tasks.py`
+   conventions — a held lock exits without spawning) and spawns ONE
+   headless local session: `devin.exe -p "<ENRICHMENT PROMPT>"` via the
+   bundled CLI at `%LOCALAPPDATA%\Programs\Devin\resources\app\extensions\windsurf\devin\bin\devin.exe`
+   (fallback `devin` on PATH), cwd = repo root, killed after 30 min.
+3. The prompt embeds `{json_path}`/`{report_path}`/`{resolved_date}`
+   from the state file and instructs the session to: (a) run
+   `analyze_rra.py` only if the report draft is missing; (b) enrich
+   `> Read:`/`> Weekly read:` + `**Net call:**` per the `analyze_rra`
+   contract (tables verbatim); (c) add the new `weekly_summary.md` row +
+   arc recap per `summarize_rra` and regenerate `report_index.md` via
+   `--index`; (d) edit only `docs/rra/*.md` + `EVENTS.log`; (e) stop
+   once both markers verify.
+4. Logs `[ENRICH-T1]` spawn/pid/exit/marker-verification lines to
+   `EVENTS.log`. **Non-blocking**: a non-zero exit, spawn failure, or
+   timeout only logs a warning — the wrapper always exits 0 and the
+   publish gate keeps holding drafts.
+
+Manual enrichment in an interactive Devin session remains a supported
+fallback (the skills contract is unchanged).
 
 ### Phase C — publish (`--publish`)
 
@@ -82,9 +125,9 @@ User opens a Devin session and asks to run the `analyze_rrg` /
 5. Cleanup temp clone; log to `devin_blackboard/EVENTS.log`; toast via
    `scripts/notify_done.ps1` only when something was actually published.
 
-### Scheduling — `scripts/register_rrg_weekly.ps1`
+### Scheduling — `scripts/register_rrg_weekly.ps1` + `scripts/register_rrg_enrich.ps1`
 
-Registers the task above via `Register-ScheduledTask` /
+Registers the tasks above via `Register-ScheduledTask` /
 `Set-ScheduledTask`, preferring `pythonw.exe`, matching
 `register_daily_task.ps1` conventions (documented trigger caveat: use
 the multi-trigger form, not `/sc DAILY`).
@@ -97,12 +140,13 @@ the multi-trigger form, not `/sc DAILY`).
 | Holiday-shortened week | snaps to Thursday bar; filename date = actual bar date |
 | Phase A crash | logged, exit≠0, state file untouched → retried next trigger |
 | Enrichment never done | publish gate blocks drafts indefinitely — no deadline, reports just wait |
+| Enrichment session fails / times out / `devin` missing | `[ENRICH-T1]` WARNING in `EVENTS.log`, wrapper still exits 0 — publish gate holds the draft; retried on the next RRGEnrich trigger |
+| Two enrich runs at once | `locks/rrg_enrich.lock` (`O_CREAT|O_EXCL`) — second run exits without spawning; stale lock (>10 min) auto-recovered |
 | Push auth/network failure | logged + toast; remote untouched; retried next trigger |
 | `.tmp/rrg-dash` dirty/leftover | wiped and re-cloned each publish |
 
 ## Decisions locked
 
-- Enrichment engine: semi-auto (no headless `devin -p`, no LLM API key).
-- Timing: Fri 22:15 primary (+ Sat/Sun 09:00 publish retries).
+- Timing: Fri 22:15 primary (+ Sat/Sun 09:00 publish retries); enrichment on Fri 22:45 + Sat/Sun 08:30.
 - md-only sync; commit author = devin-ai-integration[bot].
 - No `src/` changes; all new code lives in `scripts/` + `tests/`.
