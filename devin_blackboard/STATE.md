@@ -1,8 +1,45 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-17 (Flight DB semiconductor ticker list queried; 28 semiconductor + 9 equipment/materials tickers)
+Last Updated: 2026-11-23 (IW-T1 done — watcher now probes the client-facing do_get read path)
 Current Branch: main
 
-## RRG-AUTO-T4 — Critic D final verification: PASS (2026-11-17)
+## IW-T1 — DONE (executor B, 2026-11-23)
+
+Closed the incident watcher's do_get blind spot (two real ~26h silent
+outages: 2026-11-06, 2026-11-21 — `data_health`/do_action stayed green
+while `fetch_arrow_table` was dead under accidental duckdb 2.0).
+
+- **scripts/incident_watch.py:**
+  - New `_probe_flight_read(client)` — issues `SELECT 1` through
+    `FlightClient.do_get(Ticket)` on the same connection, BEFORE the
+    `data_health` action; bounded `FlightCallOptions(timeout=30)`;
+    drains the stream (`read_all()`) so server-side execution failures
+    surface. Returns `"ok"` or the error text; never raises.
+  - `_fetch_health` split into `_connect(config)` (reachability probe)
+    + `_fetch_health(client, gap_days)`; `main()` now: connect →
+    do_get probe → health action. Connect failure leaves
+    `flight_read=None` → only the pre-existing `probe`/unreachable
+    SEV1 fires (semantics preserved).
+  - `classify_health`/`run_watch` take `flight_read` (None = not run,
+    "ok" = pass, else error text) — a failed probe emits SEV1
+    `check="flight_read"`, stable identity `flight_read_do_get`,
+    error text in `report.json`. Dedup/escalation/auto-resolve/toast
+    all ride the normal `_apply_findings` path.
+  - Heartbeat + stdout digest carry `flight_read` (ok/fail/null).
+- **tests/test_incident_watch.py:** 11 new tests in
+  `TestFlightReadProbeIW1` (95→106) — mocked-flight probe
+  success/do_get-raise/stream-read failure, SEV1 folder + evidence +
+  toast + heartbeat, dedup/unacked/auto-resolve lifecycle,
+  unreachable-vs-reachable-broken distinction, and `main()` wiring
+  tests with a fake FlightClient (incl. green-health + dead-do_get
+  regression mirroring the real outages).
+
+Verification (poll_tasks --verify/--done, ALL PASS, exit 0): focused
+106/106 (4.53s); full suite 2132/2132 (220.29s, +11 vs prior 2121);
+loop checker clean (17 files). Live sanity: `_probe_flight_read` vs
+production Flight server → `ok`. Commit: done 6bd1823.
+Next: Challenger C / Critic D review.
+
+
 
 **CRITIC-D verdict: PASS** (HEAD 84a60f6; impl 961a4f2..87950a2).
 Trusted nothing — re-ran every acceptance_criteria command and
