@@ -28,7 +28,7 @@ Requirements/spec: `docs/incident_management_requirements.md`
 
 | Level | Trigger examples | Notify |
 |-------|------------------|--------|
-| SEV1 | Flight server unreachable, section CHECK_FAILED | Toast immediately |
+| SEV1 | Flight server unreachable, `flight_read` do_get probe failure, section CHECK_FAILED | Toast immediately |
 | SEV2 | Broad staleness (≥25), coverage loss, duplicates>0, recent-date integrity/raw_close violations, large gaps | Toast + ticket |
 | SEV3 | Few stale tickers, small gaps, suspected delisting, section WARN, historical raw_close issues | Ticket (digest only) |
 | SEV4 | Known-benign rows, acknowledged delisted tickers, informational | Log only |
@@ -43,6 +43,7 @@ incidents\                        (junction → C:\Intel\incidents\stock-ingesti
   _project.json                   # project descriptor
   _config\suppressions.json       # known-benign rows + acknowledged_delisted
   _last_check.json                # heartbeat — handler checks this FIRST
+                                  #   (flight_read field = do_get probe ok/fail/null)
   _reports\YYYY-MM-DD.json        # raw health snapshot per run
   events.jsonl                    # append-only transition log
   open\                           # active incidents (empty = healthy)
@@ -67,6 +68,10 @@ incidents\                        (junction → C:\Intel\incidents\stock-ingesti
    - suspected delisting → verify ticker, then add to
      `_config/suppressions.json` `acknowledged_delisted`
    - server unreachable → restart `StockIngestion-FlightServer`
+   - `flight_read` (server reachable but `do_get` dead) → suspect dependency
+     drift first (a `--user` site-packages install shadowing the pinned
+     `duckdb` broke this twice — real cases 2026-11-06/11-21); fix the env,
+     then restart the Flight Server task
 3. Move a folder `open\` → `acknowledged\` to stop escalation counting;
    the watcher still bumps `last_seen` while the finding persists.
 4. Auto-resolve: when the finding disappears from the health report the

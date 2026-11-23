@@ -24,6 +24,7 @@ A quantitative stock-data ingestion service that centralizes daily equity data f
   - [Interactive Report App (Streamlit)](#interactive-report-app-streamlit)
   - [Market Breadth Dashboard](#market-breadth-dashboard)
   - [RRG Dashboard](#rrg-dashboard)
+  - [Weekly RRA Pipeline (Automated)](#weekly-rra-pipeline-automated)
 - [Database Schema](#database-schema)
 - [Testing](#testing)
 - [Loop Checker](#loop-checker)
@@ -423,6 +424,10 @@ stock-ingestion/
 │   ├── report_top25_active.py  # Top-25 active xlsx report — "Avg Trade Money ($M)" column (Flight-first, read-only DuckDB fallback)
 │   ├── rrg_dashboard.bat       # Double-click wrapper for rrg_dashboard.py
 │   ├── rrg_dashboard.py        # RRG HTML+JSON dashboards (port of legacy plot_rrg_chart_gemini10b.py, Flight-first)
+│   ├── rrg_weekly_pipeline.py  # Weekly RRA report generate/publish cycle (StockIngestion-RRGWeekly task)
+│   ├── rrg_enrich_headless.py  # RRA enrichment wrapper — headless `devin -p` on pending drafts (RRGEnrich task)
+│   ├── register_rrg_weekly.ps1 # StockIngestion-RRGWeekly task (Fri 22:15 + Sat/Sun 09:00 publish retries)
+│   ├── register_rrg_enrich.ps1 # StockIngestion-RRGEnrich task (Fri 22:45 + Sat/Sun 08:30 enrich retries)
 │   ├── run_flight_server.py    # cwd-safe wrapper launching src.main.main() for the service task
 │   ├── run_signal_analysis.py  # Signal-analysis run via the signal_analysis Flight action
 │   └── workflow_phase2.py      # Dynamic Workflow orchestration script
@@ -610,7 +615,7 @@ The registration uses the PowerShell `ScheduledTasks` cmdlets with:
 - **Restart on failure** — 3 restart attempts, 1 minute apart.
 - **No execution time limit** — `ExecutionTimeLimit` is zero, so the daemon is never killed for running too long.
 - **`MultipleInstances = IgnoreNew`** — a duplicate launch request is dropped, so two server processes can never fight over the DuckDB write lock.
-- **Absolute `python.exe`** — the interpreter is resolved at registration time (`Get-Command python`), so the task does not depend on `PATH`.
+- **Absolute `python.exe` with `-s`** — the interpreter is resolved at registration time (`Get-Command python`), so the task does not depend on `PATH`, and runs with `-s` so **user site-packages are ignored**: a user-scoped install can never shadow the pinned dependencies (an accidental `--user` `duckdb` upgrade broke all `do_get` reads twice — 2026-11-06 and 11-21 — before this was added).
 - **`scripts\run_flight_server.py`** — a cwd-safe wrapper that anchors the repo root on `sys.path`, makes it the working directory, then calls `src.main.main()`.
 
 The task runs as `SYSTEM` whether or not a user is logged on. Note that **user-scoped environment variables are not visible to `SYSTEM`** — if `r2.enabled` is true, set `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_ENDPOINT_URL` at machine scope.
@@ -655,7 +660,7 @@ This differs from the GitHub Actions path (`scripts/ci_daily_load.py`), which st
 
 ### Incident health watch
 
-The `StockIngestion-HealthWatch` scheduled task runs `scripts/incident_watch.py` once a day (default **18:30 America/New_York** — after the 16:14 ET daily load plus grace — converted to machine-local at registration). Each run pulls the `data_health` report from the Flight service, classifies findings into SEV1–SEV4 incident folders, dedups/escalates recurring findings, auto-resolves cleared ones, and writes an `events.jsonl` feed plus a `_last_check.json` heartbeat. New SEV1/SEV2 folders also fire a Windows toast. Full contract: `docs/incident_management_requirements.md`.
+The `StockIngestion-HealthWatch` scheduled task runs `scripts/incident_watch.py` once a day (default **18:30 America/New_York** — after the 16:14 ET daily load plus grace — converted to machine-local at registration). Each run first probes the client-facing read path — a `SELECT 1` via `do_get`, which raises a SEV1 `flight_read` incident when the server is reachable but reads are dead (`data_health` alone cannot see that failure mode — see `docs/INCIDENT_WATCH.md`) — then pulls the `data_health` report from the Flight service, classifies findings into SEV1–SEV4 incident folders, dedups/escalates recurring findings, auto-resolves cleared ones, and writes an `events.jsonl` feed plus a `_last_check.json` heartbeat. New SEV1/SEV2 folders also fire a Windows toast. Full contract: `docs/incident_management_requirements.md`.
 
 ```powershell
 # Provision the store + junction AND register the task (idempotent; elevated)
@@ -973,6 +978,18 @@ Output per preset: **`<prefix>.html`** and **`<prefix>_analysis_prompt.json`** w
 **Historical (as-of) runs.** `--as-of YYYY-MM-DD` (alias `--date`) sets an inclusive observation-date cutoff: the `weekly_close` query gains a `Date <= <cutoff>` bound (with the lookback measured backwards from the cutoff instead of today) and rows outside the window are re-filtered defensively in memory. `--json-only` writes the JSON payload without building the animated HTML. Historical artifacts are date-stamped — **`<prefix>_<YYYY-MM-DD>.html`** and **`<prefix>_<YYYY-MM-DD>_analysis_prompt.json`** — so they never overwrite the latest-data outputs. In the payload, `market_snapshot.analysis_date` is the actual last valid weekly observation on or before the cutoff (it may precede the requested date — a mid-week cutoff lands on the prior Friday), while `market_snapshot.requested_as_of_date` records the requested cutoff and `market_snapshot.historical_reconstruction` is `true`; none of those fields appear in a default latest-data payload. Historical runs require at least **12 complete (valid) RRG weeks** on or before the cutoff — the JSON's 12-week persistence metrics cannot be computed honestly with fewer — and fail without writing output when that minimum is not met. The Streamlit "Relative Rotation (RRG)" tab exposes the same feature via a "Historical snapshot (as-of)" checkbox + date picker in its Parameters expander (captioned with the actual last valid weekly date, a warning under 12 weeks, the same injected JSON fields, and a `_{YYYY-MM-DD}` download filename).
 
 **Limitation:** an as-of run is a reconstruction from the *currently persisted* `weekly_close` table only — it is not point-in-time vendor data. It does not reconstruct past raw vendor revisions, delisted constituents that are absent from today's ticker presets, split-adjustment knowledge, or any other historical state not retained in `weekly_close`.
+
+### Weekly RRA Pipeline (Automated)
+
+`scripts/rrg_weekly_pipeline.py` automates the deterministic halves of the weekly RRA report cycle that publishes `docs/rrg/` analyses to the [Relative-Rotation-Analysis-Dashboard](https://github.com/vialliw/Relative-Rotation-Analysis-Dashboard) repo's `report/` folder. Subcommands: `--generate` / `--publish` / `--all` (default) / `--dry-run`; `scripts/rrg_weekly_pipeline.bat` is the double-clickable wrapper. It runs unattended via the `StockIngestion-RRGWeekly` scheduled task — **Fri 22:15** (after the 21:30 daily load and its weekly-layer refresh) plus **Sat/Sun 09:00** publish retries, `StartWhenAvailable`, `pythonw.exe` (no console window). Registration: `scripts/register_rrg_weekly.ps1`.
+
+The weekly rhythm is fully automated — generation, LLM narrative enrichment, and publishing all run unattended:
+
+1. **Friday ~22:15 — auto-generate.** Resolves last-Friday `as_of`, calls `generate_rrg_dashboard(ETFs, json_only)` → `docs/rrg/*_YYYY-MM-DD_analysis_prompt.json`, then drafts `*_analysis_report.md` via `analyze_rra.py` — **only if the report doesn't already exist** (existing files, draft or enriched, are never overwritten). Writes `docs/rrg/.rrg_pipeline_state.json` recording what is pending enrichment. Nothing is published at this point.
+2. **Friday ~22:45 (+ Sat/Sun 08:30 retries) — auto-enrich.** `scripts/rrg_enrich_headless.py`, run by the `StockIngestion-RRGEnrich` task (registration: `scripts/register_rrg_enrich.ps1`), reads the state file and, when a draft still needs narrative, spawns a **headless local Devin CLI session** (`devin -p`) that enriches the report per the `analyze_rra`/`summarize_rra` skill contracts: `> Weekly read:` / `> Read:` commentary per section, a `**Net call:**` under portfolio tilts, and a refreshed `weekly_summary.md` (new row + arc recap + `report_index.md` regeneration). A single-run lock prevents concurrent sessions; a 30-minute timeout kills a stuck one; a failed or timed-out run logs a warning and exits 0 — it never blocks publishing. The run no-ops when the state flag or the on-disk markers already prove enrichment (plus `weekly_summary.md` covering `resolved_date`). Design doc: `docs/enhancements/rrg_weekly_automation_design.md`.
+3. **Auto-publish (gated).** The next trigger — or a manual `--publish` — ships only enriched artifacts: dated reports must contain the `> Weekly read:`/`> Read:` and `**Net call:**` markers, and `weekly_summary.md` must be free of `TODO`/`<!-- missing` draft placeholders. Passing files are mirror-synced to the remote `report/` folder and pushed as a `devin-ai-integration[bot]` commit; the remote `auto_index` action then regenerates `REPORT_INDEX.md`. Unenriched drafts simply wait — a half-finished report can never ship.
+
+Fully idempotent: if Friday's load failed or the PC was off, `as_of` snaps to the prior week's bar and the run no-ops; the next good week self-heals. Holiday-shortened weeks resolve to the Thursday bar automatically.
 
 ---
 

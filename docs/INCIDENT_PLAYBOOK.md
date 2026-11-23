@@ -71,6 +71,8 @@ tbl = c.do_get(fl.Ticket(json.dumps({"sql": "<SQL>"}).encode())).read_all()
 |--------|-----------------|---------|-----|
 | stale/gap | nothing after DB last_date | Delisted / corporate action | `acknowledged_delisted` |
 | stale/gap — recurring (same ticker repeatedly) | bars still arrive but news says suspended | **Delisted → moved to OTC** (upstream bars do NOT prove listed; OTC keeps quoting, often renamed e.g. LESL→LESLQ) | `web_search` to verify → `acknowledged_delisted` + toast user |
+| stale/gap — dead upstream | alias served until recently then stopped | **Symbol renamed, not delisted** (real cases 2026-11: MGPI→CASK, PTLE→ZYN, TCBI→TXCP) | `web_search` for rename → suppress old symbol + suggest `config.yaml` swap to successor (user decision) |
+| `flight_read` | — (check is watcher-side, no upstream) | **Read path dead, server reachable** — suspect dependency drift shadowing pinned deps (a `--user` `duckdb` install did this twice, ~26h dead each) | `pip list --user` vs system site → uninstall shadow → restart Flight Server |
 | stale/gap | data exists for the missing days | Fetch miss | `on_request_load` |
 | coverage / metadata warn | upstream empty entirely | Bad symbol in config | Fix `src/config.yaml` (user decision) — never suppress |
 | coverage + metadata warn | upstream healthy | New ticker, never backfilled | `on_request_load` from data floor + `metadata_load` |

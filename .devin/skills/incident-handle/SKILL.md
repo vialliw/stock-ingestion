@@ -50,6 +50,9 @@ tbl = c.do_get(fl.Ticket(json.dumps({"sql": "<SQL>"}).encode())).read_all()
 |--------|------------------------------|---------|--------|
 | stale/gap | nothing after DB last_date | **Delisted/corporate action** | `acknowledged_delisted` (see below) |
 | stale/gap — recurring misses (same ticker flagged repeatedly) OR news confirms delisting | upstream may STILL serve bars — a suspended ticker keeps quoting on OTC (real case 2026-10: LESL suspended from Nasdaq 10-06, kept producing bars via OTC/LESLQ) | **Delisted (moved to OTC)** — upstream bars do NOT prove listed | Web-verify (below), then `acknowledged_delisted` + toast user (below) |
+| stale/gap — dead upstream | old alias served until recently, then stopped entirely | **Symbol renamed, not delisted** — the company trades on under a new ticker (real cases 2026-11: MGPI→CASK rename, PTLE→ZYN rename, TCBI→TXCP Nasdaq→TXSE move) | Web-verify the rename → `acknowledged_delisted` the old symbol + toast user suggesting the `config.yaml` swap (their decision); after swap, `on_request_load` backfill + `metadata_load` + Flight restart |
+| stale/gap on a NEW swapped-in symbol | new alias skips days the old alias still serves | **Vendor alias-window quirk** (real case 2026-11: CASK skipped 11-09..11-11 that MGPI served — same instrument) | Re-label the verified stored old-symbol rows as the new symbol via `do_put` (RawClose preserved) + `weekly_refresh`; self-heals if the vendor backfills |
+| `flight_read` | — (watcher-side probe, no upstream) | **Read path dead, server reachable** — `data_health` stays green while all `do_get` reads fail; almost always dependency drift shadowing a pinned dep (a `--user` `duckdb` 2.0 install did this twice: 2026-11-06, 11-21 — ~26h dead each before IW-T1) | `pip list --user` vs system site-packages → uninstall the shadow → restart `Flight Server` task |
 | stale/gap | data exists for missing days | **Fetch miss** | Re-fetch (below) |
 | coverage `missing_tickers` | upstream serves nothing at all | **Invalid/mis-configured symbol** | Check `git log src/config.yaml` for a recent add; correct or remove the symbol (user decision), never suppress |
 | coverage + metadata warn | upstream healthy | **Newly configured, never backfilled** | `on_request_load` from the data floor + `metadata_load` (below) |
@@ -241,6 +244,14 @@ Reference example (approved style — WBD 2026-10-05 ghost bar): GitHub issue
 - **Config changes are not live until `Flight Server` restarts** — the
   server holds `config.yaml` in memory; a symbol add/remove/fix invisible to
   the watcher until then. Restart via the `Flight Server` scheduled task.
+- **The server runs `pythonw -s`** (since 2026-11-22, `register_flight_service.ps1`
+  and the live task) — user site-packages are excluded, so a stray `pip --user`
+  install can no longer shadow pinned deps. If `do_get` breaks, suspect a
+  system-site install instead; `pip list` (system) vs `pip list --user` to diff.
+- **`flight_read` SEV1 = the do_get probe, added by IW-T1 (2026-11-22)** —
+  a green `data_health` no longer proves reads work; the watcher probes a real
+  `SELECT 1` via `do_get` each run. A `flight_read` failure with a fresh
+  heartbeat means reachability is fine but the read path is dead.
 - When a user action resolves an incident (e.g. a config fix), add a
   `resolution_note` field to the resolved folder's `incident.json` so the
   record explains *why* it cleared, not just that it did.

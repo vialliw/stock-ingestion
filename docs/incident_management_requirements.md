@@ -66,6 +66,12 @@ company_metadata.health_status      # OK|WARN|CHECK_FAILED (+coverage/null_field
 **SEV1 — raise immediately**
 - `data_health_report.py` exits 1 **and** no JSON payload (Flight server
   unreachable → the daily job itself cannot run).
+- `flight_read` do_get probe fails — the watcher issues a client-facing
+  `SELECT 1` via `FlightClient.do_get` each run; the server is reachable
+  (connect succeeded) but the read path is broken. Distinct from
+  unreachable: the health action can stay green while all reads are dead
+  (real cases 2026-11-06/11-21 — a `--user` site-packages install shadowed
+  the pinned `duckdb`; reads ~26h dead before anyone noticed).
 - `daily_close.health_status == CHECK_FAILED` or any section `CHECK_FAILED`.
 - Daily job (S1) crashes / exits non-zero without reaching the load stage
   (e.g. DuckDB lock exhaustion).
@@ -173,6 +179,9 @@ Each raised ticket must carry:
     ticker/date
   - suspected delisting → verify ticker validity, then add to acknowledged list
   - server unreachable → restart `StockIngestion-FlightServer` per ops runbook
+  - `flight_read` → check for dependency drift shadowing pinned deps
+    (`pip list --user` vs system site-packages) before restarting the
+    Flight Server task
 
 ## 5. Notification channel
 
@@ -233,7 +242,8 @@ C:\Intel\incidents\
     _project.json              # {"name","repo_path","source":"data_health","tz":"America/New_York"}
     _config\
       suppressions.json        # known-benign rows + acknowledged delisted tickers
-    _last_check.json           # heartbeat: {ts, exit_code, health_status, new/updated/resolved counts}
+    _last_check.json           # heartbeat: {ts, exit_code, health_status, new/updated/resolved counts,
+                               #   flight_read: "ok"|"fail"|null (IW-T1 do_get liveness probe)}
     _reports\                  # raw health JSON, one file per run (audit trail)
       2026-10-16.json
     events.jsonl               # append-only per-project feed (no shared file -> no locking)

@@ -44,6 +44,14 @@ Then verify port + config picked up:
 SELECT count(DISTINCT Ticker) FROM daily_close   -- sanity
 ```
 
+The registered action runs `pythonw.exe -s` (system-site isolation, since
+2026-11-22) — user site-packages cannot shadow pinned deps anymore. If the
+server behaves like it's running a different dep version than
+`requirements.txt`, check SYSTEM site-packages (`pip list`), not `--user`.
+
+Runtime baseline since 2026-11-22: **duckdb 2.0.1** (`duckdb>=2,<3`) — see
+`docs/dev_plan/duckdb2_upgrade_plan.md` for the migration/rollback notes.
+
 If an in-flight action dies with `Stream removed`: the write may have
 committed — read-verify before retrying (a stop/start race can leave a
 second instance holding the DB lock; check `logs/flight_server*.log`).
