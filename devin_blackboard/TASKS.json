@@ -5260,5 +5260,71 @@
         "text": "ENRICH-AC10: register_rrg_enrich.ps1 mirrors register_rrg_weekly.ps1 conventions — StockIngestion-RRGEnrich, triggers Fri 22:45 + Sat/Sun 08:30 (weekly multi-trigger, NOT /sc DAILY), StartWhenAvailable, user/Interactive/Limited, pythonw.exe, WorkingDirectory=repo root; design doc 'Enrichment engine' flipped to auto headless + moved out of Decisions locked"
       }
     ]
+  },
+  {
+    "id": "RRG-TRAJ-T1",
+    "title": "Emit trajectory semantics in RRG analysis-prompt JSON (heading, quadrant_change, prev position) + analyze_rra consumer update",
+    "role": "executor",
+    "model": "swe",
+    "status": "todo",
+    "assigned_to": "B",
+    "depends_on": [],
+    "context": "Root cause of a verified report defect: 2026-11-20 ETF report called ARKK 'accelerating back toward LEADING' — actually LEADING->IMPROVING on a heading of ~-163deg (down-left, toward LAGGING). velocity_direction ACCELERATING/DECELERATING is speed magnitude only, not direction. gen_ai_prompt already computes r_prev/m_prev at t=-2 but discards them. Fix the JSON so consumers get direction natively; same function serves both the file pipeline (rrg_dashboard.generate_rrg_dashboard) and the report_app.py Streamlit endpoint.",
+    "requirements": [
+      "In scripts/rrg_dashboard.py gen_ai_prompt(): inside each ticker's existing 'trajectory' dict (design option b — do NOT add sibling keys to the entry; TestGenAiPrompt asserts set(entry) == {current_position, trajectory, persistence}) add: prev_rs_ratio, prev_rs_momentum (rounded like current_position), delta_rs_ratio, delta_rs_momentum (r_curr-r_prev, m_curr-m_prev), heading (exactly one of 'NE','NW','SE','SW' from sign(delta_ratio),sign(delta_mom): NE=+,+ SE=+,- NW=-,+ SW=-,-), prev_quadrant (quadrant computed from prev values with the same >=100 boundaries), quadrant_change ('UNCHANGED' or 'PREV->CURR' e.g. 'LEADING->IMPROVING').",
+      "Update tests/test_rrg_dashboard.py: keep TestGenAiPrompt passing (nesting inside trajectory preserves the entry-key contract); add unit tests covering all four headings, UNCHANGED vs a real crossing (e.g. hand-built frames crossing ratio=100), and delta sign correctness.",
+      "Update .devin/skills/analyze_rra/analyze_rra.py: when trajectory.heading/quadrant_change present, surface them — add a Heading column (or annotation) to report tables and a 'Quadrant Crossings' block listing each transition with a bias label (LEADING->IMPROVING = 'regime break, bearish'; see SKILL contract below). For legacy JSONs lacking the fields, fall back gracefully (diff prior dated prompt file if present, else omit) — never crash.",
+      "Update .devin/skills/analyze_rra/SKILL.md enrichment contract: heading semantics (NE=toward LEADING, SW=toward LAGGING, etc.), the crossing taxonomy table, and two narrative rules — (1) bar phrases like 'accelerating toward LEADING' unless delta_rs_ratio > 0; (2) SW-heading tickers may not be placed in the Overweight bucket regardless of quadrant label.",
+      "Do NOT touch scripts/rrg_dashboard_orig.py (frozen legacy). Do NOT regenerate docs/rra files — orchestrator does that after acceptance."
+    ],
+    "input_files": [
+      "/scripts/rrg_dashboard.py",
+      "/tests/test_rrg_dashboard.py",
+      "/.devin/skills/analyze_rra/analyze_rra.py",
+      "/.devin/skills/analyze_rra/SKILL.md",
+      "/docs/rra/Relative_Rotation_Dashboard_ETFs_2026-11-20_analysis_prompt.json",
+      "/docs/rra/Relative_Rotation_Dashboard_ETFs_2026-11-13_analysis_prompt.json"
+    ],
+    "output_files": [
+      "/scripts/rrg_dashboard.py",
+      "/tests/test_rrg_dashboard.py",
+      "/.devin/skills/analyze_rra/analyze_rra.py",
+      "/.devin/skills/analyze_rra/SKILL.md"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "TRAJ-AC1",
+        "check": "focused tests",
+        "command": "python -m pytest tests/test_rrg_dashboard.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "TRAJ-AC2",
+        "check": "full suite green",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "TRAJ-AC3",
+        "check": "loop checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "TRAJ-AC4",
+        "check": "live generation emits new fields",
+        "command": "python -c \"import sys;sys.path.insert(0,'scripts');sys.path.insert(0,'src');import json,rrg_dashboard,config;cfg=config.PipelineConfig.from_yaml('src/config.yaml');p=rrg_dashboard.generate_rrg_dashboard(cfg,'ETFs',as_of='2026-11-20',json_only=True,output_dir='.tmp/rrg_traj_check');e=json.load(open(p['json']))['market_snapshot']['ticker_data']['ARKK'];t=e['trajectory'];assert {'prev_rs_ratio','prev_rs_momentum','delta_rs_ratio','delta_rs_momentum','heading','prev_quadrant','quadrant_change'}<=set(t);assert t['heading'] in ('NE','NW','SE','SW');assert t['quadrant_change']=='LEADING->IMPROVING';print('OK',t)\"",
+        "expected_exit": 0
+      },
+      {
+        "text": "TRAJ-AC5: New keys nested INSIDE trajectory (entry top-level keys stay exactly {current_position, trajectory, persistence}); heading maps correctly for all 4 sign combos in tests; quadrant_change 'UNCHANGED' or 'PREV->CURR'; values rounded consistently with current_position."
+      },
+      {
+        "text": "TRAJ-AC6: analyze_rra.py on a NEW-format JSON emits Heading info + a Quadrant Crossings block; on a LEGACY JSON it does not crash (prior-file diff fallback or graceful omission)."
+      },
+      {
+        "text": "TRAJ-AC7: SKILL.md documents heading semantics + crossing taxonomy + the two narrative rules (no 'toward LEADING' unless delta_rs_ratio>0; no SW-heading names in Overweight)."
+      }
+    ]
   }
 ]
