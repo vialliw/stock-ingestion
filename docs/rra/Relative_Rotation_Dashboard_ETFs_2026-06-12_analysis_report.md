@@ -10,6 +10,8 @@
 
 **LEADING: 13** | **IMPROVING: 5** | **WEAKENING: 10** | **LAGGING: 68**
 
+> Weekly read: The grind continues (68 LAGGING) but the character changed — USO +28.1 is parabolic AND heading SW: the energy unwind is underway. FTGC lost its streak, the week's crossings are dominated by bottom-fishing squeezes (5 names LAGGING->WEAKENING), and SMH is now the lone NE consistent leader.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -22,6 +24,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | ICLN | LEADING | 110.11 | 103.46 | 1.0 | ACCELERATING | SW | 12 | 0 | 100.0 |
 | SMH | LEADING | 136.16 | 114.11 | 6.2 | ACCELERATING | NE | 10 | 0 | 83.3 |
 
+> Read: COMT/DBC/USO/ICLN still perfect — but all four head SW, and USO/COMT/DBC are accelerating into the decline. SMH +6.2A NE at 83% is the only consistent leader actually moving up-right: the baton is visibly reaching for semis while the commodity ledger winds down.
+
 ## 3. Improving Trends
 
 Top 10 IMPROVING tickers by 1-week velocity:
@@ -33,6 +37,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | CANE | IMPROVING | 93.34 | 100.73 | 4.1 | ACCELERATING | SW | 5 | 0 | 41.7 |
 | AWAY | IMPROVING | 92.24 | 110.75 | 3.6 | DECELERATING | NE | 0 | 9 | 0.0 |
 | VOT | IMPROVING | 98.53 | 102.36 | 1.3 | ACCELERATING | SE | 0 | 0 | 0.0 |
+
+> Read: The real improver is UNG +13.1 NE — a confirmed LAGGING->IMPROVING crossing (Δmom +13.1) — plus AWAY +3.6 NE holding a second week. The headline 'probe' is fake: ARKK +5.4 accelerating is heading SW, a fading leader not a growth re-bid; CANE is SW and VOT is SE/rolling. Growth is not knocking anymore — natgas is.
 
 ## 4. Weakening Momentum
 
@@ -62,6 +68,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | IWF | LEADING | 100.72 | 108.28 | 1.2 | DECELERATING | SW | 4 | 6 | 33.3 |
 | PBW | LEADING | 119.32 | 113.16 | 0.3 | DECELERATING | NE | 5 | 0 | 41.7 |
 | QQQ | LEADING | 109.02 | 111.94 | 0.1 | DECELERATING | SE | 8 | 4 | 66.7 |
+
+> Read: FTGC's LEADING->WEAKENING cross is the regime break — an 11-week perfect leader finally aging out. But half this weakening list is mislabeled 'weakness': XTN/SLX/IWM/TAN all head NE (squeezes out of LAGGING per the crossings block) and EWY/GRID/EEM/LIT/VBK are SE-rolling. True deterioration is narrower than the count suggests — centered on the commodity names (FTGC SW; BCD/IEO/XOP/XES broke through to LAGGING).
 
 ## 5. Velocity Analysis
 
@@ -98,6 +106,8 @@ Dead money (velocity < 1.0): `HERO` 0.10, `QQQ` 0.12, `CPER` 0.20, `HYG` 0.24, `
 - `XOP` WEAKENING->LAGGING — breakdown confirmed — bearish (heading SW, Δratio -5.00, Δmom -5.05)
 - `XTN` LAGGING->WEAKENING — hard right break — squeeze, don't chase (heading NE, Δratio 6.12, Δmom 2.67)
 
+> Read: USO +28.1A SW — parabolic velocity pointed down-left; last week's 'terminal phase' is now a confirmed reversal-in-progress. The other half is a squeeze cluster: JETS +8.7A NE plus five LAGGING->WEAKENING hard-right breaks (EEM/GRID/IWM/SLX/XTN) — short-covering, sells into strength not buys. Meanwhile WEAT/XOP accelerate SW into confirmed breakdowns; only UNG's bottoming is genuinely bullish.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -115,6 +125,8 @@ Top 10 LAGGING by lag-weeks:
 | XLY | 92.46 | 94.43 | 0.7 | 12 | 0.0 |
 | XLV | 89.12 | 85.88 | 2.9 | 11 | 0.0 |
 
+> Read: 68 LAGGING steady; the buckets are now financials (IAI/IYF/XLF all 12w), healthcare (IHI/VHT/XLV/INDA), metals (PALL), travel (JETS) and consumer (XLY). Even value and financials cannot hold a bid outside commodities — the funding source is everything else.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (2): `QCLN`, `SMH`
@@ -122,6 +134,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (10): `EEM`, `EWY`, `FTGC`, `GRID`, `IWM`, `LIT`, `SLX`, `TAN`, `VBK`, `XTN`
 - **Avoid** — structural laggards (20): `DIA`, `FXI`, `IAI`, `IBB`, `IHI`, `INDA`, `IYF`, `JETS`, `PALL`, `PLTM`, `SLV`, `VHT`, `VNM`, `XAR`, `XLF`, `XLV`, `XLY`, `XME`, `XPH`, `XRT`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (2): `ARKK`, `AWAY`
+
+**Net call:** The unwind has begun — USO is parabolic-SW and the last energy second-tier names are confirming breakdowns; run trailing stops and treat every LAGGING->WEAKENING squeeze (EEM/GRID/IWM/SLX/XTN) as a sell into strength, not a buy. The successor bench narrowed to SMH (only NE consistent leader) plus UNG's bottoming — last week's ARKK probe failed on heading.
 
 ## 8. Data Caveats
 

@@ -10,6 +10,8 @@
 
 **LEADING: 35** | **IMPROVING: 18** | **WEAKENING: 9** | **LAGGING: 34**
 
+> Weekly read: Crash-resolution week — LEADING expands 31→35 while WEAKENING doubles to 9 and the improving bench halves to 18; last week's SW-heading leaders resolved exactly as the headings warned (GDX/ARKK fell out of LEADING, CLOU to LAGGING). Two regimes print at once: confirmed defensive rotations in (TLT/XLU/HYG/JNK/UNG/INDA) and a junkyard of broken leaders — the inflection is complete, leadership is now defensive.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -27,6 +29,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | IBB | LEADING | 113.02 | 106.66 | 0.9 | DECELERATING | SE | 12 | 0 | 100.0 |
 | XOP | LEADING | 106.21 | 110.31 | 7.6 | DECELERATING | SW | 11 | 0 | 91.7 |
 
+> Read: The streak roster reshuffled — IEO/SOYB/XLE reached 12/12 while ARKK and GDX fell out to IMPROVING and XSW broke to WEAKENING. What remains splits in two: hard-asset leaders still on streak but ALL heading SW (IEO/NANR/CANE/XLE/XOP decelerating toward LAGGING) versus healthcare holding SE (XLV/VHT/IBB — ratio still rising, momentum rolling) and HERO SE. SOYB +5.7A NE is the only leader genuinely moving up-right.
+
 ## 3. Improving Trends
 
 Top 10 IMPROVING tickers by 1-week velocity:
@@ -43,6 +47,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | BATT | IMPROVING | 81.98 | 103.95 | 5.5 | ACCELERATING | SW | 0 | 7 | 0.0 |
 | ICLN | IMPROVING | 89.55 | 105.16 | 5.0 | ACCELERATING | NE | 0 | 10 | 0.0 |
 | GLD | IMPROVING | 94.37 | 115.80 | 5.0 | ACCELERATING | SW | 0 | 0 | 0.0 |
+
+> Read: This bench is a junkyard of broken leaders — read Hdg, not the quadrant. GDX +15.1 SW is a LEADING->IMPROVING regime break accelerating toward LAGGING (Δ-4.9/-14.3), not a re-acceleration; ARKK +7.2 SW is the same signature (Δ-6.9/-2.1) — a fallen leader, NOT an improver, and SW-heading bars it from overweight. SLV/XME/PLTM/GLD/XES/BATT are all SW too — the metals complex is breaking down together; only ICLN +5.0 heads NE. No successor regime here — the real rotations are in §5's crossings, not this list.
 
 ## 4. Weakening Momentum
 
@@ -74,6 +80,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | VNM | LEADING | 102.54 | 118.88 | 4.6 | DECELERATING | NE | 2 | 5 | 16.7 |
 | ITB | LEADING | 101.63 | 103.92 | 4.5 | DECELERATING | NE | 2 | 5 | 16.7 |
 | CORN | LEADING | 100.73 | 106.24 | 4.0 | DECELERATING | NE | 9 | 0 | 75.0 |
+
+> Read: XSW is the regime break — a 91.7% leader flipping LEADING->WEAKENING while accelerating SW at 6.3, the same signature CLOU printed before it fell to LAGGING (breakdown confirmed this week at Δ-8.1/-7.4). Most of the new weakening cluster is squeezes though — SCHH/IYR/XLF/IYF/VBR/IWD all heading NE off the lagging floor (hard-right bounces; trim, don't chase) — while CIBR grinds SW and XBI drifts NW. The decel board is the energy complex finishing its breakdown: XOP/IEO/NANR/FCG/CANE/VDE/XLE all SW — last week's trims are now full exits.
 
 ## 5. Velocity Analysis
 
@@ -118,6 +126,8 @@ Dead money (velocity < 1.0): `VOT` 0.58, `VXUS` 0.85, `IBB` 0.88, `VBK` 0.92
 - `XLU` IMPROVING->LEADING — rotation confirmed — bullish (heading NE, Δratio 5.59, Δmom 3.79)
 - `XSW` LEADING->WEAKENING — normal aging — trim into strength (heading SW, Δratio -4.91, Δmom -3.99)
 
+> Read: The velocity tape is the crash in one column — GDX +15.1 SW accelerating is the board's fastest move, a breakdown at speed, with SLV/XME/PLTM behind it and COPX +11.5/CLOU +11.0 accelerating SW deeper into LAGGING (breakdowns accelerating, not squeezes — exit liquidity only). The genuine NE flows are defensive: UNG +13.1 confirmed into LEADING, INDA +8.1A NE, and a seven-name IMPROVING->LEADING cluster — TLT/XLU/HYG/JNK/CORN/ITB — bonds, utilities, credit, ags, homebuilders: textbook late-cycle defensive rotation. The four LAGGING->WEAKENING squeezes (SCHH/IYR/IYF/VBR) are exits, not entries; the ARKK/GDX regime breaks are the sell signals.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -135,6 +145,8 @@ Top 10 LAGGING by lag-weeks:
 | TAN | 82.59 | 98.60 | 5.7 | 12 | 0.0 |
 | VBK | 93.33 | 95.45 | 0.9 | 12 | 0.0 |
 
+> Read: 34 LAGGING — and the funding pool is now explicitly cap-weighted growth: QQQ/SMH/VBK all at 12 lag weeks with XLK/IWM/XLI joining the avoid tail, beside the standing clean-energy (PBW/QCLN/TAN), EM-Asia (EEM/EWY), infra/transports (GRID/IFRA/IYT/JETS/XAR/XTN) and financials (KRE/IAI) buckets. Nothing here shows reversal velocity — the defensive bid is funded and still has fuel.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (23): `BCD`, `CORN`, `DBC`, `FTGC`, `HERO`, `HYG`, `IBB`, `ICLN`, `IHI`, `INDA`, `JNK`, `SGOV`, `SOYB`, `TLT`, `UNG`, `VHT`, `VOE`, `VTV`, `XLB`, `XLP`, `XLU`, `XLV`, `XRT`
@@ -142,6 +154,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (9): `CIBR`, `IWD`, `IYF`, `IYR`, `SCHH`, `VBR`, `XBI`, `XLF`, `XSW`
 - **Avoid** — structural laggards (21): `EEM`, `EWY`, `GRID`, `IAI`, `IFRA`, `IWM`, `IYT`, `JETS`, `KRE`, `PBW`, `QCLN`, `QQQ`, `SLX`, `SMH`, `TAN`, `VBK`, `VOT`, `XAR`, `XLI`, `XLK`, `XTN`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (7): `ARKK`, `EWZ`, `GDX`, `GLD`, `PLTM`, `SLV`, `SMOG`
+
+**Net call:** Rotate into the confirmed defensive rotation — TLT, XLU, XLP, HYG/JNK, UNG, SGOV — and exit the SW-heading energy/ag leadership wholesale (XLE/XOP/IEO/VDE/FCG/CANE/NANR); GDX and ARKK are broken leaders accelerating toward LAGGING — sell any bounce, watch-list only. Core hold: healthcare (XLV/VHT/IBB) on streak, mind the SE roll. Trigger: healthcare's SE headings flipping SW, or TLT/XLU failing back out of LEADING — if the defensive rotation loses its bid, the next stop is SGOV/cash.
 
 ## 8. Data Caveats
 

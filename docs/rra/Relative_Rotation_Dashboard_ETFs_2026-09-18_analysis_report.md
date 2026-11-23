@@ -10,6 +10,8 @@
 
 **LEADING: 41** | **IMPROVING: 27** | **WEAKENING: 5** | **LAGGING: 23**
 
+> Weekly read: Precious metals go parabolic — SLV +10.9A, PLTM +10.6A, both NE — and biotech/pharma joins the 12/12 club. But the compass turned hostile: every consistent leader now heads SW or NW. Best two-sided tape since May, and the most fragile leadership of the window.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -27,6 +29,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | XLV | LEADING | 107.96 | 125.57 | 3.3 | DECELERATING | SW | 9 | 3 | 75.0 |
 | XLF | LEADING | 106.10 | 117.44 | 3.1 | ACCELERATING | SW | 9 | 0 | 75.0 |
 
+> Read: A new consistent cohort on paper — CLOU/XBI/XPH/XSW all 12/12, plus financials (IAI/IYF/XLF/KRE) — yet all ten leaders head left: nine SW, XBI NW. Streaks say persistence; headings say these are leaders in label this week and IMPROVING candidates next.
+
 ## 3. Improving Trends
 
 Top 10 IMPROVING tickers by 1-week velocity:
@@ -43,6 +47,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | XRT | IMPROVING | 97.39 | 115.58 | 5.1 | ACCELERATING | SW | 4 | 1 | 33.3 |
 | XME | IMPROVING | 90.88 | 100.43 | 5.1 | ACCELERATING | SW | 0 | 8 | 0.0 |
 | VNM | IMPROVING | 94.89 | 104.24 | 4.6 | DECELERATING | NE | 0 | 11 | 0.0 |
+
+> Read: The genuine improving cohort is precious metals plus one EM: SLV +10.9A, PLTM +10.6A, GLD +6.3A, VNM +4.6D — all NE. The rest of the top-10 are fading names parked in IMPROVING: JETS/ITB/UNG/IYT/XRT/XME all head SW (XRT is a fresh LEADING->IMPROVING regime break). The metals bid widening down the curve is real; the "broad" bench is half-broken.
 
 ## 4. Weakening Momentum
 
@@ -70,6 +76,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | XSW | LEADING | 112.97 | 113.61 | 6.4 | DECELERATING | SW | 12 | 0 | 100.0 |
 | SOYB | LEADING | 109.44 | 111.73 | 5.9 | DECELERATING | NE | 3 | 8 | 25.0 |
 | VDE | LEADING | 109.95 | 111.31 | 5.8 | DECELERATING | NE | 2 | 8 | 16.7 |
+
+> Read: Only 5 weakening, and only one is a leader: CIBR (83.3% consist) now SE — ratio still rising but momentum rolled. USO/COMT/DBC/FTGC are NE squeezes again — the same counter-trend pattern, still sells. On the decel list GDX/EWZ/CORN/XOP/FCG/IEO/VDE all hold NE: rotation cooling, not breaking.
 
 ## 5. Velocity Analysis
 
@@ -103,6 +111,8 @@ Dead money (velocity < 1.0): `CPER` 0.24, `QQQ` 0.36, `JNK` 0.49, `HYG` 0.53, `S
 - `XRT` LEADING->IMPROVING — regime break — bearish shock (heading SW, Δratio -3.73, Δmom -3.52)
 - `XTN` IMPROVING->LAGGING — failed improvement — bearish (heading SW, Δratio -4.52, Δmom -6.99)
 
+> Read: USO +14.6A heads NE — the biggest squeeze yet, still a sell. GDX +12.3D cools a second week but stays NE; SLV/PLTM took the baton. Crossings turn mixed: SLV's LAGGING->IMPROVING confirms the metals bottoming, but three failed improvements (IWM/XAR/XTN ->LAGGING) and three regime breaks (VBR/XLB/XRT LEADING->IMPROVING) show the old cyclical leadership liquidating.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -120,6 +130,8 @@ Top 10 LAGGING by lag-weeks:
 | XES | 96.63 | 92.70 | 5.3 | 12 | 0.0 |
 | GRID | 92.03 | 91.17 | 2.0 | 11 | 0.0 |
 
+> Read: 23 LAGGING; the clean-energy cohort is now fully pinned (XES/REMX/TAN/LIT/BATT/SMOG all 12w, GRID/IFRA joining) — the structural short has consolidated into a single theme and funds everything above it.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (9): `AMLP`, `ARKK`, `BCD`, `CANE`, `GLD`, `PLTM`, `SLV`, `WEAT`, `XBI`
@@ -127,6 +139,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (5): `CIBR`, `COMT`, `DBC`, `FTGC`, `USO`
 - **Avoid** — structural laggards (14): `BATT`, `DBB`, `EEM`, `GRID`, `ICLN`, `IFRA`, `LIT`, `PBW`, `QCLN`, `REMX`, `SLX`, `SMOG`, `TAN`, `XES`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (7): `FXI`, `INDA`, `ITB`, `JETS`, `XLB`, `XLP`, `XRT`
+
+**Net call:** Metals broadening to SLV/PLTM is the one confirmed bid; the "new persistent leadership" in pharma/financials is all SW-heading — hold XBI, do not add. Clean energy stays the funded short. Trigger: a second SW week on XPH/XBI plus failures in the SW-heading improvers flips this to capital-preservation.
 
 ## 8. Data Caveats
 

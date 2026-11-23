@@ -1,6 +1,63 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-23 (RRG-TRAJ-T1 Critic D PASS; orchestrator may regenerate docs/rra)
+Last Updated: 2026-11-23 (Executor B enriched RRA reports 10-09..11-20 crash arc incl. 11-20 defect-week fix; earlier passes covered 05-15..10-02)
 Current Branch: main
+
+## RRA enrichment — trajectory-era reports, batch 10-09..11-20 (executor B, 2026-11-23)
+
+Enriched the 7 regenerated drafts 2026-10-09 through 2026-11-20 (the
+crash arc incl. the original ARKK-defect week) per the SKILL contract:
+each file has exactly 1 `> Weekly read:` (§1) + 5 `> Read:` (§2–§6) +
+1 `**Net call:**` (§7), all after tables/crossings blocks. git diff =
+additions only — tables, Hdg columns, Quadrant Crossings blocks
+byte-verbatim.
+
+Heading-aware rewrites vs HEAD~1 prior reads (the fixes this
+regeneration exists for): 10-09 XBI "high-beta healthcare leg" → SW
+LEADING->IMPROVING regime break; 10-16 all five 12/12 leaders head
+SW/NW (IBB +9.8 "ACCELERATING" is accelerating toward LAGGING);
+10-23 WEAT "ags bottoming" → SW regime break, real NE bid = defensive
+bottoming (XLP/XLU/TLT/XLB); 10-30 WEAT/CORN "accelerating hard" →
+accelerating SW breakdowns, energy NE→SW flip downgraded to reduce;
+11-06 XBI "healthcare crack" → NE LAGGING->WEAKENING squeeze (sell),
+energy squeeze #6 = SW-accelerating distribution; 11-13 "metals
+improving theme" → all-SW complex-wide breakdown + SGOV promotion =
+distribution climax; 11-20 DEFECT WEEK — ARKK "accelerating back
+toward LEADING" and GDX "re-accelerating earns overweight" rewritten
+as SW-heading regime breaks accelerating toward LAGGING (ARKK
+-6.9/-2.1, GDX -4.9/-14.3); genuine rotation = defensive cluster
+TLT/XLU/HYG/JNK/UNG/INDA/CORN/ITB. Full detail in EVENTS.log.
+
+## RRA enrichment — trajectory-era reports, batch 07-03..08-14 (executor B, 2026-11-23)
+
+Enriched the 7 regenerated drafts 2026-07-03 through 2026-08-14 in
+`docs/rra/` per `.devin/skills/analyze_rra/SKILL.md` contract: each
+file carries exactly 6 read lines (1 `> Weekly read:` §1 + 5 `> Read:`
+§2–§6) + 1 `**Net call:**` §7. Diffs are additions-only — all tables,
+Hdg columns, and Quadrant Crossings blocks byte-verbatim.
+
+Heading-aware corrections vs the pre-TRAJ enriched versions (HEAD~1):
+ARKK/AWAY/VOT 07-24 "improving probes" rewritten as SW LEADING->
+IMPROVING regime breaks (exits not entries); VTV/WEAT 07-24 and
+IEO/AMLP/VTV et al. 07-31 WEAKENING names reframed as NE squeezes
+(sells, not fades); SMH 07-31 "re-acceleration, crack repaired"
+corrected to accelerating-SW; the 12/12 SW-heading mega-cap leaders
+flagged as aging-in-place across 07-03..08-14; 08-07 IEO corrected to
+NW (JSON audit; GLD verified NE both weeks). See EVENTS.log.
+
+## RRA enrichment — trajectory-era reports (executor B, 2026-11-23)
+
+Enriched the 7 regenerated drafts 2026-08-21 through 2026-10-02 in
+`docs/rra/` per `.devin/skills/analyze_rra/SKILL.md` contract: each file
+now carries exactly 6 read lines (1 `> Weekly read:` §1 + 5 `> Read:`
+§2–§6) + 1 `**Net call:**` §7. Diffs are additions-only — all tables,
+Hdg columns, and Quadrant Crossings blocks byte-verbatim.
+
+Heading-aware corrections vs the pre-TRAJ enriched versions (HEAD~1):
+NE-heading WEAKENING names re-framed as laggard squeezes (sells);
+SW-heading IMPROVING names re-labelled as fading regime-breaks; 09-25
+re-read as a breakdown week; 10-02 USO re-acceleration into LEADING
+replaces the "failed squeeze" framing; SW-bar Overweight shrinkage
+explicitly noted. See EVENTS.log.
 
 ## RRG-TRAJ-T1 — Critic D final verification: PASS (2026-11-23)
 

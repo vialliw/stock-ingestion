@@ -10,6 +10,8 @@
 
 **LEADING: 42** | **IMPROVING: 25** | **WEAKENING: 7** | **LAGGING: 22**
 
+> Weekly read: Improving bench fattens to 25 — but this is not benign broadening: seven names crossed LEADING->IMPROVING this week (JETS/IYT/IWM/VOT/ITB/XLI/CPER), a regime-break wave. The commodity old guard (COMT/DBC/USO/BCD) squeezes into WEAKENING on NE headings — counter-trend flow, not a revival.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -21,6 +23,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | XPH | LEADING | 117.32 | 127.16 | 3.8 | DECELERATING | NW | 11 | 0 | 91.7 |
 | XBI | LEADING | 117.94 | 120.92 | 2.3 | DECELERATING | NW | 11 | 0 | 91.7 |
 | AWAY | LEADING | 107.95 | 127.26 | 6.9 | ACCELERATING | SW | 10 | 0 | 83.3 |
+
+> Read: CLOU alone at 12/12 — CIBR's streak broke into WEAKENING — and not one of the five consistent leaders heads right: CLOU/XSW/AWAY are SW, XPH/XBI are NW (momentum holding, ratio eroding). The cohort is intact on streaks and deteriorating on direction.
 
 ## 3. Improving Trends
 
@@ -38,6 +42,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | XLU | IMPROVING | 93.29 | 103.00 | 4.4 | DECELERATING | NW | 0 | 11 | 0.0 |
 | IYT | IMPROVING | 98.30 | 108.16 | 3.8 | ACCELERATING | SW | 6 | 0 | 50.0 |
 | XLP | IMPROVING | 98.52 | 111.65 | 3.7 | DECELERATING | NW | 0 | 8 | 0.0 |
+
+> Read: 25 improvers — the fattest bench of the window — but the top of the table is broken leadership, not fresh money: JETS +8.4A, XAR +7.9D, UNG +7.8A, XTN +6.0A, IYT +3.8A all head SW. The genuine improvers are smaller: PLTM +5.5A (NE); GLD/ITB/XLU/XLP are NW — momentum-only, ratio still eroding. A successor regime exists, but it is thin and defensive.
 
 ## 4. Weakening Momentum
 
@@ -67,6 +73,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | EWA | LEADING | 102.22 | 111.07 | 5.0 | DECELERATING | NW | 3 | 9 | 25.0 |
 | XLB | LEADING | 100.21 | 113.00 | 4.3 | DECELERATING | NW | 3 | 9 | 25.0 |
 | COPX | LEADING | 105.67 | 119.97 | 4.2 | DECELERATING | NW | 4 | 8 | 33.3 |
+
+> Read: The headline break is CIBR — LEADING->WEAKENING, heading SW (Δratio −3.6, Δmom −11.8); the 12/12 streak is over at 91.7% consistency. The other six (USO/FCG/COMT/DBC/FTGC/BCD) are all NE squeezes out of LAGGING — counter-trend rallies to sell, not a dying leadership cohort. Decelerating leaders (GDX/EWZ/CORN/IEO) still hold NE — orderly cooling.
 
 ## 5. Velocity Analysis
 
@@ -109,6 +117,8 @@ Dead money (velocity < 1.0): `DBB` 0.36, `CPER` 0.97, `XLF` 0.99
 - `XLU` LAGGING->IMPROVING — bottoming — early bullish (heading NW, Δratio -0.63, Δmom 4.32)
 - `XOP` WEAKENING->LEADING — re-acceleration — bullish (heading NE, Δratio 2.91, Δmom 7.83)
 
+> Read: Velocity polarity tells the story — NE accelerations are metals/ag/energy squeezes (PALL +11.9, USO +10.1, WEAT +8.5, XOP +8.3) while the leftward movers are the leadership complex itself (CIBR SW, JETS SW). Crossings: seven LEADING->IMPROVING regime breaks in one week — the largest distribution wave of the series so far — against only EWZ/PALL confirmations. USO/COMT/DBC/BCD squeezes: sells, not buys.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -126,6 +136,8 @@ Top 10 LAGGING by lag-weeks:
 | XES | 96.16 | 87.37 | 7.5 | 12 | 0.0 |
 | ICLN | 76.93 | 69.71 | 1.8 | 11 | 0.0 |
 
+> Read: 22 LAGGING — the window low. Laggards are now clean energy (TAN/XES/BATT/ICLN/SMOG), dead themes (REMX/SLV pinned pre-breakout), and leftovers (DBB/IFRA/VNM) — a shrinking funding pool as everything rotates up.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (11): `AMLP`, `EWJ`, `HERO`, `PALL`, `PLTM`, `VDE`, `WEAT`, `XBI`, `XLE`, `XOP`, `XPH`
@@ -133,6 +145,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (7): `BCD`, `CIBR`, `COMT`, `DBC`, `FCG`, `FTGC`, `USO`
 - **Avoid** — structural laggards (16): `BATT`, `DBB`, `EEM`, `GRID`, `ICLN`, `IFRA`, `LIT`, `PBW`, `QCLN`, `REMX`, `SLV`, `SLX`, `SMOG`, `TAN`, `VNM`, `XES`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (6): `FXI`, `GLD`, `INDA`, `ITB`, `JETS`, `XLP`
+
+**Net call:** This is distribution, not broadening — seven LEADING->IMPROVING breaks and a leader cohort with zero NE headings outweigh the fat improving bench. Core stays metals/healthcare (PALL/PLTM/GLD still NE); energy and commodity rallies are exits. Trigger: if XPH/XBI flip SW, even the defensive leadership is rolling.
 
 ## 8. Data Caveats
 

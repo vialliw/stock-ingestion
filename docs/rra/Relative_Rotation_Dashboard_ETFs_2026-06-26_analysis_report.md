@@ -10,6 +10,8 @@
 
 **LEADING: 11** | **IMPROVING: 6** | **WEAKENING: 16** | **LAGGING: 63**
 
+> Weekly read: Rotation completed — SMH is the sole perfect leader and the commodity regime died this week: USO's -24.5 ratio crash is the window's biggest crossing (LEADING->LAGGING). The 16-name WEAKENING print (worst of the window) is mostly NE-heading squeezes, not distribution, and LAGGING finally shrinks to 63.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -20,6 +22,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | XLK | LEADING | 121.51 | 125.51 | 0.7 | ACCELERATING | SW | 10 | 2 | 83.3 |
 | QQQ | LEADING | 109.01 | 110.84 | 0.3 | DECELERATING | SE | 10 | 2 | 83.3 |
 | QCLN | LEADING | 118.90 | 113.82 | 3.8 | ACCELERATING | NW | 9 | 0 | 75.0 |
+
+> Read: SMH becomes the sole 12/12 leader — the first non-commodity perfect streak of the window — still heading NE +7.8A. The caveat: the rest of the new leadership group is direction-mixed (XLK SW, QQQ SE/rolling, QCLN NW momentum-only). The baton passed to semis specifically, not tech broadly.
 
 ## 3. Improving Trends
 
@@ -33,6 +37,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | ARKK | IMPROVING | 98.48 | 106.67 | 1.9 | DECELERATING | SE | 1 | 2 | 8.3 |
 | IWF | IMPROVING | 98.92 | 105.38 | 1.7 | DECELERATING | SW | 4 | 4 | 33.3 |
 | IAI | IMPROVING | 98.95 | 102.63 | 1.2 | DECELERATING | NW | 0 | 10 | 0.0 |
+
+> Read: Thinnest genuine bench of the series — UNG +6.4 'accelerating' is now SW (its bottoming rolled over), XSW/IWF fade SW, ARKK is SE, IAI is NW momentum-only. Only AWAY +3.8 NE is still rising, and decelerating. Nobody is improving because everything already moved.
 
 ## 4. Weakening Momentum
 
@@ -62,6 +68,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | Ticker | Quadrant | RS-Ratio | RS-Mom | Vel 1w | Dir | Hdg | Lead wks | Lag wks | Consist % |
 |---|---|---|---|---|---|---|---|---|---|
 | QQQ | LEADING | 109.01 | 110.84 | 0.3 | DECELERATING | SE | 10 | 2 | 83.3 |
+
+> Read: Don't misread the 16-name weakening list — 15 of 16 head NE: this is a squeeze wave out of LAGGING (EWY/XPH/XBI/KRE/IYT/EWJ/EEM/VXUS/VBR/VBK/CPER/GRID/IWD/SLX/LIT), beaten-down cyclicals hard-right-breaking, not leaders in distribution. The real casualties are ICLN — LEADING->WEAKENING, the last commodity leader aging out — and TAN's confirmed breakdown.
 
 ## 5. Velocity Analysis
 
@@ -99,6 +107,8 @@ Dead money (velocity < 1.0): `SMOG` 0.22, `NANR` 0.23, `QQQ` 0.34, `XLK` 0.65
 - `XPH` LAGGING->WEAKENING — hard right break — squeeze, don't chase (heading NE, Δratio 6.27, Δmom 6.46)
 - `XTN` WEAKENING->LEADING — re-acceleration — bullish (heading NE, Δratio 5.07, Δmom 10.17)
 
+> Read: Climax week with direction attached — USO +38.6A SW is a collapse, not a surge, and the whole commodity block (COMT/DBC/FTGC/XOP) is in synchronized SW freefall: all sells. The other pole is a NE squeeze turning into real re-acceleration — JETS +18.3 and XTN +11.4 promoted WEAKENING->LEADING, IWM re-accelerated, VOT rotation-confirmed. The lone warning: CLOU +11.1A but heading SW — fast and fading.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -116,6 +126,8 @@ Top 10 LAGGING by lag-weeks:
 | XLV | 92.84 | 90.77 | 4.1 | 12 | 0.0 |
 | XLY | 93.43 | 95.11 | 1.5 | 12 | 0.0 |
 
+> Read: 63 LAGGING; the long-term laggards are unchanged — metals (PALL/PLTM), healthcare (IHI/VHT/XLV/INDA), financials (IYF/XLF), Vietnam (VNM), consumer (XLY) — while QQQ/XLK sit dead money at the exact moment leadership changes. The squeeze candidates are the recent arrivals, not these structural names.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (7): `IWM`, `JETS`, `QCLN`, `QQQ`, `SMH`, `VOT`, `XTN`
@@ -123,6 +135,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (16): `CPER`, `EEM`, `EWJ`, `EWY`, `GRID`, `ICLN`, `IWD`, `IYT`, `KRE`, `LIT`, `SLX`, `VBK`, `VBR`, `VXUS`, `XBI`, `XPH`
 - **Avoid** — structural laggards (32): `COPX`, `DBB`, `DIA`, `EFA`, `FXI`, `GDX`, `GLD`, `HERO`, `HYG`, `IBB`, `IHI`, `INDA`, `ITB`, `IYF`, `JNK`, `PALL`, `PLTM`, `SLV`, `VGK`, `VHT`, `VNM`, `VOE`, `VTV`, `XAR`, `XLC`, `XLF`, `XLI`, `XLP`, `XLV`, `XLY`, `XME`, `XRT`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (2): `AWAY`, `XSW`
+
+**Net call:** The handoff is done, not mid-point — the commodity block sits in LAGGING freefall while JETS/XTN/IWM re-accelerated into LEADING behind SMH; move remaining commodity profits into semis and the cyclical re-acceleration names in the Overweight bucket, and sell the NE squeezes in the weakening list into strength. The trigger that changes it: SMH's streak breaking or JETS/XTN rolling back to SW.
 
 ## 8. Data Caveats
 

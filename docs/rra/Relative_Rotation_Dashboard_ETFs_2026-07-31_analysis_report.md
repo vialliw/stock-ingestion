@@ -10,6 +10,8 @@
 
 **LEADING: 17** | **IMPROVING: 6** | **WEAKENING: 12** | **LAGGING: 61**
 
+> Weekly read: Breadth week — 17 LEADING, WEAKENING swells to 12 on value/defensive squeezes. But the mega-cap leaders (SMH/XLK/QQQ) all accelerate on SW headings: speed rising while ratios fall. Rotation, not rally.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -21,6 +23,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | XLK | LEADING | 108.73 | 112.73 | 7.1 | ACCELERATING | SW | 12 | 0 | 100.0 |
 | CIBR | LEADING | 132.21 | 146.73 | 4.8 | ACCELERATING | NE | 12 | 0 | 100.0 |
 | QQQ | LEADING | 101.32 | 103.93 | 4.3 | ACCELERATING | SW | 12 | 0 | 100.0 |
+
+> Read: Five perfect 12/12 leaders — split in two: CIBR +4.8 and CLOU +10.6 are genuinely NE (second tier taking the baton) while SMH +14.3, XLK, QQQ accelerate SW — the fastest "acceleration" in this table points toward LAGGING.
 
 ## 3. Improving Trends
 
@@ -34,6 +38,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | XRT | IMPROVING | 98.29 | 101.44 | 1.9 | ACCELERATING | NE | 0 | 8 | 0.0 |
 | ITB | IMPROVING | 93.35 | 100.05 | 1.6 | DECELERATING | SW | 0 | 8 | 0.0 |
 | VOT | IMPROVING | 99.43 | 103.74 | 0.8 | DECELERATING | SW | 4 | 0 | 33.3 |
+
+> Read: Healthcare finally probes — IHI +6.4 NE, the first genuine right-up mover of the window (LAGGING->IMPROVING bottoming); XRT +1.9 NE helps. But ARKK/IWF/VOT/ITB are all SW — still fading after last week's regime breaks, not improving. The bench's only real names are the newcomers.
 
 ## 4. Weakening Momentum
 
@@ -61,6 +67,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | JETS | LEADING | 108.43 | 119.69 | 3.1 | DECELERATING | SE | 6 | 5 | 50.0 |
 | AWAY | LEADING | 100.39 | 122.43 | 2.8 | DECELERATING | SE | 4 | 2 | 33.3 |
 | XBI | LEADING | 106.05 | 100.61 | 2.4 | DECELERATING | SW | 5 | 6 | 41.7 |
+
+> Read: Twelve WEAKENING but mostly squeezes, not fades — IEO/AMLP/WEAT/VOE/VTV/IWD/SCHH/VBR/KRE all head NE (capital rotating up out of laggards through the quadrant). The genuine breakdowns: EWY/IWM/IYT SW. IWM in particular just failed from LEADING.
 
 ## 5. Velocity Analysis
 
@@ -95,6 +103,8 @@ Dead money (velocity < 1.0): `XME` 0.41, `IYT` 0.66, `VXUS` 0.78, `VOT` 0.79
 - `VOE` LAGGING->WEAKENING — hard right break — squeeze, don't chase (heading NE, Δratio 2.39, Δmom 3.02)
 - `XTN` WEAKENING->LAGGING — breakdown confirmed — bearish (heading SW, Δratio -1.82, Δmom -4.92)
 
+> Read: Velocity polarity flipped — the NE column is the laggard complex reviving (XOP/XLE/VDE/USO/FCG/CANE plus IEO/AMLP squeezes) while the SW side is leadership itself: SMH +14.3 accelerating *toward LAGGING* is the week's loudest signal. Energy hard right breaks stay squeezes — sells into strength, not buys.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -112,6 +122,8 @@ Top 10 LAGGING by lag-weeks:
 | HERO | 89.26 | 99.57 | 4.0 | 12 | 0.0 |
 | HYG | 94.45 | 90.69 | 4.4 | 12 | 0.0 |
 
+> Read: 61 LAGGING and shrinking — metals (GDX/GLD/COPX), credit (HYG/JNK), and EM (FXI/EWZ/EFA); even SGOV/TLT lagged SPY's growth run. The lag-list is now the breeding ground for next quarter's leadership.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (12): `CIBR`, `CLOU`, `DIA`, `IAI`, `IBB`, `IHI`, `IYF`, `VHT`, `XLF`, `XLV`, `XPH`, `XSW`
@@ -119,6 +131,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (12): `AMLP`, `EWY`, `IEO`, `IWD`, `IWM`, `IYT`, `KRE`, `SCHH`, `VBR`, `VOE`, `VTV`, `WEAT`
 - **Avoid** — structural laggards (46): `BATT`, `BCD`, `COPX`, `CORN`, `CPER`, `DBB`, `EFA`, `EWA`, `EWC`, `EWJ`, `EWZ`, `FCG`, `FXI`, `GDX`, `GLD`, `HERO`, `HYG`, `IFRA`, `INDA`, `IYR`, `JNK`, `NANR`, `PALL`, `PLTM`, `REMX`, `SGOV`, `SLV`, `SMOG`, `SOYB`, `TLT`, `UNG`, `VDE`, `VGK`, `VNM`, `VXUS`, `XAR`, `XES`, `XLB`, `XLC`, `XLE`, `XLI`, `XLP`, `XLU`, `XLY`, `XME`, `XOP`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (0): none
+
+**Net call:** Stay long the NE leaders — CIBR/CLOU plus the confirmed financial (XLF/IYF/IAI) and healthcare (IHI/VHT/XLV) rotations. Do not re-add SMH/XLK/QQQ on "accelerating" prints while all three head SW. Trigger: SMH regaining NE, or CIBR/CLOU losing theirs, changes the call.
 
 ## 8. Data Caveats
 

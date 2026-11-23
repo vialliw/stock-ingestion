@@ -10,6 +10,8 @@
 
 **LEADING: 9** | **IMPROVING: 7** | **WEAKENING: 12** | **LAGGING: 68**
 
+> Weekly read: Regime-break week — the commodity block collapsed: COMT/DBC jumped LEADING->LAGGING discontinuously and FTGC confirmed breakdown, leaving 2 perfect leaders (ICLN/USO) with USO itself crashing SW at record velocity. SMH is the only NE consistent leader. The turn this arc has been forecasting is here.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -21,6 +23,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | SMH | LEADING | 142.53 | 118.14 | 7.5 | ACCELERATING | NE | 11 | 0 | 91.7 |
 | QQQ | LEADING | 108.96 | 111.17 | 0.8 | ACCELERATING | SW | 9 | 3 | 75.0 |
 | XLK | LEADING | 122.04 | 125.89 | 0.3 | DECELERATING | SE | 9 | 3 | 75.0 |
+
+> Read: 2 perfect leaders left (ICLN/USO) — the streak ledger nearly wiped — and both head SW; USO's 12/12 record is now a 32.7-velocity decline. The real table leader is SMH +7.5A NE (91.7%): semis are the last right-heading consistent name. Regime end confirmed in both persistence and direction.
 
 ## 3. Improving Trends
 
@@ -35,6 +39,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | IAI | IMPROVING | 99.82 | 101.73 | 2.5 | ACCELERATING | NE | 0 | 11 | 0.0 |
 | IWF | IMPROVING | 99.67 | 106.88 | 1.8 | ACCELERATING | SW | 4 | 5 | 33.3 |
 | VOT | IMPROVING | 99.95 | 102.19 | 1.4 | ACCELERATING | SE | 0 | 0 | 0.0 |
+
+> Read: Heading data inverts this bench — the 'improvers' are mostly falling leaders: XSW +5.0 and IWF are LEADING->IMPROVING regime breaks heading SW (the growth probes failed), and ARKK is SW too. The genuine risers are AWAY +3.9 NE and IAI +2.5 NE (a LAGGING->IMPROVING bottoming cross); UNG's NW is momentum-only with ratio still eroding.
 
 ## 4. Weakening Momentum
 
@@ -62,6 +68,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | CIBR | LEADING | 119.94 | 141.48 | 4.1 | DECELERATING | SW | 6 | 5 | 50.0 |
 | QCLN | LEADING | 121.02 | 110.72 | 2.7 | DECELERATING | NE | 8 | 0 | 66.7 |
 | XLK | LEADING | 122.04 | 125.89 | 0.3 | DECELERATING | SE | 9 | 3 | 75.0 |
+
+> Read: The 12-name weakening list is mostly a squeeze wave, not weakness — JETS/XTN/KRE/IYT/EEM/IWM/SLX/VBK all head NE on hard-right breaks out of LAGGING (don't chase); EWY/GRID are SE-rolling; only TAN/LIT are clean SW. The real damage is in the crossings block: COMT/DBC discontinuous LEADING->LAGGING, FTGC breakdown confirmed, XSW/IWF regime-broken down to IMPROVING.
 
 ## 5. Velocity Analysis
 
@@ -95,6 +103,8 @@ Dead money (velocity < 1.0): `XLK` 0.28, `JNK` 0.30, `IYR` 0.36, `XLY` 0.37, `HY
 - `KRE` LAGGING->WEAKENING — hard right break — squeeze, don't chase (heading NE, Δratio 4.11, Δmom 7.48)
 - `XSW` LEADING->IMPROVING — regime break — bearish shock (heading SW, Δratio -3.98, Δmom -2.97)
 
+> Read: Peak divergence now has direction attached — USO +32.7A SW is a collapse at record speed, joined by COMT/DBC/FTGC all accelerating SW: the entire commodity complex unwound in one week. Against that, the NE movers are counter-trend squeezes (JETS +13.3, XTN +9.4, KRE +8.5, ITB +9.5) — sells into strength, not new leadership. Meanwhile the big indexes are frozen (QQQ/XLK/TLT/SCHH dead money).
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -112,6 +122,8 @@ Top 10 LAGGING by lag-weeks:
 | PLTM | 72.16 | 54.80 | 4.1 | 11 | 0.0 |
 | VNM | 92.20 | 88.31 | 3.8 | 11 | 0.0 |
 
+> Read: 68 LAGGING; the structural buckets are healthcare (IHI/VHT/XLV/INDA), financials (IYF/XLF now 12w), metals (PALL/PLTM), Vietnam (VNM) and consumer (XLY) — and the fallen commodity block (COMT/DBC/FTGC/XOP) is already in this quadrant, just not yet deep in lag-weeks.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (2): `SMH`, `XLK`
@@ -119,6 +131,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (12): `EEM`, `EWY`, `GRID`, `IWM`, `IYT`, `JETS`, `KRE`, `LIT`, `SLX`, `TAN`, `VBK`, `XTN`
 - **Avoid** — structural laggards (26): `COPX`, `CPER`, `DIA`, `EFA`, `FXI`, `GDX`, `GLD`, `HERO`, `IBB`, `IHI`, `INDA`, `ITB`, `IYF`, `PALL`, `PLTM`, `SLV`, `VGK`, `VHT`, `VNM`, `XAR`, `XLF`, `XLV`, `XLY`, `XME`, `XPH`, `XRT`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (2): `AWAY`, `XSW`
+
+**Net call:** The commodity regime ended this week — exit remaining energy exposure into squeeze rallies rather than waiting for stops; USO's SW collapse at 32+ velocity will not unwind quietly. The successor is semis (SMH, the only NE consistent leader) — not the growth style-boxes, whose probes (XSW/IWF/ARKK) all broke SW. The trigger that changes it: SMH losing its NE heading.
 
 ## 8. Data Caveats
 

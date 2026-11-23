@@ -10,6 +10,8 @@
 
 **LEADING: 19** | **IMPROVING: 7** | **WEAKENING: 4** | **LAGGING: 66**
 
+> Weekly read: Growth regime confirmed but narrowing — QQQ/SMH/XLK all perfect 12/12 yet every mega-cap leader heads SW. Only 4 WEAKENING = frozen transitions; a mid-arc complacency week with no bench.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -24,6 +26,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | CLOU | LEADING | 102.77 | 114.02 | 3.5 | DECELERATING | SE | 9 | 2 | 75.0 |
 | CIBR | LEADING | 123.19 | 132.82 | 3.1 | DECELERATING | NE | 9 | 2 | 75.0 |
 
+> Read: All seven consistent leaders are growth — SMH/XLK/QQQ now 12/12 simultaneously — but five of seven head SW despite ACCELERATING flags. CIBR is the sole NE; CLOU rolls SE. The 12/12 streaks are intact while ratios erode: leadership by inertia.
+
 ## 3. Improving Trends
 
 Top 10 IMPROVING tickers by 1-week velocity:
@@ -37,6 +41,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | IAI | IMPROVING | 97.76 | 103.67 | 1.2 | DECELERATING | SW | 0 | 8 | 0.0 |
 | IYF | IMPROVING | 98.01 | 102.80 | 0.9 | DECELERATING | NW | 0 | 10 | 0.0 |
 | IWF | IMPROVING | 99.57 | 105.11 | 0.3 | DECELERATING | NE | 4 | 2 | 33.3 |
+
+> Read: Zero accelerating improvers — nobody is transitioning because the regime already changed. The only right-movers are INDA +2.3 NE and XLF +1.4 NE (the financials bottoming continues); ITB/XRT/IYF are NW momentum-only. No successor regime.
 
 ## 4. Weakening Momentum
 
@@ -63,6 +69,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | CIBR | LEADING | 123.19 | 132.82 | 3.1 | DECELERATING | NE | 9 | 2 | 75.0 |
 | IYT | LEADING | 103.64 | 101.24 | 2.0 | DECELERATING | NW | 2 | 5 | 16.7 |
 | VBK | LEADING | 103.09 | 101.54 | 1.5 | DECELERATING | NW | 4 | 0 | 33.3 |
+
+> Read: Least distribution of the window — only 4 WEAKENING, and IBB is a squeeze-in (LAGGING->WEAKENING), not a breakdown. No regime breaks; the decelerating leaders are mild (JETS 8.7 NW worst). Complacent tape: leaders lead, laggards lag.
 
 ## 5. Velocity Analysis
 
@@ -94,6 +102,8 @@ Dead money (velocity < 1.0): `VOE` 0.10, `VTV` 0.24, `IWF` 0.27, `IWD` 0.30, `SC
 - `SLX` WEAKENING->LAGGING — breakdown confirmed — bearish (heading SW, Δratio -4.14, Δmom -0.17)
 - `XRT` LAGGING->IMPROVING — bottoming — early bullish (heading NW, Δratio -0.14, Δmom 2.74)
 
+> Read: Energy stays post-climax — USO/XOP/COMT/FCG/UNG all SW, unwinding deeper. The flicker is metals: PALL +8.5 and SLV +7.8 accelerating NW — momentum lifting while ratios still erode (early, not yet bullish). IBB's LAGGING->WEAKENING is a hard right break — a squeeze to sell, not a buy.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -111,6 +121,8 @@ Top 10 LAGGING by lag-weeks:
 | XAR | 94.04 | 81.81 | 3.2 | 12 | 0.0 |
 | XLV | 97.19 | 95.28 | 3.6 | 12 | 0.0 |
 
+> Read: 66 LAGGING, composition shifting — precious metals (PALL/PLTM/SLV) now dominate the 12w-lag list alongside healthcare (IHI/XLV/VHT) and Asia/EM (FXI/VNM). Maximum pessimism in metals = maximum coil.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (3): `CIBR`, `CLOU`, `XSW`
@@ -118,6 +130,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (4): `EEM`, `EWY`, `IBB`, `IWD`
 - **Avoid** — structural laggards (39): `COPX`, `CPER`, `DBB`, `DIA`, `EFA`, `EWA`, `EWC`, `EWJ`, `EWZ`, `FXI`, `GDX`, `GLD`, `HERO`, `HYG`, `IFRA`, `IHI`, `IYR`, `JNK`, `NANR`, `PALL`, `PLTM`, `SGOV`, `SLV`, `TLT`, `VBR`, `VGK`, `VHT`, `VNM`, `VOE`, `VTV`, `VXUS`, `XAR`, `XLB`, `XLC`, `XLI`, `XLP`, `XLV`, `XLY`, `XME`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (0): none
+
+**Net call:** Hold the growth regime (QQQ/SMH/XLK) but stop adding — every mega-cap leader heads SW. The credible new money is CIBR (sole NE leader) plus the bottoming financials (XLF/IYF). Trigger: a LEADING->IMPROVING crossing in SMH or XLK flips the book to defense.
 
 ## 8. Data Caveats
 

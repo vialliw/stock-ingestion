@@ -10,6 +10,8 @@
 
 **LEADING: 17** | **IMPROVING: 9** | **WEAKENING: 11** | **LAGGING: 59**
 
+> Weekly read: Regime handoff week — SMH falls to WEAKENING (SW), QQQ breaks LEADING->IMPROVING, and not one consistent leader heads NE. Metals and defensives accelerate off the floor: the coil is releasing.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -20,6 +22,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | CIBR | LEADING | 130.09 | 145.90 | 2.3 | DECELERATING | SW | 12 | 0 | 100.0 |
 | CLOU | LEADING | 118.11 | 135.50 | 1.9 | DECELERATING | NW | 12 | 0 | 100.0 |
 | XSW | LEADING | 112.28 | 142.10 | 2.0 | DECELERATING | SW | 9 | 0 | 75.0 |
+
+> Read: Four consistent leaders left after SMH and QQQ lost their streaks — XLK/CIBR/XSW all head SW, CLOU NW. Streaks intact, trajectories pointing down: the last of the growth regime is held by inertia, not by fresh buying.
 
 ## 3. Improving Trends
 
@@ -36,6 +40,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | XRT | IMPROVING | 98.32 | 103.58 | 2.1 | ACCELERATING | NE | 0 | 7 | 0.0 |
 | INDA | IMPROVING | 93.61 | 100.18 | 1.7 | ACCELERATING | NE | 0 | 8 | 0.0 |
 | VOT | IMPROVING | 99.47 | 103.22 | 0.5 | DECELERATING | SE | 4 | 0 | 33.3 |
+
+> Read: Genuine improvers finally exist — IHI +8.3 NE (second week accelerating), HERO +4.5, ITB +3.5, XRT +2.1, INDA, CANE all NE. But the two biggest names are impostors: ARKK +6.1 and QQQ +3.7 head SW — faded leaders parked in IMPROVING, not improvers.
 
 ## 4. Weakening Momentum
 
@@ -69,6 +75,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | CLOU | LEADING | 118.11 | 135.50 | 1.9 | DECELERATING | NW | 12 | 0 | 100.0 |
 | IAI | LEADING | 100.23 | 107.80 | 1.4 | DECELERATING | NW | 3 | 4 | 25.0 |
 | XBI | LEADING | 107.22 | 100.83 | 1.2 | DECELERATING | NE | 6 | 5 | 50.0 |
+
+> Read: Regime break confirmed: SMH formally WEAKENING on an SW heading (Δmom -7.5) — concentrated-semi leadership ends this arc. The rest of the list is NE squeezes (AMLP/EWJ/VTV/CPER/VOE/XLI/VBR) plus momentum-only lifters (IEO/IYT/IWM NW) — value, industrials and Japan lifting off the floor through WEAKENING.
 
 ## 5. Velocity Analysis
 
@@ -106,6 +114,8 @@ Dead money (velocity < 1.0): `VBK` 0.06, `XPH` 0.32, `VOT` 0.52, `EEM` 0.55, `XL
 - `WEAT` WEAKENING->LAGGING — breakdown confirmed — bearish (heading NW, Δratio -4.36, Δmom 3.90)
 - `XLI` LAGGING->WEAKENING — hard right break — squeeze, don't chase (heading NE, Δratio 1.39, Δmom 3.35)
 
+> Read: Metals take the velocity crown with direction to match — GDX +12.8, XAR +10.2, COPX +9.9, NANR all NE accelerating: real bottoming, not squeezes. Flags: EWJ/CPER/XLI LAGGING->WEAKENING squeezes are sells; QQQ's regime break and EWY/WEAT/SCHH breakdowns confirm the exit side.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -123,6 +133,8 @@ Top 10 LAGGING by lag-weeks:
 | GLD | 83.07 | 77.74 | 6.2 | 12 | 0.0 |
 | HYG | 94.98 | 94.59 | 3.9 | 12 | 0.0 |
 
+> Read: 59 LAGGING in three buckets: metals (GDX/COPX/GLD — now the fastest NE movers on the board), DM/EM ex-US (EFA/EWA/EWC/EWZ/FXI), and credit (HYG/JNK). The lag-list is producing the next leadership cohort.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (8): `CLOU`, `DIA`, `IBB`, `IHI`, `JETS`, `KRE`, `VHT`, `XLV`
@@ -130,6 +142,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (11): `AMLP`, `CPER`, `EWJ`, `IEO`, `IWM`, `IYT`, `SMH`, `VBR`, `VOE`, `VTV`, `XLI`
 - **Avoid** — structural laggards (45): `BATT`, `BCD`, `COMT`, `COPX`, `CORN`, `DBB`, `DBC`, `EFA`, `EWA`, `EWC`, `EWZ`, `FCG`, `FTGC`, `FXI`, `GDX`, `GLD`, `HYG`, `IFRA`, `IYR`, `JNK`, `NANR`, `PALL`, `PLTM`, `REMX`, `SCHH`, `SGOV`, `SLV`, `SMOG`, `SOYB`, `TLT`, `UNG`, `VDE`, `VGK`, `VNM`, `VXUS`, `XAR`, `XES`, `XLB`, `XLC`, `XLE`, `XLP`, `XLU`, `XLY`, `XME`, `XOP`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (0): none
+
+**Net call:** Rotate: exit SMH (WEAKENING, SW) and treat QQQ's regime break as a sell, not a dip-buy; build the successor regime — NE-bottoming metals (GDX/COPX) and healthcare (IHI/VHT/XLV). Core hold: the defensive/financial overweight bloc (XLV/VHT/IBB/KRE/DIA). Trigger: GDX/COPX stalling or flipping SW below RS-ratio 100 cancels the metals leg.
 
 ## 8. Data Caveats
 

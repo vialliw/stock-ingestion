@@ -10,6 +10,8 @@
 
 **LEADING: 41** | **IMPROVING: 14** | **WEAKENING: 9** | **LAGGING: 32**
 
+> Weekly read: Broad re-bid — LAGGING collapses 46→32 and GDX's IMPROVING->LEADING confirms last week's break. But read the WEAKENING column by heading: every commodity name there is squeezing NE out of LAGGING, while XLK (SW) is the one genuinely fading leader.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -22,6 +24,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | XSW | LEADING | 121.04 | 132.31 | 4.3 | DECELERATING | SE | 10 | 0 | 83.3 |
 | XBI | LEADING | 117.47 | 114.97 | 5.6 | DECELERATING | NE | 9 | 2 | 75.0 |
 | XPH | LEADING | 118.78 | 119.69 | 5.2 | ACCELERATING | NE | 9 | 2 | 75.0 |
+
+> Read: CIBR/CLOU still alone at 12/12 and LEADING balloons to 41 — broadest leadership since May — but CIBR prints a second consecutive SW heading while "accelerating" +13.3: speed is not direction. XBI/XPH (NE) are the only consistent leaders still moving right.
 
 ## 3. Improving Trends
 
@@ -39,6 +43,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | TLT | IMPROVING | 94.21 | 100.15 | 3.4 | ACCELERATING | NE | 0 | 11 | 0.0 |
 | FXI | IMPROVING | 94.31 | 106.12 | 3.3 | ACCELERATING | NE | 0 | 9 | 0.0 |
 | HYG | IMPROVING | 97.14 | 101.69 | 2.7 | ACCELERATING | NE | 0 | 11 | 0.0 |
+
+> Read: 14 improvers, all NE — GLD +8.3D, PALL +8.2D, UNG +7.5D cooling after the burst but still rotating right. The bench refills with a defensive flavor: INDA +4.2A, XLP +3.7A, TLT +3.4A, FXI +3.3A — staples and duration improving as tech leads break.
 
 ## 4. Weakening Momentum
 
@@ -70,6 +76,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | XLB | LEADING | 100.78 | 102.42 | 6.1 | DECELERATING | NE | 1 | 11 | 8.3 |
 | XBI | LEADING | 117.47 | 114.97 | 5.6 | DECELERATING | NE | 9 | 2 | 75.0 |
 | EWA | LEADING | 100.37 | 100.35 | 5.5 | DECELERATING | NE | 1 | 11 | 8.3 |
+
+> Read: Two different trades share this quadrant. The real break: XLK (83.3% consist) still WEAKENING and heading SW — the growth regime ending; SMH already broke through to LAGGING (§5). The rest — IEO/XOP/VDE/XLE/WEAT/SOYB/AMLP — are NE-heading squeezes off 7–11-week lag bases: sellable strength, not fresh weakness. Decelerating leaders GDX/ITB/IHI/NANR all hold NE — cooling, not breaking.
 
 ## 5. Velocity Analysis
 
@@ -114,6 +122,8 @@ Dead money (velocity < 1.0): `DBB` 0.54, `VOT` 0.71, `VBK` 0.83
 - `XOP` LAGGING->WEAKENING — hard right break — squeeze, don't chase (heading NE, Δratio 5.69, Δmom 5.63)
 - `XTN` WEAKENING->LEADING — re-acceleration — bullish (heading NW, Δratio -1.15, Δmom 4.07)
 
+> Read: GDX +13.9D decelerating after the +21.1 burst — normal post-inflection cooling, still NE and now confirmed LEADING. CIBR +13.3A is the trap: fastest name on the board heading SW. Crossings: SMH's WEAKENING->LAGGING is the confirmed breakdown; CPER's LEADING->IMPROVING is the week's regime break; the five LAGGING->WEAKENING squeezes (AMLP/SOYB/VDE/WEAT/XOP) are sells, not buys.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -131,6 +141,8 @@ Top 10 LAGGING by lag-weeks:
 | REMX | 75.93 | 66.83 | 5.2 | 12 | 0.0 |
 | SLV | 82.75 | 93.54 | 2.6 | 12 | 0.0 |
 
+> Read: 32 LAGGING — 14 names released in a week; the entire metals complex escaped. Remaining 12w-lags: clean energy (TAN/REMX/XES/BATT/FCG/CORN/EWZ) and leftovers — the funding source stays concentrated.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (13): `AWAY`, `IAI`, `IWD`, `IYF`, `IYT`, `JETS`, `KRE`, `VOE`, `VTV`, `XLF`, `XPH`, `XRT`, `XSW`
@@ -138,6 +150,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (9): `AMLP`, `IEO`, `SOYB`, `VBK`, `VDE`, `WEAT`, `XLE`, `XLK`, `XOP`
 - **Avoid** — structural laggards (25): `BATT`, `BCD`, `COMT`, `CORN`, `DBB`, `DBC`, `EWZ`, `FCG`, `FTGC`, `GRID`, `ICLN`, `IFRA`, `IYR`, `LIT`, `REMX`, `SCHH`, `SLV`, `SLX`, `SMOG`, `TAN`, `USO`, `VNM`, `XES`, `XLC`, `XLU`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (2): `PALL`, `UNG`
+
+**Net call:** Transition confirmed: growth fading (XLK SW; CIBR SW a second week and now barred from Overweight), metals + defensives rising. Stay with GDX through the deceleration while its heading stays NE; watch XLP/TLT — the late-cycle tell. Energy "strength" is squeeze flow — sell it, don't chase it.
 
 ## 8. Data Caveats
 

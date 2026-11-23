@@ -10,6 +10,8 @@
 
 **LEADING: 34** | **IMPROVING: 33** | **WEAKENING: 2** | **LAGGING: 27**
 
+> Weekly read: Most balanced census of the window (34/33/2/27) — and the most misleading: the 33-name IMPROVING block is dominated by broken leaders heading SW, not fresh money. Genuine rightward motion is metals (SLV/PLTM/GLD, all NE) and the energy re-acceleration (COMT/DBC/FTGC confirmed).
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -25,6 +27,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | XLV | LEADING | 107.42 | 121.96 | 3.7 | ACCELERATING | SW | 10 | 2 | 83.3 |
 | VHT | LEADING | 107.87 | 121.50 | 3.6 | ACCELERATING | SW | 10 | 2 | 83.3 |
 | IBB | LEADING | 116.27 | 130.09 | 3.1 | ACCELERATING | SW | 9 | 0 | 75.0 |
+
+> Read: CLOU/XBI/XPH/XSW hold 12/12 — but only CLOU heads NE; XPH/XBI/IYF/XLF/XLV/VHT/IBB are all SW, XSW is SE. The consistent-leader list is now purely a lagging indicator: it records who led, not who is leading.
 
 ## 3. Improving Trends
 
@@ -42,6 +46,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | IAI | IMPROVING | 97.98 | 102.95 | 5.5 | ACCELERATING | SW | 9 | 0 | 75.0 |
 | GLD | IMPROVING | 98.52 | 126.59 | 5.2 | DECELERATING | NE | 0 | 7 | 0.0 |
 | VBR | IMPROVING | 97.34 | 104.56 | 5.1 | ACCELERATING | SW | 5 | 3 | 41.7 |
+
+> Read: 33 improvers — read the headings before the velocities. Genuine NE improvers: SLV +11.5A, PLTM +10.3D, GLD +5.2D — all metals. The high-velocity rest — ITB +12.9A, JETS/AWAY +11.4A, KRE +8.3A, XRT +7.8A, IAI/VBR — are SW-heading regime breaks in transit (AWAY/KRE/IAI confirmed LEADING->IMPROVING in §5). There is no broad successor regime; there is a metals regime plus debris.
 
 ## 4. Weakening Momentum
 
@@ -66,6 +72,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | VDE | LEADING | 109.94 | 116.54 | 5.2 | DECELERATING | NW | 3 | 7 | 25.0 |
 | XLE | LEADING | 110.48 | 116.90 | 5.2 | DECELERATING | NE | 4 | 6 | 33.3 |
 | CANE | LEADING | 114.94 | 122.91 | 4.8 | DECELERATING | NW | 6 | 4 | 50.0 |
+
+> Read: Minimal distribution on paper — only CIBR (SE, momentum rolled) and USO (NE, +16.7 squeeze) sit in WEAKENING. The actual weakening is upstream: nine LEADING->IMPROVING regime breaks this week (§5), the fastest leader-liquidation of the series. Decelerating leaders are all NE/NW — orderly cooling in ags/energy.
 
 ## 5. Velocity Analysis
 
@@ -106,6 +114,8 @@ Dead money (velocity < 1.0): `CPER` 0.11, `GRID` 0.55, `SGOV` 0.60, `PBW` 0.64, 
 - `VXUS` LEADING->IMPROVING — regime break — bearish shock (heading SW, Δratio -1.61, Δmom -2.00)
 - `XME` IMPROVING->LAGGING — failed improvement — bearish (heading SW, Δratio -1.12, Δmom -3.74)
 
+> Read: Two flows in opposite directions — NE: USO +16.7A squeeze, COMT/DBC re-accelerating into LEADING, SLV genuine; SW: ITB/JETS/AWAY/KRE/XTN accelerating toward LAGGING. The crossings block is the real headline: nine regime breaks (AWAY/DIA/EFA/EWA/IAI/KRE/VGK/VOE/VXUS) plus four failed improvements (IYT/SCHH/VOT/XME) against three energy re-accelerations. This was a breakdown week wearing an everything-rally's clothes.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -123,6 +133,8 @@ Top 10 LAGGING by lag-weeks:
 | SMOG | 90.61 | 93.27 | 1.4 | 12 | 0.0 |
 | TAN | 70.43 | 64.61 | 2.4 | 12 | 0.0 |
 
+> Read: 27 LAGGING; the 12w-lag list is now owned entirely by clean energy (XES/IFRA/ICLN/REMX/TAN/SLX) — the anti-complex has consolidated and it is funding the metals/energy bid.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (9): `ARKK`, `BCD`, `CLOU`, `COMT`, `DBC`, `FTGC`, `HERO`, `SLV`, `XSW`
@@ -130,6 +142,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (2): `CIBR`, `USO`
 - **Avoid** — structural laggards (19): `BATT`, `DBB`, `EEM`, `EWY`, `GRID`, `ICLN`, `IFRA`, `IWF`, `LIT`, `PBW`, `QCLN`, `REMX`, `SCHH`, `SLX`, `SMOG`, `TAN`, `VBK`, `XES`, `XME`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (8): `EWA`, `FXI`, `GLD`, `INDA`, `ITB`, `PALL`, `PLTM`, `XLP`
+
+**Net call:** Rotate out of the broken cyclicals — the SW-heading IMPROVING names (ITB/JETS/AWAY/KRE/XRT) are supply, not a bench. Core hold: metals (SLV/PLTM/GLD, all NE) plus CLOU, the last NE consistent leader. Trigger: if the metals cohort's heading rolls to SE/NW, step aside — there is no third theme underneath.
 
 ## 8. Data Caveats
 

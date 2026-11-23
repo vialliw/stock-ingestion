@@ -10,6 +10,8 @@
 
 **LEADING: 16** | **IMPROVING: 8** | **WEAKENING: 6** | **LAGGING: 66**
 
+> Weekly read: QCLN joins the 12/12 club but every mega-cap leader now heads SW — velocity rising while trajectory points at LAGGING. Growth intact on paper, fraying underneath: KRE/VBK crack to WEAKENING, PBW straight to LAGGING.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -22,6 +24,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | QQQ | LEADING | 106.38 | 109.11 | 1.7 | ACCELERATING | SW | 12 | 0 | 100.0 |
 | CLOU | LEADING | 111.14 | 119.28 | 9.9 | ACCELERATING | NE | 10 | 1 | 83.3 |
 | CIBR | LEADING | 129.91 | 138.34 | 8.7 | ACCELERATING | NE | 10 | 1 | 83.3 |
+
+> Read: Six consistent leaders, all growth — but split: CLOU +9.9 and CIBR +8.7 are the only NE movers while SMH/QCLN/XLK/QQQ run 12/12 on SW headings. The headline streaks mask churn; second-tier growth is where the real direction lives.
 
 ## 3. Improving Trends
 
@@ -37,6 +41,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | XLY | IMPROVING | 93.95 | 100.30 | 0.9 | DECELERATING | NW | 0 | 11 | 0.0 |
 | XRT | IMPROVING | 96.40 | 100.88 | 0.7 | DECELERATING | SW | 0 | 10 | 0.0 |
 | IWF | IMPROVING | 99.14 | 105.48 | 0.6 | ACCELERATING | NW | 4 | 1 | 33.3 |
+
+> Read: Financials remain the only genuine improvers — IAI +2.0, XLF +1.8, IYF +1.1 all NE. The rest are false positives: ITB +4.1 and XRT head SW (fading, not probing); INDA/XLY/IWF are NW momentum-only. Thin bench, no challenger yet.
 
 ## 4. Weakening Momentum
 
@@ -62,6 +68,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | AWAY | LEADING | 100.81 | 126.57 | 1.7 | DECELERATING | NE | 3 | 4 | 25.0 |
 | VOT | LEADING | 100.56 | 105.69 | 0.9 | DECELERATING | SW | 4 | 0 | 33.3 |
 | IYT | LEADING | 103.40 | 100.64 | 0.7 | DECELERATING | SW | 2 | 5 | 16.7 |
+
+> Read: First real cracks: KRE and VBK break LEADING->WEAKENING (both SW — small-cap financials aging), PBW jumps LEADING->LAGGING discontinuously. The whole WEAKENING list heads SW except IBB — this is distribution, not rotation.
 
 ## 5. Velocity Analysis
 
@@ -89,6 +97,8 @@ Dead money (velocity < 1.0): `EWC` 0.34, `IWD` 0.46, `XLP` 0.49, `DIA` 0.56, `IW
 - `VBK` LEADING->WEAKENING — normal aging — trim into strength (heading SW, Δratio -2.17, Δmom -1.75)
 - `XLY` LAGGING->IMPROVING — bottoming — early bullish (heading NW, Δratio -0.38, Δmom 0.79)
 
+> Read: Two tapes on one velocity board: the NE trio XSW +10.2, CLOU +9.9, CIBR +8.7 genuinely accelerating toward LEADING versus a wall of SW speed — EWY +11.7, SMH +10.4, QCLN +8.3, REMX/LIT/BATT accelerating *toward LAGGING*. Fast is not the same as right.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -106,6 +116,8 @@ Top 10 LAGGING by lag-weeks:
 | PALL | 74.94 | 82.85 | 5.8 | 12 | 0.0 |
 | PLTM | 71.79 | 71.33 | 5.5 | 12 | 0.0 |
 
+> Read: 66 LAGGING in three buckets: metals at max pessimism (GDX/COPX/PALL/PLTM/GLD all 12w), hated defensives (DIA/XLP-adjacent), and EM/China (FXI/EFA). The coil keeps tightening — no release yet.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (3): `CIBR`, `CLOU`, `XSW`
@@ -113,6 +125,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (6): `EEM`, `EWY`, `IBB`, `IWD`, `KRE`, `VBK`
 - **Avoid** — structural laggards (45): `AMLP`, `COPX`, `CPER`, `DBB`, `DIA`, `EFA`, `EWA`, `EWC`, `EWJ`, `EWZ`, `FXI`, `GDX`, `GLD`, `HERO`, `HYG`, `IFRA`, `IHI`, `IYR`, `JNK`, `NANR`, `PALL`, `PLTM`, `SCHH`, `SGOV`, `SLV`, `SMOG`, `TLT`, `UNG`, `VBR`, `VDE`, `VGK`, `VHT`, `VNM`, `VOE`, `VTV`, `VXUS`, `XAR`, `XLB`, `XLC`, `XLE`, `XLI`, `XLP`, `XLU`, `XLV`, `XME`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (0): none
+
+**Net call:** Accumulate the NE trio (XSW/CLOU/CIBR) — the only leadership with confirmed up-right trajectory. Hold SMH/XLK/QQQ but treat rallies as trims while all three head SW. Trigger: SMH flipping back to NE re-opens the mega-cap add; a CLOU/CIBR break to SW ends the regime.
 
 ## 8. Data Caveats
 

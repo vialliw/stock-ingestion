@@ -10,6 +10,8 @@
 
 **LEADING: 28** | **IMPROVING: 32** | **WEAKENING: 2** | **LAGGING: 34**
 
+> Weekly read: Breadth inflection — IMPROVING swells to 32 (series high) and LAGGING falls to 34; seven names bottomed off the lagging floor. But the improvement lives in beaten-down names while leadership took its first real regime breaks (CORN/COPX/SLX/EWJ out of LEADING) and energy's heading went SW — this is rotation underneath a cracking top, not a clean rally.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -27,6 +29,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | GDX | LEADING | 108.08 | 152.15 | 7.9 | ACCELERATING | NW | 10 | 1 | 83.3 |
 | NANR | LEADING | 109.42 | 132.81 | 1.5 | DECELERATING | SW | 10 | 1 | 83.3 |
 
+> Read: Ten consistent leaders — eight at 11-12/12 — but the cohort splits: healthcare re-stabilizes (XLV/VHT heading NE, IBB SE-decel) and ARKK quietly turns NE, while the hard-asset/soft names deteriorate — CANE +4.8A and CLOU +6.3A accelerating SW, NANR SW-decel, GDX rolling NW. Streaks say the spine is intact; headings say the ag/cloud layer is losing altitude on both axes.
+
 ## 3. Improving Trends
 
 Top 10 IMPROVING tickers by 1-week velocity:
@@ -43,6 +47,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | BATT | IMPROVING | 88.83 | 105.71 | 5.3 | DECELERATING | NW | 0 | 10 | 0.0 |
 | XME | IMPROVING | 95.20 | 115.06 | 5.3 | DECELERATING | NW | 0 | 5 | 0.0 |
 | PALL | IMPROVING | 81.51 | 113.01 | 4.8 | DECELERATING | SW | 2 | 1 | 16.7 |
+
+> Read: 32 improvers — series high — but the two fastest are a warning, not a bid: WEAT +12.8 and CORN +10.4 are accelerating SW, and CORN is a LEADING->IMPROVING regime break (Δ-3.9/-9.6). Last week's ag-bottoming read is wrong — ag leadership is breaking. The genuine NE improvers are VNM +7.7 (EM-Asia) and XLB +5.4; the metals/materials bench (COPX/XME/BATT/LIT) is NW momentum-only, and FXI/PALL fade SW. Successor regime = EM-Asia + materials — thin.
 
 ## 4. Weakening Momentum
 
@@ -67,6 +73,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | XSW | LEADING | 116.49 | 104.39 | 3.7 | DECELERATING | SE | 12 | 0 | 100.0 |
 | VHT | LEADING | 107.93 | 104.94 | 3.6 | DECELERATING | NE | 12 | 0 | 100.0 |
 | FCG | LEADING | 113.05 | 142.35 | 3.4 | DECELERATING | SE | 7 | 3 | 58.3 |
+
+> Read: No new WEAKENING admissions — just CIBR grinding SW and IWD drifting NE — so distribution is still narrow. The threat migrated to the decel board: USO 8.8, XLE 5.4 and VDE 5.3 now decelerate heading SW — both deltas negative, a real rollover (last week they were still NE) — while healthcare XLV/VHT/IHI/XLP decelerate NE in good order. Energy is the first leadership bloc in genuine retreat; ags are following via the CORN/COPX/SLX regime breaks.
 
 ## 5. Velocity Analysis
 
@@ -107,6 +115,8 @@ Dead money (velocity < 1.0): `XLI` 0.72, `DBB` 0.79, `IAI` 0.84, `SCHH` 0.85, `J
 - `XLP` IMPROVING->LEADING — rotation confirmed — bullish (heading NE, Δratio 3.35, Δmom 1.71)
 - `XLY` LAGGING->IMPROVING — bottoming — early bullish (heading NE, Δratio 3.65, Δmom 3.18)
 
+> Read: Velocity is now a two-way tape — WEAT +12.8 and CORN +10.4 accelerate SW (breakdown speed, not bottoming speed) and IEO +8.1/XOP +7.5 accelerate SW inside LEADING: the energy squeeze is over and reversing. The real bids: REMX +8.5 NE off a deep floor (squeeze — don't chase), EWZ +10.7 NW (momentum only), VNM +7.7 and ITB +6.8 NE. Seventeen crossings skew constructive — seven bottoming (INDA/LIT/SMOG/VGK/VNM/VXUS/XLY), three rotations confirmed (EWC/VOE/XLP) — against XLK's confirmed WEAKENING->LAGGING breakdown and four LEADING->IMPROVING regime breaks (COPX/CORN/EWJ/SLX): the top is breaking while the bottom repairs.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -124,6 +134,8 @@ Top 10 LAGGING by lag-weeks:
 | REMX | 69.47 | 87.89 | 8.5 | 12 | 0.0 |
 | TAN | 75.31 | 84.58 | 2.3 | 12 | 0.0 |
 
+> Read: 34 LAGGING — count still falling. The 12w cohort buckets cleanly: clean energy (ICLN/PBW/QCLN/TAN), EM Asia (EEM/EWY), grid/infra (GRID/IFRA) — REMX trying to leave at +8.5 NE — and the fourth bucket is new: mega-cap growth, with QQQ printing its 12th lag week and SMH/VBK/IWF in the avoid tail. This cohort is the funding pool for the defensive/EM rotation.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (12): `ARKK`, `COPX`, `EWZ`, `GDX`, `HERO`, `IBB`, `IHI`, `VHT`, `VNM`, `XLB`, `XLV`, `XSW`
@@ -131,6 +143,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (2): `CIBR`, `IWD`
 - **Avoid** — structural laggards (15): `EEM`, `EWY`, `GRID`, `ICLN`, `IFRA`, `IWF`, `IYR`, `PBW`, `QCLN`, `QQQ`, `REMX`, `SCHH`, `SMH`, `TAN`, `VBK`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (9): `CORN`, `FXI`, `GLD`, `PALL`, `PLTM`, `SLV`, `XES`, `XLC`, `XME`
+
+**Net call:** Redirect the ag trade into what actually confirmed — healthcare re-accelerating NE (XLV/VHT/IHI), XLP's promotion to LEADING, and EM-Asia (VNM, EWZ on momentum). Energy's heading flip to SW downgrades it from trim-into-strength to reduce; the CORN/WEAT/COPX regime breaks do the same for ags. Trigger: CORN or WEAT re-crossing to LEADING reinstates the ag bid; healthcare majors heading SW would break the last intact spine.
 
 ## 8. Data Caveats
 

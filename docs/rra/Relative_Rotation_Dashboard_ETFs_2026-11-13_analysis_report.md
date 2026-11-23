@@ -10,6 +10,8 @@
 
 **LEADING: 31** | **IMPROVING: 29** | **WEAKENING: 5** | **LAGGING: 31**
 
+> Weekly read: Distribution climax — headline breadth still looks fine (LEADING 31, IMPROVING 29), but the heading column is a one-way street: nine of ten consistent leaders and nearly the entire improving top-10 point SW/SE, toward LAGGING. SGOV (T-bills) rotating into LEADING is the tell — capital is leaving before the quadrants admit it; the arc's pivot week.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -27,6 +29,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | HERO | LEADING | 108.25 | 120.47 | 1.6 | DECELERATING | SE | 12 | 0 | 100.0 |
 | IEO | LEADING | 114.39 | 118.35 | 12.8 | DECELERATING | SW | 11 | 0 | 91.7 |
 
+> Read: Ten consistent leaders headed by GDX at the board's top RS-momentum (147) — and the heading column is the alarm: GDX +10.9, CANE +10.3, NANR +8.8 and XSW all accelerating SW (fast falls, not rises), IEO SW-decel, ARKK NW, XLV/VHT/HERO SE; only IBB still heads NE. The metals/ag/energy hard-asset bloc sits on perfect streaks while rotating toward LAGGING at speed — leadership living on borrowed time. SGOV's promotion into LEADING confirms the risk-off bid underneath.
+
 ## 3. Improving Trends
 
 Top 10 IMPROVING tickers by 1-week velocity:
@@ -43,6 +47,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | XME | IMPROVING | 90.29 | 113.34 | 5.8 | ACCELERATING | SW | 0 | 3 | 0.0 |
 | FXI | IMPROVING | 95.00 | 106.22 | 5.4 | DECELERATING | SE | 2 | 0 | 16.7 |
 | CORN | IMPROVING | 96.90 | 104.95 | 5.3 | DECELERATING | SE | 8 | 1 | 66.7 |
+
+> Read: The heading check guts this list — nine of ten head SW or SE: EWZ +16.0 SW accelerating toward LAGGING (the broken Brazil trade deepening), COPX +10.2 SW, SLV/PLTM/PALL/XME all accelerating SW, UNG/FXI/CORN SE. The "metals improving" theme is really the metals complex falling together; the lone constructive cell is REMX +8.3 NW (momentum-only off a deep floor), and the real rotations are in §5 (INDA/VNM/XRT/ITB). No genuine successor regime — this bench is wreckage.
 
 ## 4. Weakening Momentum
 
@@ -70,6 +76,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | COMT | LEADING | 112.11 | 125.07 | 8.1 | DECELERATING | SW | 8 | 2 | 66.7 |
 | FTGC | LEADING | 101.72 | 108.57 | 6.3 | DECELERATING | SW | 8 | 1 | 66.7 |
 | VNM | LEADING | 100.05 | 115.06 | 5.8 | DECELERATING | NE | 1 | 6 | 8.3 |
+
+> Read: CLOU is the regime break — a 91.7% consistent leader flipping LEADING->WEAKENING while accelerating SW at 9.9 (Δ-7.9/-6.0): textbook leadership failure, with CIBR accelerating SW behind it. Below, the entire energy/commodity complex decelerates SW at the board's top velocities — USO 17.7, IEO 12.8, XOP 12.7, FCG 11.4, XLE 10.5, VDE 10.4, DBC/COMT/FTGC ~8 — final distribution, as flagged last week. XLF's seat is a LAGGING->WEAKENING squeeze (NE); sell the bounce.
 
 ## 5. Velocity Analysis
 
@@ -105,6 +113,8 @@ Dead money (velocity < 1.0): `AWAY` 0.39, `VXUS` 0.45, `DIA` 0.49, `GRID` 0.53, 
 - `XLF` LAGGING->WEAKENING — hard right break — squeeze, don't chase (heading NE, Δratio 2.42, Δmom 0.07)
 - `XRT` IMPROVING->LEADING — rotation confirmed — bullish (heading NE, Δratio 2.30, Δmom 1.48)
 
+> Read: Velocity polarity is fully inverted — the ten fastest movers all head SW: energy decelerating at max velocity (USO 17.7, IEO/XOP ~12.8) while metals and EWZ accelerate downward (GDX 10.9, CANE 10.3, COPX 10.2, EWZ 16.0). Nothing large moves NE; the only up-right cells are off-the-floor bottoming crosses (ICLN, ITB) and REMX's NW squeeze. The crossings split four bullish (INDA/VNM/XRT rotations + SGOV's promotion) against five bearish — CLOU's LEADING->WEAKENING is labeled "normal aging" but at Δ-7.9/-6.0 SW it is a real break — plus the XLF squeeze to sell.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -122,6 +132,8 @@ Top 10 LAGGING by lag-weeks:
 | TAN | 83.61 | 93.02 | 5.3 | 12 | 0.0 |
 | VBK | 94.23 | 95.27 | 1.7 | 11 | 0.0 |
 
+> Read: 31 LAGGING — the count stopped falling. SMH joins QQQ at 12 lag weeks — mega-cap growth and semis are now structurally defunded — alongside the standing clean-energy (PBW/QCLN/TAN), EM-Asia (EEM/EWY) and grid/infra (GRID/IFRA) buckets. This cohort financed the hard-asset run; with that run now breaking SW, watch whether the funding reverses back into it — VBK at 11 lag weeks is the canary.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (15): `ARKK`, `EWC`, `HERO`, `IBB`, `IHI`, `INDA`, `SGOV`, `SOYB`, `UNG`, `VHT`, `VOE`, `VTV`, `XLP`, `XLV`, `XRT`
@@ -129,6 +141,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (5): `CIBR`, `CLOU`, `IWD`, `XBI`, `XLF`
 - **Avoid** — structural laggards (18): `EEM`, `EWY`, `GRID`, `IFRA`, `IWM`, `IYR`, `IYT`, `PBW`, `QCLN`, `QQQ`, `SCHH`, `SLX`, `SMH`, `TAN`, `VBK`, `VOT`, `XAR`, `XTN`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (5): `EWZ`, `GLD`, `PLTM`, `SLV`, `XME`
+
+**Net call:** Do not chase the metals "improvement" — GDX/SLV/PLTM/COPX are all heading SW; the last hard-asset bid is breaking. Rotate into what is actually confirming: the defensive/value cohort (healthcare XLV/VHT/IBB/IHI, VTV/VOE, XRT, INDA) plus SGOV, funded by exiting energy and ags wholesale. Trigger: the SW-heading streak names (GDX/CANE/NANR/XSW) flipping to WEAKENING/LAGGING next week makes the regime change official — de-risk, don't rotate.
 
 ## 8. Data Caveats
 

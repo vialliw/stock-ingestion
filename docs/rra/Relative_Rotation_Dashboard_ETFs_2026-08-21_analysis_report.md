@@ -10,6 +10,8 @@
 
 **LEADING: 35** | **IMPROVING: 7** | **WEAKENING: 8** | **LAGGING: 46**
 
+> Weekly read: Inflection week — GDX +21.1 (NE, Δratio +12.8) is the largest single velocity of the 6-month window; UNG +9.3, PALL +8.3 accelerating. SMH/XLE/XLK into WEAKENING together while 21 quadrant crossings run overwhelmingly rightward. Growth-to-metals rotation begins here.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -20,6 +22,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | CLOU | LEADING | 119.88 | 125.10 | 7.8 | ACCELERATING | SE | 12 | 0 | 100.0 |
 | XSW | LEADING | 118.86 | 135.99 | 5.1 | ACCELERATING | SE | 10 | 0 | 83.3 |
 | JETS | LEADING | 112.55 | 129.39 | 4.3 | DECELERATING | NW | 9 | 2 | 75.0 |
+
+> Read: CIBR/CLOU hold 12/12 alone — all mega-cap streaks gone — while LEADING jumps to 35: the tape is broadening underneath them. Heading caveat: both leaders are already drifting left (CIBR SW despite +10.1 vel, CLOU SE) — strength, but late-stage.
 
 ## 3. Improving Trends
 
@@ -34,6 +38,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | XLP | IMPROVING | 96.92 | 100.20 | 2.7 | DECELERATING | NE | 0 | 11 | 0.0 |
 | XLY | IMPROVING | 95.07 | 100.49 | 2.6 | ACCELERATING | NE | 0 | 10 | 0.0 |
 | FXI | IMPROVING | 92.53 | 103.36 | 2.4 | DECELERATING | NE | 0 | 10 | 0.0 |
+
+> Read: GDX +21.1A heading NE — a genuine LAGGING->IMPROVING bottoming, the largest velocity of the series, launched from a 12-week lag base. UNG +9.3A is NW (momentum-only — ratio still eroding); PALL +8.3A / INDA +3.2A are NE. The spring released, and the bid is metals-first.
 
 ## 4. Weakening Momentum
 
@@ -64,6 +70,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | XLI | LEADING | 101.19 | 101.13 | 3.3 | DECELERATING | NE | 1 | 9 | 8.3 |
 | VOE | LEADING | 103.48 | 102.88 | 3.3 | DECELERATING | NE | 1 | 8 | 8.3 |
 | EWJ | LEADING | 101.74 | 101.78 | 3.1 | DECELERATING | NW | 1 | 7 | 8.3 |
+
+> Read: Regime-break week for the leaders: XLK (91.7% consist) and SMH (75%) sit in WEAKENING heading SW — real distribution. The rest of the quadrant is the opposite trade: NANR/EWC/VBK/XLE/IEO all head NE — hard-right squeezes out of LAGGING, not genuine fading. Sell them into strength; don't read them as new weakness.
 
 ## 5. Velocity Analysis
 
@@ -108,6 +116,8 @@ Dead money (velocity < 1.0): `GRID` 0.65, `SCHH` 0.65, `IWF` 0.77, `DBC` 0.83
 - `XLY` LAGGING->IMPROVING — bottoming — early bullish (heading NE, Δratio 1.43, Δmom 2.15)
 - `XRT` IMPROVING->LEADING — rotation confirmed — bullish (heading NE, Δratio 2.35, Δmom 3.50)
 
+> Read: The fastest movers nearly all point NE: GDX +21.1, COPX +12.6, IHI +11.3, GLD +10.5, ITB +10.1 — metals and healthcare leading the break; CIBR is the lone SW in the top-10. Of 21 crossings only AMLP (WEAKENING->LAGGING) and XLK (LEADING->WEAKENING) are bearish; the EWC/NANR/VBK/XLE squeezes are exit liquidity, and the ARKK/COPX LAGGING->LEADING jumps are discontinuous — verify, don't chase.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -125,6 +135,8 @@ Top 10 LAGGING by lag-weeks:
 | IFRA | 94.12 | 90.90 | 1.0 | 12 | 0.0 |
 | IYR | 98.14 | 97.11 | 1.4 | 12 | 0.0 |
 
+> Read: 46 LAGGING, releasing fast — GLD/SLV/PLTM/EWZ/REMX leave the 12w-lag club by accelerating. This is what rotation looks like: the laggards ARE the new leaders.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (20): `ARKK`, `CANE`, `CLOU`, `COPX`, `GDX`, `IBB`, `IHI`, `ITB`, `IWM`, `IYT`, `JETS`, `KRE`, `PALL`, `UNG`, `VBR`, `VGK`, `XBI`, `XPH`, `XRT`, `XSW`
@@ -132,6 +144,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (8): `EWC`, `IEO`, `NANR`, `SMH`, `VBK`, `XLE`, `XLK`, `XTN`
 - **Avoid** — structural laggards (40): `AMLP`, `BATT`, `BCD`, `COMT`, `CORN`, `DBB`, `DBC`, `EWA`, `EWZ`, `FCG`, `FTGC`, `GLD`, `GRID`, `HYG`, `ICLN`, `IFRA`, `IYR`, `JNK`, `LIT`, `PLTM`, `REMX`, `SCHH`, `SGOV`, `SLV`, `SLX`, `SMOG`, `SOYB`, `TAN`, `TLT`, `USO`, `VDE`, `VNM`, `VXUS`, `WEAT`, `XES`, `XLB`, `XLC`, `XLU`, `XME`, `XOP`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (0): none
+
+**Net call:** Rotation week. Move decisively: growth profits into metals/healthcare — GDX from max-lag to fastest-mover is the single most actionable signal of the series. Note the SW-heading bar already keeps CIBR out of Overweight (12/12 but rotating toward LAGGING); if GDX's NE heading stalls under ratio 100, the breakout was a squeeze.
 
 ## 8. Data Caveats
 

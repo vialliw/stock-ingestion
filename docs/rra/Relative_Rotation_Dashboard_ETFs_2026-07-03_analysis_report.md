@@ -10,6 +10,8 @@
 
 **LEADING: 18** | **IMPROVING: 4** | **WEAKENING: 7** | **LAGGING: 67**
 
+> Weekly read: Lopsided tape — 67 LAGGING vs 18 LEADING in week 2 of the tech-led regime. Energy is post-climax, metals are pinned, and SMH is the only perfect leader — the growth turn is underway on a very thin bench.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -21,6 +23,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | QQQ | LEADING | 108.61 | 110.58 | 0.5 | ACCELERATING | SW | 11 | 1 | 91.7 |
 | QCLN | LEADING | 112.99 | 112.65 | 6.0 | ACCELERATING | SW | 10 | 0 | 83.3 |
 
+> Read: SMH the sole 12/12 leader but already heading NW; XLK/QQQ/QCLN all SW — streaks intact while trajectory points down-left. All four consistent leaders are growth/tech; real but aging leadership — hold, don't add.
+
 ## 3. Improving Trends
 
 Top 10 IMPROVING tickers by 1-week velocity:
@@ -31,6 +35,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | IYF | IMPROVING | 98.07 | 101.89 | 2.5 | DECELERATING | NE | 0 | 11 | 0.0 |
 | IAI | IMPROVING | 98.92 | 103.89 | 1.3 | ACCELERATING | NW | 0 | 9 | 0.0 |
 | IWF | IMPROVING | 99.36 | 104.94 | 0.6 | DECELERATING | SE | 4 | 3 | 33.3 |
+
+> Read: Financials are the genuine probe — XLF +2.7 NE and IYF +2.5 NE both just crossed LAGGING->IMPROVING; IAI +1.3 is NW momentum-only. A four-name bench: thin but telling, no successor regime yet.
 
 ## 4. Weakening Momentum
 
@@ -60,6 +66,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | KRE | LEADING | 103.00 | 100.37 | 4.4 | DECELERATING | NW | 3 | 7 | 25.0 |
 | IWM | LEADING | 106.83 | 103.59 | 2.9 | DECELERATING | NW | 5 | 3 | 41.7 |
 | VBK | LEADING | 104.55 | 101.24 | 2.0 | DECELERATING | NW | 4 | 0 | 33.3 |
+
+> Read: No regime breaks — EWY/GRID top out at 50% consistency. The decelerating leaders split by direction: JETS still heading NE on cooling speed, XBI/XPH fresh NE re-accelerations (WEAKENING->LEADING), while SMH/CLOU/CIBR bleed ratio (NW/SE). Trim into strength, don't dump.
 
 ## 5. Velocity Analysis
 
@@ -98,6 +106,8 @@ Dead money (velocity < 1.0): `IYR` 0.10, `SCHH` 0.17, `QQQ` 0.47, `XLC` 0.47, `I
 - `XPH` WEAKENING->LEADING — re-acceleration — bullish (heading NE, Δratio 3.56, Δmom 6.03)
 - `XSW` IMPROVING->LEADING — rotation confirmed — bullish (heading NE, Δratio 4.10, Δmom 0.77)
 
+> Read: Capital is leaving energy in force — USO/XOP/DBC/FCG/IEO/XES/VDE/XLE all SW-heading laggards in post-climax unwind. Crossings confirm the split: ARKK/AWAY/XSW rotations plus XBI/XPH/KRE/VBK re-accelerations are the bullish flow; ICLN/LIT breakdowns and UNG's failed improvement are the bearish side.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -115,6 +125,8 @@ Top 10 LAGGING by lag-weeks:
 | XLY | 94.10 | 97.27 | 2.3 | 12 | 0.0 |
 | XRT | 97.15 | 98.54 | 5.1 | 12 | 0.0 |
 
+> Read: 67 LAGGING in three buckets: pinned metals (PALL/PLTM/XME 12w), dead defensives (DIA/XLV/VHT/XLP), and consumer/EM (XLY/XRT/INDA/VNM). This lag-list is the funding pool for the growth bid — and the metals cohort is the most-hated group in the window.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (4): `ARKK`, `AWAY`, `VOT`, `XSW`
@@ -122,6 +134,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (7): `EEM`, `EWJ`, `EWY`, `GRID`, `IWD`, `IYT`, `SLX`
 - **Avoid** — structural laggards (37): `COPX`, `CPER`, `DBB`, `DIA`, `EFA`, `EWC`, `EWZ`, `FXI`, `GDX`, `GLD`, `HERO`, `HYG`, `IBB`, `IHI`, `INDA`, `ITB`, `JNK`, `NANR`, `PALL`, `PLTM`, `SGOV`, `SLV`, `VBR`, `VGK`, `VHT`, `VNM`, `VOE`, `VTV`, `XAR`, `XLB`, `XLC`, `XLI`, `XLP`, `XLV`, `XLY`, `XME`, `XRT`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (0): none
+
+**Net call:** Post-climax energy, emerging tech. Own the confirmed rotations (ARKK/AWAY/XSW crossed IMPROVING->LEADING on NE headings); hold — don't add — SMH/XLK/QQQ while all three head SW/NW. Trigger: the tech trio regaining NE heading re-opens accumulation.
 
 ## 8. Data Caveats
 

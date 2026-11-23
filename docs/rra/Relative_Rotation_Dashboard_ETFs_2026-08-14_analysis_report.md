@@ -10,6 +10,8 @@
 
 **LEADING: 25** | **IMPROVING: 7** | **WEAKENING: 9** | **LAGGING: 55**
 
+> Weekly read: Breadth explodes — 25 LEADING (from 17), the post-semi rotation confirmed. XLK/CIBR/CLOU keep 12/12 on SW/SE headings while the new blood (IHI->LEADING, metals accelerating NE) carries the momentum.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -20,6 +22,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | CIBR | LEADING | 129.37 | 142.66 | 3.3 | ACCELERATING | SW | 12 | 0 | 100.0 |
 | CLOU | LEADING | 119.82 | 132.86 | 3.1 | ACCELERATING | SE | 12 | 0 | 100.0 |
 | XSW | LEADING | 115.88 | 140.11 | 4.1 | ACCELERATING | SE | 10 | 0 | 83.3 |
+
+> Read: Four 12/12 leaders — but XLK +6.1 and CIBR accelerate SW while CLOU/XSW roll SE (ratio up, momentum fading). The old regime coasts on streaks; zero NE headings in the club means the leadership baton has already passed.
 
 ## 3. Improving Trends
 
@@ -34,6 +38,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | XRT | IMPROVING | 99.52 | 106.09 | 2.8 | ACCELERATING | NE | 0 | 6 | 0.0 |
 | INDA | IMPROVING | 95.24 | 102.31 | 2.7 | ACCELERATING | NE | 0 | 7 | 0.0 |
 | CANE | IMPROVING | 99.62 | 103.18 | 2.2 | DECELERATING | NE | 0 | 7 | 0.0 |
+
+> Read: The bench finally matches the story — HERO +8.3 NE, ITB +4.2, XRT +2.8, INDA +2.7, FXI +3.8, CANE all NE (real up-right moves across gaming, housing, retail, EM-India, China). Only UNG is NW momentum-only. Deepest genuine bench of the arc.
 
 ## 4. Weakening Momentum
 
@@ -62,6 +68,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | IWD | LEADING | 104.97 | 103.15 | 2.2 | DECELERATING | NE | 2 | 4 | 16.7 |
 | DIA | LEADING | 102.17 | 104.55 | 2.1 | DECELERATING | NE | 3 | 9 | 25.0 |
 | IYT | LEADING | 100.98 | 100.15 | 0.4 | DECELERATING | NW | 3 | 3 | 25.0 |
+
+> Read: SMH accelerates SW at 10.0 — the former leader is falling faster, not bouncing; keep fading it. The rest of WEAKENING heads NE (IEO/EWJ/EFA/XLI/VOE/XTN/IWM) — value, industrials and transports squeezing up through the quadrant. XLV +6.3D still heads NE: a pause, not a fade.
 
 ## 5. Velocity Analysis
 
@@ -99,6 +107,8 @@ Dead money (velocity < 1.0): `VNM` 0.24, `IYT` 0.36, `SMOG` 0.50, `LIT` 0.66, `I
 - `XAR` LAGGING->LEADING — discontinuous — treat with suspicion (heading NE, Δratio 4.22, Δmom 10.48)
 - `XTN` LAGGING->WEAKENING — hard right break — squeeze, don't chase (heading NE, Δratio 1.78, Δmom 2.16)
 
+> Read: Confirmation week — GDX +13.4, XAR +11.3, IHI +10.9 all NE accelerating, and IHI/XAR crossed into LEADING (XAR's LAGGING->LEADING jump is discontinuous: respect but verify). The bearish crossings close the old chapter: QQQ IMPROVING->LAGGING and ARKK's failed improvement; SMH +10.0 SW remains the counter-trend bounce to sell.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -116,6 +126,8 @@ Top 10 LAGGING by lag-weeks:
 | IFRA | 93.97 | 89.87 | 2.0 | 12 | 0.0 |
 | IYR | 97.39 | 95.91 | 2.0 | 12 | 0.0 |
 
+> Read: 55 LAGGING in three buckets: the metals cohort (GDX/COPX/GLD/SLV) still tops the lag-list but prints the fastest NE velocities — maximum pessimism converting to maximum velocity; plus DM/EM ex-US (EWA/EWC/EWZ) and rate-sensitives (HYG/IYR/IFRA).
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (18): `AWAY`, `CLOU`, `HERO`, `IAI`, `IBB`, `IHI`, `IYF`, `JETS`, `KRE`, `UNG`, `VGK`, `VHT`, `VOT`, `XAR`, `XBI`, `XLF`, `XPH`, `XSW`
@@ -123,6 +135,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (9): `AMLP`, `EFA`, `EWJ`, `IEO`, `IWM`, `SMH`, `VOE`, `XLI`, `XTN`
 - **Avoid** — structural laggards (43): `BATT`, `BCD`, `COMT`, `COPX`, `CORN`, `DBB`, `DBC`, `EWA`, `EWC`, `EWZ`, `FCG`, `FTGC`, `GDX`, `GLD`, `HYG`, `IFRA`, `IYR`, `JNK`, `NANR`, `PALL`, `PLTM`, `REMX`, `SCHH`, `SGOV`, `SLV`, `SMOG`, `SOYB`, `TAN`, `TLT`, `USO`, `VDE`, `VNM`, `VXUS`, `WEAT`, `XES`, `XLB`, `XLC`, `XLE`, `XLP`, `XLU`, `XLY`, `XME`, `XOP`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (0): none
+
+**Net call:** The rotation is the regime: add the confirmed crossers (IHI, VOT/VTV/VBR/CPER; XAR with the discontinuous caveat) and keep building metals on NE strength (GDX/COPX/SLV). Sell SMH strength — accelerating SW is a fade, not a recovery. Trigger: XAR/GDX stalling before RS-ratio 100, or XLK/CIBR flipping back NE, pauses the trade.
 
 ## 8. Data Caveats
 

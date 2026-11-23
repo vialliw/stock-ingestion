@@ -10,6 +10,8 @@
 
 **LEADING: 27** | **IMPROVING: 25** | **WEAKENING: 3** | **LAGGING: 41**
 
+> Weekly read: Healthcare takes the consistency crown — VHT/XLV join CLOU/XSW at 12/12 — but the first cracks are visible in the headings: XBI broke LEADING->IMPROVING at Δ-7.4/-10.5 (SW) and VHT/XLV themselves point SW. Energy/commodities carry the genuine NE velocity while LAGGING climbs to 41 — early late-cycle configuration.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -21,6 +23,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | XLV | LEADING | 103.16 | 114.05 | 4.7 | ACCELERATING | SW | 12 | 0 | 100.0 |
 | XSW | LEADING | 112.84 | 114.66 | 1.4 | DECELERATING | NW | 12 | 0 | 100.0 |
 | IBB | LEADING | 106.96 | 117.18 | 9.2 | ACCELERATING | SW | 11 | 0 | 91.7 |
+
+> Read: VHT/XLV join the perfect-streak club — the cohort is CLOU/VHT/XLV/XSW at 12/12 plus IBB at 11/12: defensive leadership is the persistent regime. But direction diverges from streak — VHT/XLV/IBB all head SW (both deltas negative, drifting toward center) while CLOU holds NE and XSW drifts NW; the crown is intact positionally, slipping directionally.
 
 ## 3. Improving Trends
 
@@ -38,6 +42,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | EFA | IMPROVING | 95.99 | 101.14 | 3.8 | DECELERATING | SW | 5 | 3 | 41.7 |
 | EWJ | IMPROVING | 99.74 | 100.90 | 3.8 | DECELERATING | SW | 7 | 2 | 58.3 |
 | UNG | IMPROVING | 88.54 | 105.74 | 3.2 | ACCELERATING | NE | 0 | 3 | 0.0 |
+
+> Read: 25 improvers, but the Hdg column guts the high-velocity end — XBI +12.8, PALL +9.7 and INDA +6.8 are all SW: broken leaders falling, not improvers (XBI is a LEADING->IMPROVING regime break; financials XLF/IYF likewise SW off 83% streaks). The only genuine NE rotation is XES +5.8 (LAGGING->IMPROVING bottoming) and UNG +3.2. No successor regime — this bench is fallout, not pipeline.
 
 ## 4. Weakening Momentum
 
@@ -62,6 +68,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | SOYB | LEADING | 107.59 | 122.71 | 2.4 | DECELERATING | NW | 6 | 5 | 50.0 |
 | XSW | LEADING | 112.84 | 114.66 | 1.4 | DECELERATING | NW | 12 | 0 | 100.0 |
 | HERO | LEADING | 106.34 | 127.04 | 1.1 | DECELERATING | NW | 8 | 2 | 66.7 |
+
+> Read: CIBR/IWF/XLK weakening — the growth complex is formally done; every prior growth leader now sits in WEAKENING or LAGGING. The decel-leader board is orderly — FTGC/CLOU/BCD still head NE at 4-8 velocity (slowing, not breaking) and the ag cohort CORN/WEAT/SOYB drifts NW on momentum only; COPX's SE is the one rollover to note. Distribution risk is low this week.
 
 ## 5. Velocity Analysis
 
@@ -104,6 +112,8 @@ Dead money (velocity < 1.0): `GRID` 0.79, `SMOG` 0.90, `HYG` 0.96
 - `XPH` LEADING->LAGGING — discontinuous — treat with suspicion (heading SW, Δratio -5.27, Δmom -10.19)
 - `XRT` IMPROVING->LAGGING — failed improvement — bearish (heading SE, Δratio 0.17, Δmom -4.90)
 
+> Read: USO +28.6A NE leads a genuine energy/commodity bid — COMT/DBC/XOP/IEO all accelerating NE above 10 — this is rotation, not a squeeze. The crossings skew bearish though: ten IMPROVING->LAGGING failures (ITB/DIA/VXUS/VNM/XLB/XLU et al.) plus four LEADING->IMPROVING regime breaks (XBI worst at Δ-7.4/-10.5; AMLP/EWJ/PLTM behind it) vs only CPER/FXI confirmed and XES bottoming. IWF's LAGGING->WEAKENING is a squeeze — sell it, don't chase; XPH's LEADING->LAGGING jump is discontinuous.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -121,6 +131,8 @@ Top 10 LAGGING by lag-weeks:
 | REMX | 67.83 | 75.15 | 2.3 | 12 | 0.0 |
 | SLX | 98.54 | 93.31 | 3.1 | 12 | 0.0 |
 
+> Read: 41 LAGGING — rising again for the first time since August; EEM joins the clean-energy cohort (ICLN/LIT/PBW/QCLN/REMX/BATT) at 12 lag weeks. The list buckets into clean energy, EM broad (EEM/EWY/VNM), grid/infra/metals (GRID/IFRA/SLX/REMX) and rate-sensitive (IYR/SCHH/XLU) — plus QQQ/VBK quietly going structural. This is the funding source for the defensive leadership bid.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (15): `CANE`, `COMT`, `CPER`, `DBC`, `EWZ`, `FCG`, `FXI`, `IEO`, `NANR`, `USO`, `VDE`, `XES`, `XLE`, `XOP`, `XSW`
@@ -128,6 +140,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (3): `CIBR`, `IWF`, `XLK`
 - **Avoid** — structural laggards (20): `BATT`, `EEM`, `EWY`, `GRID`, `ICLN`, `IFRA`, `IYR`, `LIT`, `PBW`, `QCLN`, `QQQ`, `REMX`, `SCHH`, `SLX`, `SMOG`, `TAN`, `VBK`, `VNM`, `XLU`, `XME`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (7): `AMLP`, `GLD`, `IHI`, `PALL`, `PLTM`, `SLV`, `XLC`
+
+**Net call:** Overweight the energy/commodity complex (USO/XOP/IEO/DBC/XLE/CANE) — the only group with real NE velocity — alongside, not instead of, the defensive spine; healthcare (VHT/XLV/IBB) stays a core hold on streaks but the SW headings bar new adds. Sell the IWF squeeze and treat XBI/PALL-type SW "improvers" as exits. Trigger: LAGGING keeps climbing past ~45 or CLOU/XSW break out of LEADING — that converts late-cycle watch into active de-risking.
 
 ## 8. Data Caveats
 

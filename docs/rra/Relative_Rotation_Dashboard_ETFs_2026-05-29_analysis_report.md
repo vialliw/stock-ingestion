@@ -10,6 +10,8 @@
 
 **LEADING: 16** | **IMPROVING: 5** | **WEAKENING: 13** | **LAGGING: 62**
 
+> Weekly read: Rotation accelerates — perfect leaders halve to 5 (COMT/DBC/FTGC/USO/WEAT) and the energy second tier (FCG/GRID/IEO/XOP/EWY) slides to WEAKENING. Heading data corrects the tempting read: this is NOT energy-to-ags rotation — SOYB/CORN/CANE are breaking SW too. The real successor is the NE-heading tech cluster.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -24,6 +26,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | ICLN | LEADING | 111.11 | 103.54 | 1.6 | ACCELERATING | NE | 10 | 0 | 83.3 |
 | SMH | LEADING | 129.70 | 114.54 | 1.3 | DECELERATING | NW | 10 | 0 | 83.3 |
 
+> Read: Only 5 perfect leaders left (COMT/DBC/FTGC/USO/WEAT) — a two-thirds collapse in three weeks — and all five still head SW. The regime is intact at headline but rotating out member by member. The notable climbers: ICLN (NE) and SMH (NW) at 83% — the first non-pure-commodity names in the consistent set.
+
 ## 3. Improving Trends
 
 Top 10 IMPROVING tickers by 1-week velocity:
@@ -35,6 +39,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | CORN | IMPROVING | 94.64 | 100.50 | 3.9 | ACCELERATING | SW | 9 | 0 | 75.0 |
 | CANE | IMPROVING | 98.50 | 104.28 | 2.4 | ACCELERATING | SW | 6 | 0 | 50.0 |
 | VOT | IMPROVING | 97.71 | 104.46 | 0.3 | DECELERATING | SE | 0 | 0 | 0.0 |
+
+> Read: The 'ags takeover' of this bench is a heading illusion — SOYB +4.2, CORN +3.9, CANE +2.4 are all SW: former leaders regime-breaking into IMPROVING (SOYB/CANE crossed LEADING->IMPROVING), not accumulation. The only genuine riser is AWAY +4.7 NE off 11 lag weeks; VOT is SE/rolling. Bench of 5 is really a bench of 1.
 
 ## 4. Weakening Momentum
 
@@ -70,6 +76,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | QQQ | LEADING | 109.23 | 111.11 | 2.7 | DECELERATING | NE | 6 | 6 | 50.0 |
 | IWF | LEADING | 102.03 | 107.38 | 2.5 | DECELERATING | NE | 2 | 8 | 16.7 |
 | FTGC | LEADING | 110.78 | 105.35 | 1.4 | DECELERATING | SW | 12 | 0 | 100.0 |
+
+> Read: Regime breaks first — FCG/GRID/IEO/XOP/EWY, the prior leadership's entire second tier, all crossed LEADING->WEAKENING heading SW, and VDE/XLE already confirmed through to LAGGING. Meanwhile the decelerating-leader table flipped character: it's now the NE-heading growth cluster (XSW 11.3D, CLOU 10.2D, XLK, PBW, ARKK, QQQ, IWF) — slowing but still moving up-right — while USO/COMT/FTGC decelerate SW.
 
 ## 5. Velocity Analysis
 
@@ -110,6 +118,8 @@ Dead money (velocity < 1.0): `VOT` 0.31, `CPER` 0.32, `VHT` 0.37, `IHI` 0.47, `X
 - `XOP` LEADING->WEAKENING — normal aging — trim into strength (heading SW, Δratio -4.03, Δmom -7.28)
 - `XSW` IMPROVING->LEADING — rotation confirmed — bullish (heading NE, Δratio 5.56, Δmom 9.83)
 
+> Read: CIBR +13.2A NE keeps the cyber bid alive while XSW/CLOU consolidate — decelerating but still heading NE, a pause not a failure. UNG +13.0A NE is a genuine bottoming, not just 'energy bid extending'. The crossings are the story: five names aged LEADING->WEAKENING (EWY/FCG/GRID/IEO/XOP), VDE/XLE confirmed breakdown, SCHH/XLU failed improvements, SOYB/CANE regime breaks — against bullish confirmations for XSW and ARKK into LEADING plus AWAY bottoming.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -127,6 +137,8 @@ Top 10 LAGGING by lag-weeks:
 | XLF | 90.05 | 91.06 | 0.8 | 10 | 0.0 |
 | XLY | 93.22 | 94.51 | 1.0 | 10 | 0.0 |
 
+> Read: 62 LAGGING — healthcare (INDA/IHI/VHT 12w, XLV 11w), financials (IAI/IYF/XLF 10w), travel (JETS), metals (PALL), consumer (XLY). The universe keeps bifurcating — fewer leaders, more laggards — and the commodity dropouts (VDE/XLE confirmed breakdowns) have started landing in this quadrant too.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (4): `CIBR`, `ICLN`, `QCLN`, `SMH`
@@ -134,6 +146,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (13): `BATT`, `BCD`, `EWY`, `FCG`, `GRID`, `IEO`, `LIT`, `REMX`, `SLX`, `TAN`, `VBK`, `XES`, `XOP`
 - **Avoid** — structural laggards (15): `FXI`, `IAI`, `IBB`, `IHI`, `INDA`, `IYF`, `JETS`, `PALL`, `PLTM`, `VHT`, `VNM`, `XLF`, `XLV`, `XLY`, `XRT`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (0): none
+
+**Net call:** The successor regime is tech, not ags — XSW and ARKK confirmed IMPROVING->LEADING while SOYB/CORN broke down. Rotate out of the aging energy second tier (FCG/IEO/XOP/GRID now in WEAKENING) and keep only the commodity core (USO/COMT/DBC) on tight stops. The trigger that changes it: the NE-heading growth cluster (XSW/CIBR/CLOU/ARKK) flipping SW would leave no successor at all.
 
 ## 8. Data Caveats
 

@@ -10,6 +10,8 @@
 
 **LEADING: 44** | **IMPROVING: 19** | **WEAKENING: 6** | **LAGGING: 27**
 
+> Weekly read: LEADING peaks at 44 — broadest leadership of the window — but direction underneath is turning: 4 of 7 consistent leaders head SW and XLK broke to LAGGING. EWZ +13.0, PALL/GLD accelerating NE: the hard-asset handoff is done; the open question is whether the old leadership follows it down.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -23,6 +25,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | XPH | LEADING | 120.47 | 125.03 | 5.6 | ACCELERATING | NE | 10 | 1 | 83.3 |
 | XBI | LEADING | 119.69 | 119.38 | 4.9 | DECELERATING | NE | 10 | 1 | 83.3 |
 | AWAY | LEADING | 113.75 | 130.93 | 0.8 | DECELERATING | NW | 9 | 0 | 75.0 |
+
+> Read: CIBR/CLOU still 12/12 and LEADING peaks at 44 — but the cohort's compass flipped: CIBR, CLOU, JETS and XSW all head SW while still labelled LEADING; only XPH/XBI (NE) rotate right. The consistent-leader list is becoming a lagging indicator — it records who led, not who is leading.
 
 ## 3. Improving Trends
 
@@ -40,6 +44,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | XLP | IMPROVING | 99.07 | 108.01 | 4.5 | ACCELERATING | NE | 0 | 9 | 0.0 |
 | TLT | IMPROVING | 95.54 | 104.12 | 4.2 | ACCELERATING | NE | 0 | 10 | 0.0 |
 | UNG | IMPROVING | 87.63 | 116.32 | 4.0 | DECELERATING | SW | 0 | 6 | 0.0 |
+
+> Read: 19 improvers, split by heading: EWZ +13.0A, PALL +10.4A, GLD +8.5A, FXI/INDA/PLTM/XLP/TLT all NE — the metals-plus-EM-plus-defensive bid is genuine. XAR +8.4A and UNG +4.0D are SW — XAR is a LEADING->IMPROVING regime break (Δratio −6.6), fading fast, not improving. Bench depth is real; read the labels with care.
 
 ## 4. Weakening Momentum
 
@@ -68,6 +74,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | JETS | LEADING | 103.86 | 128.37 | 4.5 | DECELERATING | SW | 11 | 0 | 91.7 |
 | IHI | LEADING | 108.30 | 138.78 | 4.4 | DECELERATING | NW | 4 | 6 | 33.3 |
 | VOE | LEADING | 105.03 | 110.21 | 3.6 | DECELERATING | NE | 3 | 6 | 25.0 |
+
+> Read: No genuine fader in this quadrant — all six (XOP/FCG/VDE/WEAT/FTGC/AMLP) head NE off 7–11-week lag bases: hard-right squeezes and exit liquidity, not a dying regime. The real damage shows in §5: XLK's WEAKENING->LAGGING confirmed, XAR/XTN broken out of LEADING. Among decelerating leaders only CLOU and JETS point SW.
 
 ## 5. Velocity Analysis
 
@@ -106,6 +114,8 @@ Dead money (velocity < 1.0): `XLY` 0.57, `DBB` 0.75, `AWAY` 0.80, `CPER` 0.94
 - `XLK` WEAKENING->LAGGING — breakdown confirmed — bearish (heading SW, Δratio -2.18, Δmom -4.54)
 - `XTN` LEADING->IMPROVING — regime break — bearish shock (heading NW, Δratio -2.91, Δmom 1.81)
 
+> Read: GDX +16.1A re-accelerating NE — the deceleration lasted one week. CIBR +15.5A heads SW: velocity records speed, not direction. Crossings split cleanly — XLK's WEAKENING->LAGGING and the XAR/XTN LEADING->IMPROVING breaks are the bearish side; IEO/XLE/SOYB re-accelerations plus EWZ's bottoming are bullish; FCG/FTGC squeezes stay sells.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -123,6 +133,8 @@ Top 10 LAGGING by lag-weeks:
 | SMOG | 89.07 | 86.85 | 3.4 | 12 | 0.0 |
 | VNM | 92.84 | 93.84 | 5.7 | 12 | 0.0 |
 
+> Read: 27 LAGGING — under a third of the universe. XES/VNM/COMT/DBC/REMX/XLU pinned — old commodity names are now the laggards. Inversion complete: May's leaders are September's laggards.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (25): `AWAY`, `CANE`, `CORN`, `EWA`, `EWJ`, `EWZ`, `FXI`, `GDX`, `GLD`, `INDA`, `ITB`, `IWD`, `IWM`, `IYT`, `NANR`, `PALL`, `PLTM`, `SOYB`, `VBR`, `VXUS`, `XBI`, `XLB`, `XLI`, `XPH`, `XRT`
@@ -130,6 +142,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (6): `AMLP`, `FCG`, `FTGC`, `VDE`, `WEAT`, `XOP`
 - **Avoid** — structural laggards (19): `BATT`, `BCD`, `COMT`, `DBB`, `DBC`, `GRID`, `ICLN`, `IFRA`, `LIT`, `PBW`, `REMX`, `SLV`, `SLX`, `SMOG`, `TAN`, `USO`, `VNM`, `XES`, `XLU`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (1): `UNG`
+
+**Net call:** New regime confirmed: metals + healthcare + defensive, now heading-verified (NE across the improving bench). The energy WEAKENING prints are squeezes — final exits, not entries. Growth leadership is a sell list: CIBR/JETS/XSW all SW and barred from Overweight; the trigger to revisit is a heading flip back to NE.
 
 ## 8. Data Caveats
 

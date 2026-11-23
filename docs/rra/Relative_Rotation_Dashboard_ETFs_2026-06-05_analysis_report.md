@@ -10,6 +10,8 @@
 
 **LEADING: 14** | **IMPROVING: 6** | **WEAKENING: 8** | **LAGGING: 68**
 
+> Weekly read: Breadth capitulation — LAGGING peaks at 68, perfect leaders down to 4 (COMT/DBC/FTGC/USO), and every one accelerating SW: the energy blowoff is now pointed down-left. The tech cluster (CIBR/CLOU/XSW) still leads the right-heading side but is decelerating. The most dangerous week of the arc so far.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -23,6 +25,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | ICLN | LEADING | 110.92 | 104.00 | 0.5 | DECELERATING | NW | 11 | 0 | 91.7 |
 | SMH | LEADING | 130.03 | 113.36 | 1.2 | DECELERATING | SE | 10 | 0 | 83.3 |
 
+> Read: 4 perfect leaders (COMT/DBC/FTGC/USO) — pure broad-commodity + oil, the ag streaks gone — and all four accelerating SW: record velocity toward LAGGING. ICLN (NW, momentum-only) and SMH (SE, ratio rising but momentum rolling) hold high consistency but offer no clean NE either. Position still says leadership; direction says late-stage.
+
 ## 3. Improving Trends
 
 Top 10 IMPROVING tickers by 1-week velocity:
@@ -35,6 +39,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | ARKK | IMPROVING | 99.37 | 116.86 | 2.4 | DECELERATING | SW | 1 | 5 | 8.3 |
 | CANE | IMPROVING | 96.79 | 102.91 | 2.2 | DECELERATING | SW | 6 | 0 | 50.0 |
 | VOT | IMPROVING | 97.93 | 103.53 | 1.0 | ACCELERATING | SE | 0 | 0 | 0.0 |
+
+> Read: The bench is a casualty ward, not a successor pool — the top 'improvers' are regime breaks heading SW: WEAT +7.1 (LEADING->IMPROVING, Δratio -5.65), ARKK (LEADING->IMPROVING), plus SOYB/CANE fading SW. Only AWAY +5.7 NE — second week off the bottom — is a genuine riser; VOT is SE/rolling. No successor regime here.
 
 ## 4. Weakening Momentum
 
@@ -66,6 +72,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | QQQ | LEADING | 109.01 | 112.05 | 1.0 | DECELERATING | NW | 7 | 5 | 58.3 |
 | ICLN | LEADING | 110.92 | 104.00 | 0.5 | DECELERATING | NW | 11 | 0 | 91.7 |
 
+> Read: Regime breaks first — WEAT and ARKK both shocked LEADING->IMPROVING heading SW, while the weakening list is near-uniform SW (EWY +12.3 accelerating the decline, XES/XOP/IEO following). The decelerating-leader table is the interesting half: all NE-heading growth (CIBR 11.6D, XSW 8.1D, CLOU 7.7D, XLK 3.0D, PBW) — slowing but still moving up-right; consolidation, not reversal.
+
 ## 5. Velocity Analysis
 
 Fastest movers (top 10 by |velocity_1w|):
@@ -96,6 +104,8 @@ Dead money (velocity < 1.0): `FXI` 0.45, `ICLN` 0.50, `XLY` 0.52, `DBB` 0.70, `I
 - `SLX` WEAKENING->LAGGING — breakdown confirmed — bearish (heading SW, Δratio -0.85, Δmom -1.83)
 - `WEAT` LEADING->IMPROVING — regime break — bearish shock (heading SW, Δratio -5.65, Δmom -4.36)
 
+> Read: UNG +16.2A NE — third straight double-digit week and heading-confirmed: a genuine bottoming, not a sympathy move. The rest splits violently: USO +12.5A and EWY +12.3A accelerating SW (blowoff resolving down-left), metals GDX/SLV/REMX accelerating deeper into LAGGING — sells — while CIBR/XSW/CLOU decelerate NE. The crossings are one-directional: all 8 bearish, zero bullish — WEAT/ARKK regime breaks, FCG/GRID/REMX/SLX/BATT breakdowns, CORN failed.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -113,6 +123,8 @@ Top 10 LAGGING by lag-weeks:
 | XLV | 87.66 | 83.33 | 1.5 | 11 | 0.0 |
 | XLY | 92.93 | 94.95 | 0.5 | 11 | 0.0 |
 
+> Read: LAGGING peaks at 68 — two-thirds of the universe — in the usual buckets: healthcare (IHI/INDA/VHT/XLV), financials (IAI/IYF/XLF), travel (JETS), metals (PALL), consumer (XLY). And 13 names are dead money (<1.0), the widest paralysis reading yet. The market is one trade long.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (3): `AWAY`, `ICLN`, `SMH`
@@ -120,6 +132,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (8): `BCD`, `EWY`, `IEO`, `LIT`, `TAN`, `VBK`, `XES`, `XOP`
 - **Avoid** — structural laggards (16): `DIA`, `FXI`, `IAI`, `IBB`, `IHI`, `INDA`, `IYF`, `JETS`, `PALL`, `PLTM`, `VHT`, `VNM`, `XLF`, `XLV`, `XLY`, `XRT`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (1): `ARKK`
+
+**Net call:** The blowoff has turned — USO and the commodity core are accelerating SW and all 8 crossings this week were bearish; cut commodity exposure to trailing-stop runners and add nothing. The only viable successor is the decelerating-but-still-NE tech cluster (CIBR/CLOU/XSW/SMH). The trigger that changes it: those headings flipping SW too.
 
 ## 8. Data Caveats
 

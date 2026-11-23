@@ -10,6 +10,8 @@
 
 **LEADING: 14** | **IMPROVING: 7** | **WEAKENING: 9** | **LAGGING: 66**
 
+> Weekly read: First exhaustion crack — and it's a regime-break cluster: ARKK/AWAY/VOT break LEADING->IMPROVING on SW headings, QCLN collapses LEADING->LAGGING, while SMH decelerates at the top. The growth regime is maturing; financials and defensives are quietly rotating in.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -21,6 +23,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | QQQ | LEADING | 104.21 | 107.10 | 3.0 | ACCELERATING | SW | 12 | 0 | 100.0 |
 | CLOU | LEADING | 113.60 | 125.63 | 6.8 | DECELERATING | NE | 11 | 0 | 91.7 |
 | CIBR | LEADING | 130.16 | 142.37 | 4.0 | DECELERATING | NE | 11 | 0 | 91.7 |
+
+> Read: The growth trio holds 12/12 (SMH/XLK/QQQ — all SW heading), but real leadership is now CLOU/CIBR at 11/12 on NE trajectories. No new entrants, and QCLN's streak ends badly — regime intact at the headline, cracking at the edges.
 
 ## 3. Improving Trends
 
@@ -35,6 +39,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | VOT | IMPROVING | 99.67 | 104.49 | 1.5 | ACCELERATING | SW | 4 | 0 | 33.3 |
 | INDA | IMPROVING | 90.57 | 100.29 | 1.1 | DECELERATING | SW | 0 | 9 | 0.0 |
 | XRT | IMPROVING | 96.65 | 100.48 | 0.5 | DECELERATING | SE | 0 | 9 | 0.0 |
+
+> Read: This is a casualty ward, not an improving bench: ARKK +7.7, AWAY +3.6, VOT +1.5 are all SW-heading regime breaks (LEADING->IMPROVING) still falling toward LAGGING; IWF/ITB/INDA are SW too. Zero genuine NE improvers — no successor regime from inside growth.
 
 ## 4. Weakening Momentum
 
@@ -62,6 +68,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | CIBR | LEADING | 130.16 | 142.37 | 4.0 | DECELERATING | NE | 11 | 0 | 91.7 |
 | IAI | LEADING | 100.06 | 104.68 | 0.6 | DECELERATING | NE | 1 | 6 | 8.3 |
 | XPH | LEADING | 110.17 | 109.64 | 0.1 | DECELERATING | NW | 4 | 7 | 33.3 |
+
+> Read: SMH tops the decel watch on an SW heading — the 12/12 leader is losing both axes; trim into strength. The WEAKENING list is mostly squeezes: WEAT/VTV/IWD are NE hard right breaks up from LAGGING — sells, not buys. The genuine fades: EWY/IWM/IYT SW.
 
 ## 5. Velocity Analysis
 
@@ -102,6 +110,8 @@ Dead money (velocity < 1.0): `XPH` 0.06, `XRT` 0.48, `DIA` 0.49, `IBB` 0.51, `IA
 - `XLY` IMPROVING->LAGGING — failed improvement — bearish (heading SW, Δratio -2.34, Δmom -1.01)
 - `XTN` LEADING->WEAKENING — normal aging — trim into strength (heading SW, Δratio -4.25, Δmom -7.01)
 
+> Read: The energy counter-trend bid returns but this time it is real NE rotation — USO/IEO/XOP/XLE/VDE/CANE/FCG all accelerating up-right out of deep LAGGING (a first bottoming wave, not yet buyable). The crossings tell the story: ARKK/AWAY/VOT regime breaks are the sell signal; the confirmed rotations are financials (IAI/IYF/XLF ->LEADING) and the VHT/XLV discontinuous jumps to watch, not chase.
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -119,6 +129,8 @@ Top 10 LAGGING by lag-weeks:
 | HYG | 91.97 | 87.10 | 3.0 | 12 | 0.0 |
 | IHI | 86.42 | 95.86 | 3.9 | 12 | 0.0 |
 
+> Read: 66 LAGGING in three buckets: metals pinned (GDX/GLD/COPX/PALL-adjacent), DM defensives (DIA/EFA), and China/EM (FXI). But the complex is stirring — energy already left the lag-list; metals are next in line.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (5): `CIBR`, `IYF`, `VHT`, `XLF`, `XLV`
@@ -126,6 +138,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (9): `EWY`, `IBB`, `IWD`, `IWM`, `IYT`, `KRE`, `VTV`, `WEAT`, `XTN`
 - **Avoid** — structural laggards (47): `AMLP`, `BATT`, `COPX`, `CORN`, `CPER`, `DBB`, `DIA`, `EFA`, `EWA`, `EWC`, `EWJ`, `EWZ`, `FCG`, `FXI`, `GDX`, `GLD`, `HERO`, `HYG`, `IFRA`, `IHI`, `IYR`, `JNK`, `NANR`, `PALL`, `PLTM`, `REMX`, `SCHH`, `SGOV`, `SLV`, `SMOG`, `TLT`, `UNG`, `VBR`, `VDE`, `VGK`, `VNM`, `VOE`, `VXUS`, `XAR`, `XLB`, `XLC`, `XLE`, `XLI`, `XLP`, `XLU`, `XLY`, `XME`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (2): `ARKK`, `AWAY`
+
+**Net call:** The rotation is happening under the headline: overweight the confirmed financial crossings (XLF/IYF) and healthcare (VHT/XLV); hold-but-trim SMH/XLK/QQQ while they head SW. Treat the ARKK/AWAY "improving" labels as exit liquidity, not entries — both are SW regime breaks. Trigger: XLF/IYF slipping back below 100 kills the handoff thesis.
 
 ## 8. Data Caveats
 

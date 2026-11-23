@@ -10,6 +10,8 @@
 
 **LEADING: 26** | **IMPROVING: 8** | **WEAKENING: 10** | **LAGGING: 52**
 
+> Weekly read: Commodity/energy leadership entrenched — 15 tickers perfect 12/12 (USO/XLE/XOP/FCG/COMT/DBC/WEAT) in a LAGGING-heavy tape (52); the arc's peak-extension week. The tell the quadrant counts hide: every consistent leader is already heading SW — position intact, direction deteriorating.
+
 ## 2. Leadership Regime
 
 Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
@@ -27,6 +29,8 @@ Consistent leaders (consistency ≥ 75%), ranked by consistency then velocity:
 | IFRA | LEADING | 101.86 | 100.86 | 4.4 | ACCELERATING | SW | 12 | 0 | 100.0 |
 | DBC | LEADING | 119.54 | 114.00 | 4.4 | DECELERATING | SW | 12 | 0 | 100.0 |
 
+> Read: 15 perfect leaders, all hard assets or income — the full energy/ag/commodity complex (USO/XLE/XOP/FCG/COMT/DBC/WEAT/FTGC) plus infrastructure (IFRA/GRID) and REITs (SCHH); zero growth or healthcare names. The anomaly in the Hdg column: all 10 shown head SW — even entrenched leaders are rotating down-left. A fully mature commodity regime.
+
 ## 3. Improving Trends
 
 Top 10 IMPROVING tickers by 1-week velocity:
@@ -41,6 +45,8 @@ Top 10 IMPROVING tickers by 1-week velocity:
 | CORN | IMPROVING | 99.87 | 105.57 | 2.1 | ACCELERATING | SW | 9 | 1 | 75.0 |
 | IWF | IMPROVING | 99.59 | 102.91 | 2.1 | ACCELERATING | NE | 0 | 10 | 0.0 |
 | VOT | IMPROVING | 97.17 | 103.96 | 0.7 | ACCELERATING | NE | 0 | 0 | 0.0 |
+
+> Read: Heading data cuts the 8-deep bench to three genuine improvers — ARKK +5.1, IWF +2.1, VOT +0.7, all NE. The rest are breakdowns in disguise: EWA (-3.53 ratio), XLU, CORN and IYR are SW-heading regime breaks out of LEADING, and TLT is fading SW too. No successor regime yet — speculative flickers only.
 
 ## 4. Weakening Momentum
 
@@ -73,6 +79,8 @@ Decelerating LEADING tickers (distribution watch), top 10 by velocity:
 | FTGC | LEADING | 113.01 | 108.55 | 4.7 | DECELERATING | SW | 12 | 0 | 100.0 |
 | DBC | LEADING | 119.54 | 114.00 | 4.4 | DECELERATING | SW | 12 | 0 | 100.0 |
 | SMH | LEADING | 127.32 | 110.01 | 4.0 | DECELERATING | NE | 10 | 0 | 83.3 |
+
+> Read: 10 weakening incl. the metals/EV-chain early casualties (BATT/LIT/REMX/SLX/XES) — and XES/AMLP/EEM are 10-11w leaders crossing LEADING->WEAKENING, regime aging inside the complex itself. Both tables are uniformly SW except SMH (NE): the top decelerators ARE the leaders (XOP 10.4D, FCG 9.7D, IEO 9.2D, VDE 8.9D) — the regime is topping from within.
 
 ## 5. Velocity Analysis
 
@@ -117,6 +125,8 @@ Dead money (velocity < 1.0): `ICLN` 0.16, `EWY` 0.19, `VBK` 0.44, `VOT` 0.68
 - `XLU` LEADING->IMPROVING — regime break — bearish shock (heading SW, Δratio -2.86, Δmom -2.54)
 - `XTN` WEAKENING->LAGGING — breakdown confirmed — bearish (heading SW, Δratio -4.75, Δmom -4.71)
 
+> Read: Velocity polarity is stark — UNG +18.6 and EWZ +14.2 look fast but head SW: accelerating deeper into LAGGING (EWZ's LEADING->LAGGING is a discontinuous crash), sells not buys. The genuine bid is CLOU +10.9 and CIBR +8.7, both NE into LEADING. Of 21 crossings ~16 are bearish: regime breaks (EWA/XLU/IYR/CORN) plus a broad WEAKENING->LAGGING breakdown wave across small-caps/value/international (IWM/IYT/XLB/XTN/VXUS/EWC/IWD/XBI/NANR).
+
 ## 6. Structural Laggards
 
 Top 10 LAGGING by lag-weeks:
@@ -134,6 +144,8 @@ Top 10 LAGGING by lag-weeks:
 | IAI | 91.63 | 88.39 | 1.1 | 8 | 0.0 |
 | IYF | 90.64 | 90.67 | 2.0 | 8 | 0.0 |
 
+> Read: 52 LAGGING — the majority of the universe — in four buckets: growth orphans (XSW/AWAY/INDA at 12w), structurally weak healthcare (IHI 12w, VHT 11w, XLV 10w), financials (IAI/IYF), and China/consumer (FXI/XLY). What funds the commodity bid: literally everything else.
+
 ## 7. Actionable Portfolio Tilts
 
 - **Overweight** (9): `ARKK`, `CIBR`, `CLOU`, `EWY`, `PBW`, `QCLN`, `QQQ`, `SMH`, `XLK`
@@ -141,6 +153,8 @@ Top 10 LAGGING by lag-weeks:
 - **Reduce** — weakening (10): `AMLP`, `BATT`, `EEM`, `IWM`, `LIT`, `REMX`, `SLX`, `TAN`, `VBK`, `XES`
 - **Avoid** — structural laggards (13): `AWAY`, `FXI`, `IAI`, `IHI`, `INDA`, `IYF`, `JETS`, `PALL`, `VHT`, `XLF`, `XLV`, `XLY`, `XSW`
 - **Watch** — improving, RS-mom ≥ 110 but RS-ratio < 100 (1): `XLU`
+
+**Net call:** Heading data changes the trade — the SW-bar correctly pushes every energy leader out of Overweight despite 12/12 streaks; hold the commodity core on trailing stops and trim into strength, don't add. Fresh capital belongs to the NE names (CLOU/CIBR/SMH/QQQ/XLK). Trigger that flips the call: energy leaders' first LEADING->WEAKENING crossings confirm the top.
 
 ## 8. Data Caveats
 
