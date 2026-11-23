@@ -1,8 +1,8 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-23 (ENRICH-T1 implemented — headless `devin -p` enrichment wrapper + StockIngestion-RRGEnrich task script; IW-T1 done)
+Last Updated: 2026-11-23 (ENRICH-T1 done — headless `devin -p` enrichment wrapper + StockIngestion-RRGEnrich task script; awaiting C/D review)
 Current Branch: main
 
-## ENRICH-T1 — in progress (executor B, 2026-11-23)
+## ENRICH-T1 — DONE (executor B, 2026-11-23)
 
 Automated Phase B of the weekly RRA pipeline via a headless local
 Devin session:
