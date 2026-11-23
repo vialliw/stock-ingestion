@@ -4290,7 +4290,7 @@
     "title": "Request 1 Option A: add raw_close to daily_close and populate it on every price load",
     "role": "executor",
     "model": "swe",
-    "status": "blocked",
+    "status": "done",
     "assigned_to": "B",
     "depends_on": [],
     "input_files": [
@@ -4375,7 +4375,8 @@
       {
         "text": "Deployment gate owned by Orchestrator after B/C/D code approval: restart FlightServer, run one 2010-to-present repair backfill for configured tickers through the service, verify zero NULL/non-finite RawClose rows from 2010 onward (finite zero/negative market values are valid), and spot-check sampled values against a fresh yfinance auto_adjust=False pull within floating-point rounding."
       }
-    ]
+    ],
+    "done_evidence": "Zero-NULL RawClose met de facto: DBRG/QRVO/WBD purged via exclude_tickers (10-17/10-18), LESL 1,433 NULLs repaired via do_put RawClose=Close (10-18). Live audit 2026-11-23: zero NULL/non-finite RawClose. See EVENTS.log 2026-11-23."
   },
   {
     "id": "HRAW-T1",
@@ -5141,6 +5142,53 @@
       },
       {
         "text": "pandas 3.x 'str'-dtype object-normalization workarounds preserved; MERGE/RawClose semantics unchanged (R1A-T1 durability tests are the canary)"
+      }
+    ]
+  },
+  {
+    "id": "IW-T1",
+    "title": "Watcher blind spot: incident_watch never exercises the do_get read path — add a liveness probe that opens a SEV1 incident on do_get failure",
+    "role": "executor",
+    "model": "swe",
+    "status": "in_progress",
+    "assigned_to": "B",
+    "depends_on": [],
+    "input_files": [
+      "/scripts/incident_watch.py",
+      "/tests/test_incident_watch.py",
+      "/devin_blackboard/EVENTS.log"
+    ],
+    "output_files": [
+      "/scripts/incident_watch.py",
+      "/tests/test_incident_watch.py"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "IW-AC1",
+        "check": "focused tests",
+        "command": "python -m pytest tests/test_incident_watch.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "IW-AC2",
+        "check": "full suite green",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "IW-AC3",
+        "check": "loop checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "text": "Each watcher run issues a trivial client-facing do_get (e.g. SELECT 1) via a real pyarrow.flight.FlightClient Ticket — NOT the data_health action path, which uses different server code and stayed green during both real outages"
+      },
+      {
+        "text": "do_get failure produces an incident finding (suggested check identity 'flight_read', SEV1 — total read outage); success produces zero findings/noise. Evidence: a test that mocks/simulates do_get failure creates the finding, and a success path test creates none"
+      },
+      {
+        "text": "Probe failure is distinct from server-unreachable: connection failure handling preserved (existing probe='fail' heartbeat semantics unchanged)"
       }
     ]
   }

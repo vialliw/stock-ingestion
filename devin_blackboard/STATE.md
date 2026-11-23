@@ -2600,3 +2600,14 @@ REV-si_hraw_review-g2. Awaiting user direction.
   duckdb 1.5.6 — deliberate `pip install duckdb==2.0.x` into system site +
   Flight Server restart + smoke + DB snapshot per plan; storage stays
   old-format on existing files. pythonw -s hardening remains pending.
+
+## 2026-11-22 — duckdb 2.0.1 upgrade COMPLETE (D2-T1, B->C->D + deploy)
+- Production now runs duckdb 2.0.1 (system site). Code dual-compat: works on
+  1.5.6 and 2.x (2121 tests green under both). Pin: duckdb>=2,<3.
+- Snapshot: stock_ingestion.duckdb(.wal).pre-duckdb2.bak before first 2.0 write.
+- Smoke: do_get, register+MERGE write path, weekly_refresh, fear_greed,
+  data_health, dml list-tables, legacy do_put — all green; watcher clean.
+- Hardened: Flight Server task runs pythonw -s (no user site) + register
+  script updated — the accidental-upgrade vector is closed.
+- Still pending user decisions: MGPI->CASK, PTLE->ZYN, TCBI->TXCP symbol
+  swaps in config.yaml; watcher do_get-coverage defect task.

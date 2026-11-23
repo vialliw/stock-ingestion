@@ -1,7 +1,8 @@
 # Plan — Deliberate duckdb 2.0 Upgrade
 
-Status: **proposed** (2026-11-22). Current pinned state: `duckdb>=1.5,<2` in
-`requirements.txt`, system site-packages has 1.5.6, Flight Server healthy.
+Status: **DONE** (deployed 2026-11-22 — duckdb 2.0.1 live; see EVENTS.log
+`[ORCHESTRATOR] D2-T1 DEPLOYED` + STATE.md. Phases 0–3 complete incl.
+`pythonw -s` hardening).
 
 ## Why now
 
