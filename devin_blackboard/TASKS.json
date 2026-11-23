@@ -5326,5 +5326,56 @@
         "text": "TRAJ-AC7: SKILL.md documents heading semantics + crossing taxonomy + the two narrative rules (no 'toward LEADING' unless delta_rs_ratio>0; no SW-heading names in Overweight)."
       }
     ]
+  },
+  {
+    "id": "RRG-TRAJ-T2",
+    "title": "analyze_rra v4 format: 2x2 census grid, arrow headings, standalone Quadrant Crossings w/ crossing_status + quadrant_persistence + FLAT",
+    "role": "executor",
+    "model": "swe",
+    "status": "pending",
+    "assigned_to": null,
+    "depends_on": [
+      "RRG-TRAJ-T1"
+    ],
+    "context": "User approved the ChatGPT-reviewed v4 report design (thread REV-rra_crossover_section-g1, APPROVED after 4 rounds; advices at %APPDATA%/devin/skills/chatgpt-review/rev/rra_crossover_section_v4.md). Manual preview .tmp/rra_v4_preview_2026-11-20.md reviewed OK by user — it is the target output. Scope is SKILL-ONLY: analyze_rra.py derives everything (no gen_ai_prompt change, no JSON regen). (1) S1 Quadrant Census: after the bold counts line emit a traditional 2x2 RRG markdown grid — header '| RS-Momentum ↓ / RS-Ratio → | **< 100** | **≥ 100** |', row '≥ 100' = IMPROVING|LEADING, row '< 100' = LAGGING|WEAKENING. Each cell: '**QUADRANT (n)**' then '<br>- ThemeName: `TKR`↙ ...' bullets grouping tickers by a THEME_MAP. (2) THEME_MAP covering all 96 universe tickers — Energy/commodity: USO COMT DBC BCD FTGC IEO XOP VDE FCG XLE CANE NANR SOYB CORN WEAT XES UNG; Metals/hard-asset: GDX SLV GLD PLTM PALL XME COPX SLX CPER DBB REMX LIT BATT SMOG; Healthcare: XLV VHT IBB IHI XBI XPH; Defensive/rate-sensitive: TLT XLU XLP HYG JNK SGOV ITB; Value/dividend/consumer: VTV VOE IWD VBR XRT XLY XLB; Financials/REITs: XLF IYF KRE IAI SCHH IYR; Growth/mega-cap tech: QQQ SMH XLK XSW CIBR CLOU ARKK IWF AWAY VBK VOT XLC HERO DIA IWM; Clean energy: QCLN TAN PBW ICLN; EM/Intl: EEM EWY EWJ EWA EWZ FXI INDA VNM EWC EFA VXUS VGK; Transports/infra/industrials: IYT JETS XTN XLI XAR GRID IFRA; fallback 'Other' for unmapped tickers. Tickers alphabetical within each theme bullet; each ticker followed by its heading arrow. (3) Arrow map EVERYWHERE headings render: NE->↗ SE->↘ SW->↙ NW->↖; new 5th heading FLAT when |delta_rs_ratio|<0.05 AND |delta_rs_momentum|<0.05 (render as 'FLAT', checked before arrow map). Applies to Heading column cells, census grid suffixes, crossings entries, all emitted text. Column header 'Hdg' -> 'Heading'. (4) Section order: 1 Census, 2 Leadership, 3 Improving, 4 Weakening, 5 Quadrant Crossings (NEW standalone '## 5.'), 6 Velocity, 7 Laggards, 8 Tilts, 9 Caveats. (5) S5 format per preview: summary line 'N crossings this week: **C confirmed / P provisional** (geometric deadband 1.0 pt past the crossed boundary). By type: kx A->B, ...' plus 'No diagonal/discontinuous transitions.' or diagonal count; then '### Counter-clockwise — abrupt reversals' groups, '### Clockwise — normal rotation' groups, '### Diagonal — discontinuous' if any; per transition a bold '**A->B** — <probabilistic label>' header then entries '- `TKR` STATUS — ↙, Δratio -6.89, Δmom -2.07 (landed ratio 97.59, 2.41 past boundary); quadrant_persistence TEMPORARY'. Provisional entries append '— whipsaw watch'. Probabilistic labels: LEADING->IMPROVING 'potential regime break / RS breakdown warning'; IMPROVING->LAGGING 'failed recovery / bearish continuation'; LAGGING->WEAKENING 'possible squeeze / counter-trend rally — not a buy signal'; WEAKENING->LEADING 'possible re-acceleration — verify follow-through'; IMPROVING->LEADING 'possible rotation into leadership — confirm next week'; LEADING->WEAKENING 'potential distribution / early reversal — watch'; WEAKENING->LAGGING 'potential bearish continuation — confirm persistence'; LAGGING->IMPROVING 'early recovery attempt — unconfirmed'; diagonals 'discontinuous regime change — investigate'. (6) crossing_status derived in the extractor: UNCHANGED if no quadrant_change; crossed axis = ratio for {L<->I, W<->L}, momentum for {L<->W, I<->L}, BOTH for diagonals {L<->LAG, I<->W}; CONFIRMED if |landed-100|>=1.0 on the crossed axis (both for diagonals) else PROVISIONAL_CROSSING. (7) quadrant_persistence: consecutive weeks in CURRENT quadrant walking back through dated *_analysis_prompt*.json files in same dir; 1wk=TEMPORARY, 2=PENDING, >=3=CONFIRMED. (8) Caveats S9 gains a bullet documenting crossing_status/quadrant_persistence/deadband/FLAT (near-verbatim from preview line 200). (9) SKILL.md: update section-order list, heading table (arrows+FLAT), taxonomy -> probabilistic labels, enrichment contract (S1 '> Weekly read:' BEFORE the grid, one sentence per '>' line; '> Read:' at end of S2-S7; '**Net call:**' end of S8), hard rules wording (SW -> ↙).",
+    "input_files": [
+      "/.devin/skills/analyze_rra/analyze_rra.py",
+      "/.devin/skills/analyze_rra/SKILL.md",
+      "/.tmp/rra_v4_preview_2026-11-20.md",
+      "/docs/rra/Relative_Rotation_Dashboard_ETFs_2026-11-20_analysis_prompt.json"
+    ],
+    "output_files": [
+      "/.devin/skills/analyze_rra/analyze_rra.py",
+      "/.devin/skills/analyze_rra/SKILL.md"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "T2-AC1",
+        "check": "extractor runs clean",
+        "command": "python .devin/skills/analyze_rra/analyze_rra.py docs/rra/Relative_Rotation_Dashboard_ETFs_2026-11-20_analysis_prompt.json --out .tmp/t2_draft.md",
+        "expected_exit": 0
+      },
+      {
+        "id": "T2-AC2",
+        "check": "2x2 grid + arrows + Heading col + standalone S5 + renumber",
+        "command": "python -c \"t=open('.tmp/t2_draft.md',encoding='utf-8').read();assert '| RS-Momentum ↓ / RS-Ratio → |' in t;assert '## 5. Quadrant Crossings' in t and '## 6. Velocity Analysis' in t and '## 9. Data Caveats' in t;assert '| Heading |' in t;assert '↙' in t and '↗' in t;import re;assert not re.search(r'\bHdg\b|\\| (NE|NW|SE|SW) \\|',t);assert 'PROVISIONAL_CROSSING' in t and 'quadrant_persistence' in t;print('OK')\"",
+        "expected_exit": 0
+      },
+      {
+        "text": "T2-AC3: 11-20 output matches approved preview structurally: S5 summary '15 confirmed / 6 provisional', counter-clockwise then clockwise groups, probabilistic labels, ARKK CONFIRMED 2.41 past boundary, GDX PROVISIONAL 0.66 whipsaw watch, all crossers persistence TEMPORARY."
+      },
+      {
+        "text": "T2-AC4: census grid cells list all 96 tickers exactly once, grouped by THEME_MAP themes, each ticker suffixed with its heading arrow."
+      },
+      {
+        "text": "T2-AC5: quadrant_persistence walk-back correct on an older file (e.g. run on 2026-11-06 or 11-13 prompt: tickers multi-week in same quadrant show PENDING/CONFIRMED, not all TEMPORARY)."
+      },
+      {
+        "text": "T2-AC6: legacy fallback intact — JSON without trajectory fields still degrades gracefully (prior-file diff or omission), no crash."
+      },
+      {
+        "text": "T2-AC7: SKILL.md documents all v4 changes (grid spec, arrow map+FLAT, probabilistic taxonomy, persistence/confirmation semantics, updated enrichment contract w/ pre-table weekly-read placement)."
+      }
+    ]
   }
 ]
