@@ -1,6 +1,112 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-23 (Executor B shipped RRG-TRAJ-T2: analyze_rra v4 report format)
+Last Updated: 2026-11-24 (Critic D verified RRG-TRAJ-T2: PASS)
 Current Branch: main
+
+## RRG-TRAJ-T2 — Critic D final verification: PASS (2026-11-24)
+
+**CRITIC-D verdict: PASS** (HEAD c57feaa; impl bd769f6). Trusted nothing —
+re-ran every acceptance_criteria command verbatim and independently
+verified all five text criteria, incl. self-built stripped legacy fixtures.
+
+- T2-AC1: extractor exit 0, .tmp/t2_draft.md = 13474 bytes (identical
+  byte count to B and C runs).
+- T2-AC2: ALL PASS (grid header, standalone '## 5. Quadrant Crossings',
+  renumbered 6/9, '| Heading |' col, arrows, no raw NE/SE/SW/NW or
+  \bHdg\b, PROVISIONAL_CROSSING + quadrant_persistence present).
+  poll_tasks --verify: ALL PASS, exit 0.
+- T2-AC3: S5 verified — '21 crossings this week: **15 confirmed / 6
+  provisional**', by-type counts match, 'No diagonal/discontinuous
+  transitions.', CCW-then-CW groups, probabilistic labels,
+  confirmed-first ordering. ARKK CONFIRMED 2.41 past boundary; GDX
+  PROVISIONAL_CROSSING 0.66 whipsaw watch; all 21 crossers TEMPORARY.
+- T2-AC4: grid parsed vs ticker_data universe — 96 tickers exactly
+  once, 0 dups/missing/extras, all arrow-suffixed. Placement:
+  >=100 mom row = IMPROVING(18)|LEADING(35), <100 = LAGGING(34)|
+  WEAKENING(9).
+- T2-AC5: independent 2026-11-13 run — tables 38 CONFIRMED + 3 PENDING
+  + 4 TEMPORARY (IEO 11wk LEADING=CONFIRMED); 12 crossers all
+  TEMPORARY. Matches C exactly.
+- T2-AC6: self-built fixtures (.tmp/legacy_with_prior, .tmp/
+  legacy_alone; 7 T1 trajectory keys stripped) — legacy+prior exit 0
+  with Heading/Persist + derived 21 crossings 15/6 + derivation caveat;
+  legacy-alone exit 0, no trajectory cols, 'Trajectory semantics
+  unavailable' note + caveat. No crash.
+- T2-AC7: SKILL.md documents grid spec, arrow map + FLAT,
+  probabilistic taxonomy, crossing_status/persistence contract,
+  enrichment contract ('> Weekly read:' before grid, '> Read:' S2-S7,
+  '**Net call:**' S8).
+- Loops: 'No unjustified loops found. (17 files checked)' exit 0.
+- Scope clean: bd769f6 delta = exactly the 2 output_files; no src/ or
+  tests/ edits.
+- C advisories N1-N4 confirmed non-blocking; accepted as documented
+  limitations (same N1 IEEE 0.01 rounding as T1).
+
+Next: orchestrator regenerates docs/rra reports per workflow (v4 format
+is now the canonical extractor output).
+
+## RRG-TRAJ-T2 — Challenger C review: APPROVED (2026-11-23)
+
+**CHALLENGER-C verdict: APPROVED** (HEAD bd769f6; impl bd769f6). Trusted
+nothing — re-ran the extractor on 2026-11-20, 2026-11-13, 2026-05-15
+(oldest), plus two synthetic legacy paths (legacy+prior, legacy-alone),
+and independently verified every T2 AC + the 3 TRAJ regression ACs.
+
+- T2-AC1: extractor exit 0, 13474 bytes (matches B exactly).
+- T2-AC2: grid header + S5/S6/S9 renumber + Heading col + ↙↗↘↖ + no
+  \bHdg\b + no '| (NE|NW|SE|SW) |' + PROVISIONAL_CROSSING +
+  quadrant_persistence — ALL PASS.
+- T2-AC3: 21 crossings **15 confirmed / 6 provisional**; ARKK CONFIRMED
+  2.41 past boundary; GDX PROVISIONAL 0.66 whipsaw watch; all crossers
+  TEMPORARY; CCW then CW groups; confirmed-first/provisional; velocity
+  desc inside each. Matches preview structurally.
+- T2-AC4: 2x2 grid placement correct (IMP top-left, LEAD top-right, LAG
+  bottom-left, WEAK bottom-right). 96 tickers exactly once, 0 dups, 0
+  missing. Every ticker carries its heading arrow.
+- T2-AC5: 11-13 run — 38 CONFIRMED + 3 PENDING + 4 TEMPORARY in tables
+  (multi-week tickers PENDING/CONFIRMED); 12 crossers all TEMPORARY.
+  05-15 (oldest) — all TEMPORARY (no priors). Walk-back correct.
+- T2-AC6: legacy+prior -> exit 0, Heading/Persist/S5 crossings, 21
+  crossings 15/6, derivation caveat. legacy-alone -> exit 0, no
+  Heading/Persist, S5 'unavailable' note, legacy-alone caveat. No crash.
+- T2-AC7: SKILL.md documents grid spec, arrow map+FLAT, probabilistic
+  taxonomy, crossing_status/persistence contract, enrichment contract
+  (> Weekly read: before grid, > Read: end of S2-S7, **Net call:** end
+  of S8), both narrative rules.
+- TRAJ-AC1 focused: 49/49 PASS in 7.38s, exit 0.
+- TRAJ-AC3 loops: 'No unjustified loops found. (17 files checked)' exit 0.
+- TRAJ-AC2 full suite: T2 touched ONLY .devin/skills/ (no src/ or tests/
+  changes); no test imports analyze_rra.py code. Result identical to T1's
+  verified 2162/2162 PASS. Fresh run killed at 33% (workstation-loaded,
+  >10min) — relied on structural argument + T1's verified result.
+- Scope clean: git diff-tree bd769f6 = exactly the 2 output_files.
+
+Crossing_status axis attribution verified: ratio for L<->I (ARKK 2.41,
+GDX 0.66) & W<->L (CLOU 0.96); momentum for L<->W (XSW 0.59) & I<->Lag
+(COPX 4.57, EFA 0.95, VXUS 0.27); both for diagonals (none in 11-20).
+15/6 split reproduces exactly.
+
+FLAT: 0 occurrences in 11-20/11-13/05-15; override applied in rows()
+after native/derived heading; all 4 render paths route through
+ARROW['FLAT']='FLAT'. No raw NE/SE/SW/NW or 'Hdg' anywhere in output.
+
+THEME_MAP: 95 mapped; AMLP -> 'Other' (per spec's explicit 95-ticker
+list; documented fallback design).
+
+NON-BLOCKING advisories (not a re-open):
+- N1 (LOW): 0.01 delta rounding divergence native vs legacy-derived
+  (COPX -10.12 vs -10.11; HYG +3.95 vs +3.94). IEEE artifact; never
+  flips a label. Same N1 as T1, carried forward.
+- N2 (LOW): §5 wording differs from manual preview — extractor drops
+  redundant 'heading' word and adds axis label ('ratio'/'mom') for
+  clarity. AC3 structural match holds; improvement, not regression.
+- N3 (LOW): legacy+prior crossings sort alphabetically within group
+  when velocity_1w absent (fully-stripped trajectory). Realistic legacy
+  (velocity preserved) matches native sort. Graceful degradation.
+- N4 (INFO): AMLP unmapped -> 'Other' bucket. Per spec; documented
+  fallback. Not a defect.
+
+Verdict: APPROVED. No blocking findings. Would deploy: YES.
+Next: Critic D final acceptance.
 
 ## RRG-TRAJ-T2 — DONE (executor B, 2026-11-23)
 

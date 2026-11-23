@@ -7039,3 +7039,43 @@ Evidence map:
     "output": ""
   }
 ]
+[2026-11-23T23:55:00Z] [CHALLENGER-C] RRG-TRAJ-T2 review: APPROVED (HEAD bd769f6; impl bd769f6). Trusted nothing — re-ran the extractor on 2026-11-20, 2026-11-13, 2026-05-15 (oldest), plus two synthetic legacy paths (legacy+prior, legacy-alone), and independently verified every AC.
+
+- T2-AC1: extractor exit 0 on 11-20, wrote 13474 bytes (matches B's byte count exactly).
+- T2-AC2: '| RS-Momentum ↓ / RS-Ratio → |' grid present; '## 5. Quadrant Crossings' + '## 6. Velocity Analysis' + '## 9. Data Caveats' renumbered; '| Heading |' column; ↙↗↘↖ all present; regex \bHdg\b and '| (NE|NW|SE|SW) |' both NOT found; 'PROVISIONAL_CROSSING' + 'quadrant_persistence' present. ALL PASS.
+- T2-AC3: 11-20 output matches preview structurally — 21 crossings, **15 confirmed / 6 provisional**, ARKK CONFIRMED landed ratio 97.59 2.41 past boundary, GDX PROVISIONAL_CROSSING only 0.66 past boundary — whipsaw watch, all 21 crossers quadrant_persistence TEMPORARY. By-type counts match (7x I->L, 6x I->Lag, 4x Lag->W, 2x L->I, 1x L->W, 1x W->Lag). No diagonal/discontinuous transitions. CCW then CW groups, confirmed-first then provisional, velocity desc inside each.
+- T2-AC4: 2x2 grid placement verified — IMPROVING top-left (<100 ratio, >=100 mom), LEADING top-right (>=100 both), LAGGING bottom-left (<100 both), WEAKENING bottom-right (>=100 ratio, <100 mom). Parsed grid: IMPROVING 18, LEADING 35, LAGGING 34, WEAKENING 9 = 96 tickers, 0 duplicates, 0 missing, 0 extra. Every ticker carries its heading arrow.
+- T2-AC5: 11-13 run — 38 CONFIRMED + 3 PENDING + 4 TEMPORARY in main tables (multi-week tickers correctly PENDING/CONFIRMED, not all TEMPORARY); 12 crossers all TEMPORARY (occupancy=1, correct). 05-15 (oldest file, no priors) — all 48 table rows TEMPORARY, all 21 crossers TEMPORARY. Walk-back logic correct (verified IEO = 11 consecutive LEADING weeks -> CONFIRMED; ticker-missing-in-prior-file handled by qmap.get() returning None != quadrant -> break).
+- T2-AC6: legacy+prior (synthetic 11-20 with trajectory stripped, 11-13 prior in same dir) -> exit 0, Heading+Persist cols present, S5 crossings present, 21 crossings 15/6, derivation caveat emitted. legacy-alone (11-20 legacy, no prior in dir) -> exit 0, no Heading/Persist cols, S5 'Trajectory semantics unavailable' note, legacy-alone caveat. No crash on either path.
+- T2-AC7: SKILL.md documents 2x2 grid spec, arrow map + FLAT row, probabilistic crossing taxonomy, crossing_status/persistence contract (occupancy != crossing validity), enrichment contract ('> Weekly read:' before grid, '> Read:' end of S2-S7, '**Net call:**' end of S8), both narrative rules.
+- TRAJ-AC1 focused: 49/49 PASS in 7.38s, exit 0 (.tmp/c_t2_test.log).
+- TRAJ-AC3 loops: 'No unjustified loops found. (17 files checked)' exit 0.
+- TRAJ-AC2 full suite: T2 commit bd769f6 touched ONLY .devin/skills/analyze_rra/{analyze_rra.py, SKILL.md} — no src/ or tests/ changes. No test imports analyze_rra.py code (test_rrg_enrich_headless.py only string-asserts the filename in a prompt). Full suite result therefore identical to T1's verified 2162/2162 PASS (C + D both confirmed). I started a fresh full run; workstation-loaded it was progressing slowly (>10min, 33% at kill) so I killed it and relied on the structural argument + T1's verified result. Focused suite (49/49) confirms no regression in the modules T2 depends on.
+- Scope clean: git diff-tree bd769f6 = exactly the 2 output_files (.devin/skills/analyze_rra/analyze_rra.py + SKILL.md); no src/ or tests/ edits.
+
+Crossing_status axis attribution verified per type: ratio for L<->I (ARKK 2.41, GDX 0.66) & W<->L (CLOU 0.96); momentum for L<->W (XSW 0.59) & I<->Lag (COPX 4.57, EFA 0.95, VXUS 0.27); both for diagonals (none in 11-20). 15/6 split reproduces exactly.
+
+FLAT heading: 0 occurrences in 11-20/11-13/05-15 data (caveat line correctly says '0 occurrences this week'). Override applied in rows() after native/derived heading; all 4 render paths (per-ticker tables via _arrow, census grid via ARROW.get, crossings via _arrow, velocity table via _arrow) route through ARROW['FLAT']='FLAT'. No path renders raw 'NE'/'SE'/'SW'/'NW' or 'Hdg'.
+
+THEME_MAP: 95 tickers mapped, AMLP falls to 'Other' bucket (per spec — the spec's own THEME_MAP list totals 95; AMLP is not in any theme). Grid 'Other' line for LAGGING correctly contains AMLP.
+
+NON-BLOCKING advisories (not a re-open):
+- N1 (LOW): 0.01 delta rounding divergence native vs legacy-derived (e.g. COPX Δmom -10.12 native vs -10.11 legacy; HYG Δratio +3.95 vs +3.94). Pre-rounded JSON vs round(cr-pr,2) IEEE artifact. Never flips a crossing_status label (all divergent cases are >0.5 from any 1.0-pt boundary). Same N1 advisory as T1, carried forward.
+- N2 (LOW): Wording differs slightly from the manual preview in §5 crossing lines — preview 'heading ↙, ... landed 97.59' vs extractor '↙, ... landed ratio 97.59'. The extractor adds the axis label ('ratio'/'mom') for clarity and drops the redundant 'heading' word (the column is already labeled). AC3 structural match holds; the wording change is an improvement, not a regression.
+- N3 (LOW): Legacy+prior crossings sort alphabetically within a confirmed/provisional group when velocity_1w is absent (fully-stripped trajectory). With realistic legacy payloads (velocity_1w preserved in trajectory, as pre-T1 files were) the sort matches native. Graceful degradation only; no correctness impact.
+- N4 (INFO): AMLP unmapped in THEME_MAP -> 'Other' bucket. Per the spec's explicit THEME_MAP list (95 tickers); the 'Other' fallback is the documented design. Not a defect.
+
+Verdict: APPROVED. No blocking findings. Would deploy: YES. Next: Critic D final acceptance.
+
+[2026-11-24T00:00:00] [CRITIC-D] RRG-TRAJ-T2 final verification: PASS (HEAD c57feaa; impl bd769f6). Trusted nothing — re-ran every acceptance_criteria command verbatim and independently verified all five text criteria incl. self-built legacy fixtures.
+- T2-AC1: extractor exit 0, wrote .tmp/t2_draft.md 13474 bytes (byte-identical count to B and C).
+- T2-AC2: all assertions OK — 2x2 grid header, '## 5. Quadrant Crossings' standalone, '## 6. Velocity Analysis' + '## 9. Data Caveats' renumbered, '| Heading |' col (full word, no Hdg), arrows present, no raw '| NE/SE/SW/NW |', PROVISIONAL_CROSSING + quadrant_persistence present. poll_tasks --verify ALL PASS exit 0.
+- T2-AC3: S5 verified line-by-line — '21 crossings this week: **15 confirmed / 6 provisional**', by-type counts (7x I->L, 6x I->Lag, 4x Lag->W, 2x L->I, 1x L->W, 1x W->Lag), 'No diagonal/discontinuous transitions.', CCW-then-CW groups, probabilistic labels, confirmed-first/provisional ordering. ARKK CONFIRMED landed ratio 97.59 / 2.41 past boundary; GDX PROVISIONAL_CROSSING only 0.66 — whipsaw watch. All 21 crossers quadrant_persistence TEMPORARY (counted: 15 CONFIRMED + 6 PROVISIONAL entries).
+- T2-AC4: parsed grid vs ticker_data universe — 96 tickers exactly once, 0 dups/missing/extras, every ticker arrow-suffixed (0 without arrow). Placement correct: row >=100 mom = IMPROVING(18)|LEADING(35), row <100 = LAGGING(34)|WEAKENING(9).
+- T2-AC5: independent run on 2026-11-13 — tables show 38 CONFIRMED + 3 PENDING + 4 TEMPORARY (multi-week occupants correctly non-TEMPORARY; IEO 11wk LEADING=CONFIRMED); 12 crossers all TEMPORARY. Matches C exactly.
+- T2-AC6: built own fixtures — stripped 7 T1 trajectory keys into .tmp/legacy_with_prior (11-20+11-13) and .tmp/legacy_alone (11-20 only). legacy+prior: exit 0, Heading+Persist cols, derived 21 crossings 15/6 via prior diff, derivation caveat emitted. legacy-alone: exit 0, no Heading/Persist cols, S5 'Trajectory semantics unavailable (legacy payload, no prior dated prompt file)' + S9 caveat. No crash either path.
+- T2-AC7: SKILL.md (239 lines) documents grid spec, arrow map + FLAT row (|d|<0.05 both axes, checked before arrow map), probabilistic crossing taxonomy, crossing_status/persistence contract (occupancy != validity), enrichment contract ('> Weekly read:' BEFORE grid in S1, '> Read:' end of S2-S7, '**Net call:**' end of S8), hard rules with arrow wording.
+- Loops: 'No unjustified loops found. (17 files checked)' exit 0.
+- Scope clean: git diff-tree bd769f6 = exactly .devin/skills/analyze_rra/{analyze_rra.py,SKILL.md} — the 2 output_files; no src/ or tests/ edits.
+C advisories N1-N4 reviewed — all non-blocking, accepted (0.01 IEEE delta rounding legacy-derived, axis-label wording improvement, alpha-sort graceful degradation, AMLP->Other per spec).
+Verdict: PASS. All 7 ACs verified with concrete evidence. docs/rra regeneration per orchestrator workflow.
