@@ -26,20 +26,59 @@ VEL_DEAD = 1.0          # velocity_1w below this = dead money
 CONSISTENT = 75.0       # consistency_score threshold for "consistent leader"
 LAGGED_OUT = 8          # lag_weeks_3m at/above this = structural laggard
 TOP_N = 10              # rows shown in ranked tables
+DEADBAND = 1.0          # pts past the crossed boundary for CONFIRMED crossing
+FLAT_TOL = 0.05         # |delta| below this on BOTH axes -> FLAT heading
 
-# Quadrant-crossing bias taxonomy (see SKILL.md). Diagonal jumps and any
-# unlisted transition are discontinuous — treat with suspicion.
-CROSSING_BIAS = {
-    "LEADING->IMPROVING":   "regime break — bearish shock",
-    "WEAKENING->LAGGING":   "breakdown confirmed — bearish",
-    "IMPROVING->LAGGING":   "failed improvement — bearish",
-    "LEADING->WEAKENING":   "normal aging — trim into strength",
-    "IMPROVING->LEADING":   "rotation confirmed — bullish",
-    "LAGGING->IMPROVING":   "bottoming — early bullish",
-    "LAGGING->WEAKENING":   "hard right break — squeeze, don't chase",
-    "WEAKENING->LEADING":   "re-acceleration — bullish",
+# Heading compass -> arrow glyph, applied everywhere headings render.
+# FLAT renders as the literal word (no glyph).
+ARROW = {"NE": "↗", "SE": "↘", "SW": "↙", "NW": "↖", "FLAT": "FLAT"}
+
+# Census-grid theme buckets for the 2x2 RRG grid (96-ticker ETF universe).
+# Order is the display order inside each cell; unmapped tickers fall back
+# to "Other". Tickers are emitted alphabetically within each theme bullet.
+THEME_MAP = [
+    ("Energy/commodity",             "USO COMT DBC BCD FTGC IEO XOP VDE FCG XLE CANE NANR SOYB CORN WEAT XES UNG".split()),
+    ("Metals/hard-asset",            "GDX SLV GLD PLTM PALL XME COPX SLX CPER DBB REMX LIT BATT SMOG".split()),
+    ("Healthcare",                   "XLV VHT IBB IHI XBI XPH".split()),
+    ("Defensive/rate-sensitive",     "TLT XLU XLP HYG JNK SGOV ITB".split()),
+    ("Value/dividend/consumer",      "VTV VOE IWD VBR XRT XLY XLB".split()),
+    ("Financials/REITs",             "XLF IYF KRE IAI SCHH IYR".split()),
+    ("Growth/mega-cap tech",         "QQQ SMH XLK XSW CIBR CLOU ARKK IWF AWAY VBK VOT XLC HERO DIA IWM".split()),
+    ("Clean energy",                 "QCLN TAN PBW ICLN".split()),
+    ("EM/Intl",                      "EEM EWY EWJ EWA EWZ FXI INDA VNM EWC EFA VXUS VGK".split()),
+    ("Transports/infra/industrials", "IYT JETS XTN XLI XAR GRID IFRA".split()),
+]
+TK2THEME = {t: name for name, tks in THEME_MAP for t in tks}
+
+# Which boundary (axis = 100) each adjacency crosses. Diagonals cross both.
+_RATIO_CROSSED = {frozenset(p) for p in (("LEADING", "IMPROVING"),
+                                         ("WEAKENING", "LAGGING"))}
+_MOM_CROSSED = {frozenset(p) for p in (("LEADING", "WEAKENING"),
+                                       ("IMPROVING", "LAGGING"))}
+_DIAGONAL = {frozenset(p) for p in (("LEADING", "LAGGING"),
+                                    ("IMPROVING", "WEAKENING"))}
+
+# Probabilistic crossing labels (v4 taxonomy — see SKILL.md). Diagonals and
+# any unlisted transition get the discontinuous default.
+CROSSING_LABEL = {
+    "LEADING->IMPROVING": "potential regime break / RS breakdown warning",
+    "IMPROVING->LAGGING": "failed recovery / bearish continuation",
+    "LAGGING->WEAKENING": "possible squeeze / counter-trend rally — not a buy signal",
+    "WEAKENING->LEADING": "possible re-acceleration — verify follow-through",
+    "IMPROVING->LEADING": "possible rotation into leadership — confirm next week",
+    "LEADING->WEAKENING": "potential distribution / early reversal — watch",
+    "WEAKENING->LAGGING": "potential bearish continuation — confirm persistence",
+    "LAGGING->IMPROVING": "early recovery attempt — unconfirmed",
 }
-CROSSING_DEFAULT = "discontinuous — treat with suspicion"
+CROSSING_DEFAULT = "discontinuous regime change — investigate"
+
+# Presentation order inside ## 5. Quadrant Crossings.
+CCW_ORDER = ["LEADING->IMPROVING", "IMPROVING->LAGGING",
+             "LAGGING->WEAKENING", "WEAKENING->LEADING"]
+CW_ORDER = ["IMPROVING->LEADING", "LEADING->WEAKENING",
+            "WEAKENING->LAGGING", "LAGGING->IMPROVING"]
+DIAG_ORDER = ["LEADING->LAGGING", "LAGGING->LEADING",
+              "IMPROVING->WEAKENING", "WEAKENING->IMPROVING"]
 
 DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})_analysis_prompt.*\.json$")
 
@@ -63,8 +102,11 @@ def _quadrant_of(r, m):
 
 
 def _heading(dr, dm):
-    """Compass heading from week-over-week deltas; a zero axis counts
-    as positive (same >=0 convention as gen_ai_prompt)."""
+    """Compass heading from week-over-week deltas. FLAT is checked FIRST
+    (|delta| < FLAT_TOL on both axes); then a zero axis counts as positive
+    (same >=0 convention as gen_ai_prompt)."""
+    if abs(dr) < FLAT_TOL and abs(dm) < FLAT_TOL:
+        return "FLAT"
     if dr >= 0 and dm >= 0:
         return "NE"
     if dr >= 0:
@@ -72,6 +114,75 @@ def _heading(dr, dm):
     if dm >= 0:
         return "NW"
     return "SW"
+
+
+def _arrow(h):
+    """Display glyph for a heading value (FLAT renders as the word)."""
+    return ARROW.get(h or "", "—")
+
+
+def _crossed_axes(quadrant_change):
+    """The boundary(ies) a PREV->CURR transition crossed: 'ratio' for
+    LEADING<->IMPROVING / WEAKENING<->LAGGING, 'momentum' for
+    LEADING<->WEAKENING / IMPROVING<->LAGGING, both for diagonals.
+    Unlisted pairs are evaluated on both axes (conservative)."""
+    prev, _, cur = quadrant_change.partition("->")
+    pair = frozenset((prev, cur))
+    if pair in _RATIO_CROSSED:
+        return ("ratio",)
+    if pair in _MOM_CROSSED:
+        return ("momentum",)
+    return ("ratio", "momentum")
+
+
+def _crossing_status(r):
+    """UNCHANGED when no transition; CONFIRMED when every crossed axis
+    landed >= DEADBAND past 100, else PROVISIONAL_CROSSING."""
+    qc = r.get("quadrant_change")
+    if not qc or qc == "UNCHANGED" or "->" not in qc:
+        return "UNCHANGED"
+    for ax in _crossed_axes(qc):
+        v = r["rs_ratio"] if ax == "ratio" else r["rs_momentum"]
+        if v is None or abs(v - 100) < DEADBAND:
+            return "PROVISIONAL_CROSSING"
+    return "CONFIRMED"
+
+
+def prior_quadrant_series(path: Path) -> list[dict]:
+    """{ticker: quadrant} maps of every dated prompt file in the same dir
+    strictly older than `path`, newest first — for the
+    quadrant_persistence walk-back. Never raises."""
+    m = DATE_RE.search(path.name)
+    if not m:
+        return []
+    cur = m.group(1)
+    series = []
+    for p in sorted(path.parent.glob("*_analysis_prompt*.json")):
+        if p.resolve() == path.resolve():
+            continue
+        mm = DATE_RE.search(p.name)
+        if not mm or mm.group(1) >= cur:
+            continue
+        try:
+            snap = json.loads(p.read_text(encoding="utf-8")).get("market_snapshot") or {}
+        except (OSError, ValueError):
+            continue
+        series.append((mm.group(1), {
+            tk: (e.get("current_position") or {}).get("quadrant", "").upper()
+            for tk, e in (snap.get("ticker_data") or {}).items()}))
+    series.sort(key=lambda t: t[0], reverse=True)
+    return [qmap for _, qmap in series]
+
+
+def _persistence(r, series):
+    """TEMPORARY (1wk) / PENDING (2wk) / CONFIRMED (>=3wk) — consecutive
+    weeks occupying the CURRENT quadrant, walking back prior files."""
+    n = 1
+    for qmap in series:
+        if qmap.get(r["ticker"]) != r["quadrant"]:
+            break
+        n += 1
+    return "TEMPORARY" if n == 1 else "PENDING" if n == 2 else "CONFIRMED"
 
 
 def find_prior_prompt(path: Path) -> Path | None:
@@ -130,6 +241,12 @@ def rows(snap: dict, prev_snap: dict | None = None) -> list[dict]:
                 prev_quad = (pe.get("quadrant") or "").upper() or _quadrant_of(pr, pm)
                 qchange = ("UNCHANGED" if prev_quad == (cp.get("quadrant") or "").upper()
                            else f"{prev_quad}->{(cp.get('quadrant') or '').upper()}")
+        # FLAT is a v4 heading state the native JSON field predates: when
+        # deltas are within tolerance on both axes it overrides whatever
+        # heading the payload (or derivation) produced.
+        if heading is not None and dr is not None and dm is not None \
+                and abs(dr) < FLAT_TOL and abs(dm) < FLAT_TOL:
+            heading = "FLAT"
         out.append({
             "ticker": tk,
             "rs_ratio": cp.get("rs_ratio"),
@@ -153,25 +270,78 @@ def rows(snap: dict, prev_snap: dict | None = None) -> list[dict]:
     return out
 
 
-def fmt(v, nd=1):
-    return "n/a" if v is None else f"{v:.{nd}f}"
+def fmt(v, nd=1, sign=False):
+    if v is None:
+        return "n/a"
+    return f"{v:+.{nd}f}" if sign else f"{v:.{nd}f}"
 
 
 def table(rs, cols=("ticker", "quadrant", "rs_ratio", "rs_momentum",
                     "velocity_1w", "vel_dir", "lead_w", "lag_w", "consistency")):
     hdr = {"ticker": "Ticker", "quadrant": "Quadrant", "rs_ratio": "RS-Ratio",
            "rs_momentum": "RS-Mom", "velocity_1w": "Vel 1w", "vel_dir": "Dir",
-           "heading": "Hdg", "lead_w": "Lead wks", "lag_w": "Lag wks",
-           "consistency": "Consist %"}
+           "heading": "Heading", "persist": "Persist", "lead_w": "Lead wks",
+           "lag_w": "Lag wks", "consistency": "Consist %"}
     lines = ["| " + " | ".join(hdr[c] for c in cols) + " |",
              "|" + "---|" * len(cols)]
     for r in rs:
         lines.append("| " + " | ".join(
             fmt(r[c], 2) if c in ("rs_ratio", "rs_momentum") else
             fmt(r[c]) if c in ("velocity_1w", "consistency") else
-            str(r[c] or "—") if c == "heading" else
+            _arrow(r[c]) if c == "heading" else
+            str(r[c] or "—") if c == "persist" else
             str(r[c]) for c in cols) + " |")
     return lines
+
+
+def _census_cell(quadrant, rs):
+    """One 2x2-grid cell: '**QUADRANT (n)**' followed by '<br>• Theme:
+    `TKR`↙ ...' bullets grouping members via THEME_MAP (alphabetical
+    inside each bullet; unmapped tickers fall back to 'Other')."""
+    by_t = {r["ticker"]: r for r in rs if r["quadrant"] == quadrant}
+    cell = f"**{quadrant} ({len(by_t)})**"
+    seen = set()
+    for theme, tks in THEME_MAP:
+        here = sorted(set(tks) & by_t.keys())
+        if not here:
+            continue
+        seen.update(here)
+        cell += (f"<br>• {theme}: " + " ".join(
+            f"`{t}`{ARROW.get(by_t[t]['heading'] or '', '')}" for t in here))
+    rest = sorted(set(by_t) - seen)
+    if rest:
+        cell += ("<br>• Other: " + " ".join(
+            f"`{t}`{ARROW.get(by_t[t]['heading'] or '', '')}" for t in rest))
+    return cell
+
+
+def _crossing_line(r):
+    """One §5 entry: '- `TKR` STATUS — ↙, Δratio -6.89, Δmom -2.07
+    (landed ratio 97.59, 2.41 past boundary); quadrant_persistence X'.
+    Provisional entries get 'only' + '— whipsaw watch'."""
+    st = r["crossing_status"]
+    prov = st == "PROVISIONAL_CROSSING"
+    axes = _crossed_axes(r["quadrant_change"])
+    if axes == ("ratio",):
+        dist = abs((r["rs_ratio"] or 100) - 100)
+        land = f"landed ratio {fmt(r['rs_ratio'], 2)}"
+    elif axes == ("momentum",):
+        dist = abs((r["rs_momentum"] or 100) - 100)
+        land = f"landed mom {fmt(r['rs_momentum'], 2)}"
+    else:  # diagonal — both axes evaluated independently
+        dr_d = abs((r["rs_ratio"] or 100) - 100)
+        dm_d = abs((r["rs_momentum"] or 100) - 100)
+        land = (f"landed ratio {fmt(r['rs_ratio'], 2)}, "
+                f"mom {fmt(r['rs_momentum'], 2)}")
+        dist = f"{dr_d:.2f}/{dm_d:.2f}"
+    if prov:
+        land += f", only {dist if isinstance(dist, str) else f'{dist:.2f}'} past boundary — whipsaw watch"
+    else:
+        land += f", {dist if isinstance(dist, str) else f'{dist:.2f}'} past boundary"
+    return (f"- `{r['ticker']}` {st} — {_arrow(r['heading'])}, "
+            f"Δratio {fmt(r['delta_rs_ratio'], 2, sign=True)}, "
+            f"Δmom {fmt(r['delta_rs_momentum'], 2, sign=True)} "
+            f"({land}); quadrant_persistence {r.get('persist') or '—'}")
 
 
 def build_report(data: dict, src: Path) -> str:
@@ -185,6 +355,15 @@ def build_report(data: dict, src: Path) -> str:
     prev_snap, prev_path = prior_snapshot(src)
     rs = rows(snap, None if native_semantics else prev_snap)
     has_heading = any(r["heading"] for r in rs)
+    # quadrant_persistence (TEMPORARY/PENDING/CONFIRMED occupancy) + the
+    # geometric crossing_status are derived per ticker from the dated
+    # file series — independent of where the heading fields came from.
+    series = prior_quadrant_series(src)
+    # justified: per-row field assignment needs the ticker index into the
+    # walk-back series; not expressible as a transformation of rs alone.
+    for r in rs:
+        r["persist"] = _persistence(r, series)
+        r["crossing_status"] = _crossing_status(r)
     asof, bench = snap.get("analysis_date", "unknown"), snap.get("benchmark", "?")
     lookback = snap.get("lookback_weeks", "?")
     instr = data.get("instructions", {})
@@ -248,12 +427,22 @@ def build_report(data: dict, src: Path) -> str:
     L.append(" | ".join(f"**{q}: {census.get(q, 0)}**" for q in
              ("LEADING", "IMPROVING", "WEAKENING", "LAGGING")))
     L.append("")
+    # Traditional 2x2 RRG grid — RS-Momentum rows (>=100 top) x RS-Ratio
+    # columns (>=100 right). Each cell: '**QUADRANT (n)**' + per-theme
+    # bullets; every ticker carries its heading arrow.
+    L.append("| RS-Momentum ↓ / RS-Ratio → | **< 100** | **≥ 100** |")
+    L.append("|---|---|---|")
+    L.append("| **≥ 100** | " + _census_cell("IMPROVING", rs) + " | "
+             + _census_cell("LEADING", rs) + " |")
+    L.append("| **< 100** | " + _census_cell("LAGGING", rs) + " | "
+             + _census_cell("WEAKENING", rs) + " |")
+    L.append("")
 
-    # Hdg column appears in the per-ticker tables whenever trajectory
-    # semantics are available (native fields or prior-file diff).
+    # Heading + Persist columns appear in the per-ticker tables whenever
+    # trajectory semantics are available (native fields or prior-file diff).
     main_cols = ("ticker", "quadrant", "rs_ratio", "rs_momentum",
-                 "velocity_1w", "vel_dir", "heading", "lead_w", "lag_w",
-                 "consistency") if has_heading else (
+                 "velocity_1w", "vel_dir", "heading", "persist", "lead_w",
+                 "lag_w", "consistency") if has_heading else (
                  "ticker", "quadrant", "rs_ratio", "rs_momentum",
                  "velocity_1w", "vel_dir", "lead_w", "lag_w", "consistency")
 
@@ -282,11 +471,67 @@ def build_report(data: dict, src: Path) -> str:
     L += table(decel_leaders, cols=main_cols)
     L.append("")
 
-    L.append("## 5. Velocity Analysis")
+    # ## 5. Quadrant Crossings — standalone section (v4). Every ticker
+    # whose week-over-week quadrant label changed, grouped by transition
+    # type: counter-clockwise (abrupt reversals) then clockwise (normal
+    # rotation) then diagonals (discontinuous), each under a bold
+    # '**A->B** — probabilistic label' header.
+    crossings = sorted(
+        (r for r in rs
+         if r["quadrant_change"] and r["quadrant_change"] != "UNCHANGED"),
+        key=lambda r: r["ticker"])
+    L.append("## 5. Quadrant Crossings")
+    L.append("")
+    if not has_heading:
+        L.append("*Trajectory semantics unavailable (legacy payload, no prior "
+                 "dated prompt file) — crossing analysis omitted.*")
+        L.append("")
+    elif not crossings:
+        L.append("No quadrant crossings this week.")
+        L.append("")
+    else:
+        conf = sum(1 for r in crossings if r["crossing_status"] == "CONFIRMED")
+        prov = len(crossings) - conf
+        by_type = Counter(r["quadrant_change"] for r in crossings)
+        types_txt = ", ".join(f"{n}x {t}" for t, n in
+                              sorted(by_type.items(), key=lambda kv: (-kv[1], kv[0])))
+        diag_n = sum(n for t, n in by_type.items()
+                     if frozenset(t.split("->")) in _DIAGONAL)
+        diag_txt = (f"{diag_n} diagonal/discontinuous transition"
+                    + ("s." if diag_n != 1 else ".")
+                    if diag_n else "No diagonal/discontinuous transitions.")
+        L.append(f"{len(crossings)} crossings this week: **{conf} confirmed / "
+                 f"{prov} provisional** (geometric deadband {DEADBAND:.1f} pt past "
+                 f"the crossed boundary). By type: {types_txt}. {diag_txt}")
+        L.append("")
+        known = set(CCW_ORDER) | set(CW_ORDER) | set(DIAG_ORDER)
+        groups = (("### Counter-clockwise — abrupt reversals",
+                   CCW_ORDER + sorted(set(by_type) - known)),
+                  ("### Clockwise — normal rotation", CW_ORDER),
+                  ("### Diagonal — discontinuous", DIAG_ORDER))
+        for title, order in groups:
+            present = [t for t in order if by_type.get(t)]
+            if not present:
+                continue
+            L.append(title)
+            L.append("")
+            for t in present:
+                L.append(f"**{t}** — "
+                         + CROSSING_LABEL.get(t, CROSSING_DEFAULT))
+                L.append("")
+                # confirmed first, then provisional; velocity desc inside each
+                for r in sorted((r for r in crossings if r["quadrant_change"] == t),
+                                key=lambda r: (r["crossing_status"] != "CONFIRMED",
+                                               -r["velocity_1w"])):
+                    L.append(_crossing_line(r))
+                L.append("")
+
+    L.append("## 6. Velocity Analysis")
     L.append("")
     L.append(f"Fastest movers (top {TOP_N} by |velocity_1w|):")
     L.append("")
-    L += table(accel, cols=("ticker", "quadrant", "velocity_1w", "vel_dir", "heading", "rs_momentum")
+    L += table(accel, cols=("ticker", "quadrant", "velocity_1w", "vel_dir",
+                            "heading", "persist", "rs_momentum")
                if has_heading else
                ("ticker", "quadrant", "velocity_1w", "vel_dir", "rs_momentum"))
     L.append("")
@@ -295,31 +540,14 @@ def build_report(data: dict, src: Path) -> str:
             f"`{r['ticker']}` {r['velocity_1w']:.2f}" for r in dead))
         L.append("")
 
-    # Quadrant Crossings — every ticker whose week-over-week quadrant
-    # label changed, annotated with the crossing-taxonomy bias label.
-    crossings = sorted(
-        (r for r in rs
-         if r["quadrant_change"] and r["quadrant_change"] != "UNCHANGED"),
-        key=lambda r: r["ticker"])
-    if crossings:
-        L.append("### Quadrant Crossings")
-        L.append("")
-        for r in crossings:
-            bias = CROSSING_BIAS.get(r["quadrant_change"], CROSSING_DEFAULT)
-            L.append(f"- `{r['ticker']}` {r['quadrant_change']} — {bias} "
-                     f"(heading {r['heading'] or '—'}, "
-                     f"Δratio {fmt(r['delta_rs_ratio'], 2)}, "
-                     f"Δmom {fmt(r['delta_rs_momentum'], 2)})")
-        L.append("")
-
-    L.append("## 6. Structural Laggards")
+    L.append("## 7. Structural Laggards")
     L.append("")
     L.append(f"Top {TOP_N} LAGGING by lag-weeks:")
     L.append("")
     L += table(laggards, cols=("ticker", "rs_ratio", "rs_momentum", "velocity_1w", "lag_w", "consistency"))
     L.append("")
 
-    L.append("## 7. Actionable Portfolio Tilts")
+    L.append("## 8. Actionable Portfolio Tilts")
     L.append("")
     L.append(f"- **Overweight** ({len(ow)}): " + ", ".join(f"`{t}`" for t in sorted(ow)))
     L.append(f"- **Hold-but-trim** — decelerating leaders ({len(trim)}): " + ", ".join(f"`{t}`" for t in sorted(trim)))
@@ -329,7 +557,7 @@ def build_report(data: dict, src: Path) -> str:
              (", ".join(f"`{t}`" for t in sorted(watch)) or "none"))
     L.append("")
 
-    L.append("## 8. Data Caveats")
+    L.append("## 9. Data Caveats")
     L.append("")
     L.append(f"- `consistency_score` = lead_weeks_3m / lookback ({lookback}) — share of the "
              "window spent in LEADING. lead+lag < lookback is normal (IMPROVING/WEAKENING "
@@ -349,6 +577,16 @@ def build_report(data: dict, src: Path) -> str:
     L.append("- `angle_deg` convention is not defined in the prompt; do not infer rotation "
              "direction from it alone — use quadrant + `heading` (or, on legacy payloads "
              "without a prior file, quadrant + velocity_direction).")
+    if has_heading:
+        flat_n = sum(1 for r in rs if r["heading"] == "FLAT")
+        L.append("- `crossing_status` = geometric deadband on the actually-crossed axis "
+                 "(ratio for L<->I & W<->L; momentum for L<->W & I<->L; diagonals both) "
+                 "— PROVISIONAL_CROSSING within 1.0 pt of 100, CONFIRMED beyond; "
+                 "whipsaw-verdict needs a second week. `quadrant_persistence` = "
+                 "consecutive weeks occupying the current quadrant "
+                 "(TEMPORARY/PENDING/CONFIRMED) — occupancy duration only, NOT crossing "
+                 "validity; `heading` FLAT reserved for |Δ|<0.05 on both axes "
+                 f"({flat_n} occurrences this week).")
     L.append("- Tilt buckets are rule-generated; review before acting.")
     L.append("")
     return "\n".join(L)
