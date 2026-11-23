@@ -5191,5 +5191,74 @@
         "text": "Probe failure is distinct from server-unreachable: connection failure handling preserved (existing probe='fail' heartbeat semantics unchanged)"
       }
     ]
+  },
+  {
+    "id": "ENRICH-T1",
+    "title": "Automate weekly RRG Phase B enrichment via headless local devin -p (rrg_enrich_headless.py + StockIngestion-RRGEnrich task)",
+    "role": "executor",
+    "model": "swe",
+    "status": "in_progress",
+    "assigned_to": "B",
+    "depends_on": [],
+    "input_files": [
+      "/scripts/rrg_weekly_pipeline.py",
+      "/docs/enhancements/rrg_weekly_automation_design.md",
+      "/docs/rra/.rrg_pipeline_state.json",
+      "/scripts/register_rrg_weekly.ps1",
+      "/.devin/skills/analyze_rra/SKILL.md",
+      "/.devin/skills/summarize_rra/SKILL.md",
+      "/scripts/poll_tasks.py",
+      "/devin_blackboard/EVENTS.log"
+    ],
+    "output_files": [
+      "/scripts/rrg_enrich_headless.py",
+      "/scripts/register_rrg_enrich.ps1",
+      "/tests/test_rrg_enrich_headless.py",
+      "/docs/enhancements/rrg_weekly_automation_design.md"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "ENRICH-AC1",
+        "check": "focused tests",
+        "command": "python -m pytest tests/test_rrg_enrich_headless.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "ENRICH-AC2",
+        "check": "full suite green",
+        "command": "python -m pytest tests/ -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "ENRICH-AC3",
+        "check": "loop checker",
+        "command": "python scripts/check_loops.py --src-dir src",
+        "expected_exit": 0
+      },
+      {
+        "id": "ENRICH-AC4",
+        "check": "dry-run exits 0 and touches nothing",
+        "command": "python scripts/rrg_enrich_headless.py --dry-run",
+        "expected_exit": 0
+      },
+      {
+        "text": "ENRICH-AC5: Pending draft (docs/rra/.rrg_pipeline_state.json with report_enriched=false or summary missing resolved_date) -> --dry-run prints EXACTLY ONE headless spawn: devin.exe -p '<filled prompt>' (bundled path LOCALAPPDATA/Programs/Devin/resources/app/extensions/windsurf/devin/bin/devin.exe under the local appdata root, fallback 'devin' on PATH), cwd=repo root"
+      },
+      {
+        "text": "ENRICH-AC6: Enriched state (report_enriched true AND weekly_summary.md contains resolved_date) -> exit 0, no spawn (test proves)"
+      },
+      {
+        "text": "ENRICH-AC7: devin_blackboard/locks/rrg_enrich.lock mutual exclusion — a held lock makes a second invocation exit without spawning; stale-lock recovery follows poll_tasks conventions (>10 min)"
+      },
+      {
+        "text": "ENRICH-AC8: ENRICHMENT PROMPT embedded with {json_path}/{report_path}/{resolved_date} placeholders filled from state; instructs session to (a) run analyze_rra.py draft only if report missing, (b) enrich per analyze_rra SKILL contract (> Weekly read:/Read: + **Net call:**, tables verbatim), (c) update weekly_summary.md + regenerate report_index.md per summarize_rra SKILL, (d) edit ONLY docs/rra/*.md + blackboard, (e) stop when markers verify"
+      },
+      {
+        "text": "ENRICH-AC9: 30-min kill timeout; non-zero exit logs warning, never blocks publish; [ENRICH-T1] EVENTS.log lines for spawn/pid/exit/post-run marker verification"
+      },
+      {
+        "text": "ENRICH-AC10: register_rrg_enrich.ps1 mirrors register_rrg_weekly.ps1 conventions — StockIngestion-RRGEnrich, triggers Fri 22:45 + Sat/Sun 08:30 (weekly multi-trigger, NOT /sc DAILY), StartWhenAvailable, user/Interactive/Limited, pythonw.exe, WorkingDirectory=repo root; design doc 'Enrichment engine' flipped to auto headless + moved out of Decisions locked"
+      }
+    ]
   }
 ]

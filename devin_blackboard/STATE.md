@@ -1,6 +1,66 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-23 (IW-T1 done — watcher now probes the client-facing do_get read path)
+Last Updated: 2026-11-23 (ARKK RRA verification done — data/math correct, report narrative defective; IW-T1 awaiting Critic D)
 Current Branch: main
+
+## ANALYSIS — ARKK in "Improving Trends" (2026-11-20 report, orchestrator 2026-11-23)
+
+User challenged ARKK's IMPROVING placement vs QQQ. Verified end-to-end:
+- Recompute from weekly_close via Flight reproduces the JSON exactly
+  (ARKK 97.59/112.30, vel 7.19, lead 11; QQQ 95.51/96.91, lag 12).
+- Daily bars clean; 11-20 weekly close 64.22 = Friday daily close on
+  elevated volume (real crash week, no bad tick).
+- ARKK rs_momentum 112.3 is a stale-lookback artifact: 14w pct_change
+  of rs_ratio compares to the late-Jul/early-Aug RS trough (~90.6).
+  Rolls off within ~1-3 weeks -> LAGGING unless RS recovers.
+- ARKK genuinely led 11/12 wks (LEADING every wk Aug-21..Nov-13);
+  streak broke on the crash week (LEADING->IMPROVING, ratio -6.9pts).
+- User's intuition confirmed: ARKK underperformed QQQ on every recent
+  horizon (1wk -14.4% vs -10.5%; 4wk -21.7% vs -13.6%).
+- REPORT DEFECT (narrative, not data): sec.3 "accelerating back toward
+  LEADING" is wrong — heading -163deg is toward LAGGING; ACCELERATING
+  measures speed not direction. sec.7 Overweight incl. ARKK is the
+  same mechanical misread. Reported to user; fix offered, not applied.
+
+## ANALYSIS — summarize_rra verification (orchestrator, 2026-11-23)
+
+Skill run on docs/rra/ (28 dated reports through 2026-11-20):
+both outputs already current — weekly_summary.md fully enriched
+(28 rows + arc incl. 11-20), report_index.md byte-identical to a
+fresh --index regeneration. No changes made.
+
+## IW-T1 — Challenger C review: APPROVED (2026-11-23)
+
+**CHALLENGER-C verdict: APPROVED** (HEAD 6bd1823; impl = IW-T1 single
+commit). Trusted nothing — re-ran every AC + 6 adversarial probes.
+
+- IW-AC1 focused: 106/106 PASS in 8.18s, exit 0.
+- IW-AC2 full suite: 2132/2132 PASS in 357.74s (workstation-loaded;
+  B's 243s unloaded baseline), exit 0, same 2 numpy warnings.
+- IW-AC3 loops: "No unjustified loops found. (17 files)" exit 0.
+
+Free-text ACs verified: probe is client-facing (Ticket + do_get +
+read_all on the same connection, NOT the do_action health path);
+failure -> SEV1 `flight_read`/`flight_read_do_get` finding riding
+normal dedup/escalation/auto-resolve/toast; unreachable vs
+reachable-broken distinction preserved (dead server does NOT
+double-page — flight_read stays None). 6 adversarial probes all
+passed incl. mid-stream read_all failure (the real outage mode),
+green-health+dead-do_get regression, identity stability, and
+BaseException-not-swallowed.
+
+NON-BLOCKING advisories (not a re-open):
+- N1 (LOW): FlightCallOptions.timeout=30 bounds the do_get RPC, not
+  necessarily read_all() stream reads. SELECT 1 is single-batch so
+  practical risk is low; pyarrow has no per-read timeout.
+- N2 (INFO): heartbeat `probe` field stays "unreachable" when
+  do_action fails but do_get is ok — pre-IW-T1 semantic, flight_read
+  now disambiguates.
+- N3 (INFO): probe is liveness (SELECT 1 completes), not correctness
+  (does not inspect rows). Per AC scope.
+
+Missed failure modes: NONE. Would deploy: YES. Scope clean (delta =
+scripts/incident_watch.py + tests/test_incident_watch.py + blackboard;
+no src/ edits). Next: Critic D final acceptance verification.
 
 ## IW-T1 — DONE (executor B, 2026-11-23)
 

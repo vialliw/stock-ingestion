@@ -6637,3 +6637,65 @@ Evidence map:
     "output": ""
   }
 ][2026-11-23T12:30:43Z] ORCH: analyze_rra run for 2026-11-20 — pipeline --generate produced JSON + draft (resolved 2026-11-20); enriched per contract (6 reads + net call); weekly_summary.md row appended + arc updated (28 reports); report_index.md auto-regenerated; publish gate 30/0.
+
+[2026-11-23T12:30:58.577182+00:00] [RRG-WEEKLY] published 30 file(s) -> https://github.com/vialliw/Relative-Rotation-Analysis-Dashboard/report (commit 5bc70bb); skipped 0 unenriched
+[2026-11-23T13:05:00+00:00] [CHALLENGER] IW-T1 review -> verdict: APPROVED (HEAD 6bd1823; impl = IW-T1 single commit). Trusted nothing — re-ran every AC + 6 adversarial probes on the do_get liveness probe + classify_health integration + main() wiring.
+
+AC re-run (all green, exit codes captured directly):
+- IW-AC1 focused: 106/106 PASS in 8.18s, exit 0.
+- IW-AC2 full suite: 2132/2132 PASS in 357.74s (workstation-loaded; B's 243s is the unloaded baseline), exit 0, same 2 numpy divide warnings B reported (test_correlation_dashboard NaN-title).
+- IW-AC3 loops: "No unjustified loops found. (17 files checked)" exit 0.
+
+Free-text ACs (independently verified in code + probes):
+- Client-facing do_get path: _probe_flight_read (incident_watch.py:1483-1510) issues flight.Ticket(json.dumps({"sql":"SELECT 1"})) + client.do_get(ticket, options=flight.FlightCallOptions(timeout=_FLIGHT_GET_TIMEOUT_S=30)) + reader.read_all() — the exact wire call a consumer makes, NOT the do_action health path. Test asserts _ticket_sql(call["ticket"]) == "SELECT 1" and isinstance(call["options"], flight.FlightCallOptions). Same connection as data_health (main:1719-1735 — _connect returns the client; both _probe_flight_read(client) and _fetch_health(client) use it).
+- Failure -> SEV1 finding: classify_health (script 558-584) appends _Finding(check="flight_read", detail="do_get", severity=1, ...) when flight_read is not None and flight_read != "ok". Identity = _sanitize(f"{check}_{detail}") = "flight_read_do_get" — stable across runs. Rides normal _apply_findings: dedup (test_flight_read_dedup_and_unacked_flow: repeat failure -> 1 folder, unacked_checks=2), auto-resolve (test_flight_read_auto_resolves_when_probe_recovers: recovery -> resolved/ folder), toast (severity<=2 -> toast; test asserts stats["toasts"][0][0] == 1). Success -> zero noise (test_flight_read_success_zero_noise: open/ empty, no toasts).
+- Unreachable vs reachable-broken distinction: main() — _connect failure -> probe_error set, flight_read stays None -> classify_health produces ONLY probe/unreachable SEV1 (PROBE5: ('probe',1) in findings, ('flight_read',1) not in findings). _connect success + _probe_flight_read failure -> flight_read set to error text -> SEV1 flight_read (PROBE4). A dead server does NOT double-page. Tests test_unreachable_still_only_probe_finding + test_flight_read_failure_plus_unreachable_health cover both.
+
+Adversarial probes (all passed):
+- PROBE1 (mid-stream read_all failure — the real outage mode): _FakeReader.read_all raises RuntimeError -> _probe_flight_read returns "RuntimeError: fetch_arrow_table broke mid-stream" (not "ok"). Stream IS drained; server-side fetch_arrow_table breakage surfaces. Test test_probe_stream_failure_on_read_all covers this.
+- PROBE2 (BaseException not swallowed): _probe_flight_read catches Exception only; KeyboardInterrupt propagates (correct — watcher must not swallow interrupts). Verified.
+- PROBE3 (identity stability): _Finding(check='flight_read', detail='do_get').identity == 'flight_read_do_get'. Stable across runs.
+- PROBE4 (green-health + dead-do_get — the exact 11-06/11-21 blind spot): classify_health({'health_status':'OK'}, flight_read='boom') -> [('flight_read',1)] only, NO probe finding (health is a dict). Closed. Test test_main_do_get_failure_pages_sev1_even_with_green_health covers end-to-end via main().
+- PROBE5 (unreachable -> only probe): classify_health(None, probe_error='conn refused', flight_read=None) -> [('probe',1)], no flight_read finding. Dead server does NOT double-page.
+- PROBE6 (do_get ok + action broke): classify_health(None, probe_error='action broke', flight_read='ok') -> [('probe',1)], no flight_read finding. do_action failure remains the pre-IW-T1 probe finding (semantics preserved).
+
+Tests non-vacuous: all 11 tests use a _FakeFlightClient that records wire calls (do_get_calls, do_action_calls) and replays canned behavior — they assert the real Ticket JSON shape, the FlightCallOptions type, the call ordering (do_get before/alongside do_action), the SEV1 folder name, evidence in report.json, heartbeat fields, toast severity, dedup/unacked lifecycle, auto-resolve, and the green-health+dead-do_get regression via main(). The mid-stream read_all failure (the actual outage mode) is explicitly tested.
+
+NON-BLOCKING advisories (for the record, NOT a re-open):
+- N1 (LOW, timeout scope): _FLIGHT_GET_TIMEOUT_S=30 is passed via FlightCallOptions.timeout to do_get. In pyarrow Flight this bounds the initial do_get RPC, not necessarily subsequent read_all() stream reads. For SELECT 1 the server sends one batch immediately, so a hung server typically fails the initial RPC (bounded). A server that accepts the ticket then stalls mid-stream COULD outlive the 30s on read_all() — pyarrow has no per-read timeout. Practical risk is low (SELECT 1 is single-batch; the real outages raised FlightServerError, did not hang). Non-blocking; would matter only for a wedged-but-not-erroring stream.
+- N2 (INFO, heartbeat probe field): _write_heartbeat sets probe="ok" if isinstance(health, dict) else "unreachable". If do_get succeeds but the health action fails, heartbeat reads probe=unreachable, flight_read=ok — slightly contradictory but accurate (do_action broke, do_get fine). Pre-IW-T1 semantic preserved; flight_read now disambiguates. Non-blocking.
+- N3 (INFO, liveness not correctness): the probe validates that SELECT 1 completes without exception; it does not inspect the returned rows. An empty stream or wrong schema would still return "ok". Acceptable for a liveness probe per the AC ("trivial client-facing do_get"); a correctness probe is out of scope.
+
+Missed failure modes: NONE found. The probe catches both do_get-raise and read_all-failure (the real outage mode). Exception handling is broad (catches Exception, returns error text, never raises except BaseException). No silent swallow — a non-"ok" result always creates the SEV1 finding via classify_health. The 30s timeout bounds the do_get RPC; a truly hung watcher cycle would still exit within ~30s on the probe (modulo N1's mid-stream caveat).
+
+Scope: delta (6bd1823) = scripts/incident_watch.py + tests/test_incident_watch.py + blackboard (EVENTS.log, TASKS.json, locks/IW-T1.lock removed). No src/ edits, no out-of-scope. Working tree: only devin_blackboard/EVENTS.log modified (pre-existing 2-line rrg-pipeline append by another process, not by C). Read-only review — no src/ or tests/ files modified by C.
+
+Would I deploy: YES. The fix correctly closes the do_get blind spot that caused two ~26h silent outages (2026-11-06, 2026-11-21). The failure taxonomy (unreachable vs reachable-broken) is preserved. The finding rides the normal dedup/escalation/auto-resolve/toast path. Tests are non-vacuous and cover the real outage mode. N1-N3 are non-blocking design-level notes.
+
+Verdict: APPROVED. Next: Critic D final acceptance verification.
+
+[2026-11-23T00:00:00] [ORCHESTRATOR] SKILL summarize_rra — verification run (user request). docs/rra/ now has 28 dated reports (added 2026-11-20). --digest: 28 rows, all complete (Weekly read + Net call present). weekly_summary.md already enriched through 2026-11-20 with updated arc recap — no regeneration needed. report_index.md regenerated to temp and diffed: byte-identical, up to date (weekly pipeline already ran it). No file changes; no src/tests changes.
+
+[2026-11-23T00:00:00] [ORCHESTRATOR] ANALYSIS — ARKK "Improving Trends" verification (user request, 2026-11-20 ETF report). Recomputed RRG from weekly_close via Flight (read-only): exact reproduction of JSON (ARKK ratio=97.59 mom=112.30 vel=7.19 lead=11; QQQ ratio=95.51 mom=96.91 lag=12). Daily bars clean — 11-20 weekly close 64.22 = Friday daily close on elevated volume (13.0M), market-wide crash week, no bad tick. FINDINGS: (1) data + quadrant math correct; ARKK rs_ratio<100 already encodes underperformance vs SPY. (2) rs_momentum 112.3 is a stale-lookback artifact — 14w pct_change of rs_ratio vs the late-Jul/early-Aug RS trough (~90.6); rolls off in ~1-3wk -> LAGGING unless RS recovers. (3) ARKK genuinely led 11/12 wks (LEADING every week Aug-21..Nov-13; +24.7% vs SPY +5.6% Jul-24..Oct-09) — streak broke on the crash week (LEADING->IMPROVING, ratio -6.9 pts). (4) USER'S INTUITION CORRECT: ARKK underperformed QQQ every recent horizon (1wk -14.4% vs -10.5%; 4wk -21.7% vs -13.6%; peak-to-11-20 -29.3% vs -18.3%). (5) REPORT DEFECT (narrative, not data): sec.3 read says "ARKK 7.2 accelerating back toward LEADING" — wrong, heading is -163deg (down-left) TOWARD LAGGING; ACCELERATING = speed not direction (documented analyze_rra gotcha). sec.7 Overweight bucket includes ARKK via mechanical rule — flag for review. No src/tests changes.
+
+[2026-11-23T12:53:55+0000] [CRITIC] IW-T1 final acceptance -> verdict: PASS (impl 6bd1823, HEAD 8c7b2f1). Trusted nothing — re-ran every acceptance_criteria command myself and independently verified all 3 textual ACs in code.
+
+Structured ACs (own run, poll_tasks --verify captured to .tmp/critic_verify_iwt1.txt — ALL PASS):
+- IW-AC1 focused: 106/106 PASS (3.24s verify / 4.31s my direct run), exit 0.
+- IW-AC2 full suite: 2132/2132 PASS in 251.58s, exit 0, same 2 numpy NaN-divide warnings (test_correlation_dashboard) as B/C.
+- IW-AC3 loops (mandatory critic checklist): "No unjustified loops found. (17 files checked)" exit 0 (my direct run also exit 0).
+
+Textual ACs (independently verified in scripts/incident_watch.py + tests):
+- Real client-facing do_get: _probe_flight_read (1483-1508) issues flight.Ticket({"sql":"SELECT 1"}) + client.do_get(ticket, options=FlightCallOptions(timeout=30)) + reader.read_all() on the SAME _connect client as data_health (main 1712-1727) — NOT the do_action path. Tests assert the Ticket JSON shape + FlightCallOptions type.
+- Failure -> SEV1: classify_health (567-582) emits _Finding(check="flight_read", detail="do_get", severity=1) -> identity flight_read_do_get, error text in report.json evidence; rides normal dedup/escalation/auto-resolve/toast. Success -> zero findings/toasts (test_flight_read_success_zero_noise).
+- Unreachable vs reachable-broken: connect failure leaves flight_read=None -> ONLY the pre-existing probe/unreachable SEV1 (guard `flight_read is not None`, line 567); reachable-broken emits flight_read SEV1 without double-paging. Heartbeat probe semantics unchanged (probe=unreachable iff health not a dict); flight_read reported as separate field.
+
+Live sanity (read-only): _connect + _probe_flight_read against production Flight -> "ok".
+
+Challenger advisories N1-N3 weighed: N1 (LOW — FlightCallOptions.timeout bounds do_get RPC, not mid-stream read_all; SELECT 1 is single-batch so practical exposure is minimal; pyarrow has no per-read timeout) — non-blocking. N2 (INFO — heartbeat probe=unreachable when do_action fails but do_get ok; pre-IW-T1 semantic, flight_read disambiguates) — non-blocking. N3 (INFO — liveness not correctness; probe doesn't inspect returned rows) — per AC scope, non-blocking. None block acceptance.
+
+Scope clean: delta 6bd1823 = scripts/incident_watch.py + tests/test_incident_watch.py + blackboard; no src/ edits. Deploy readiness: YES — closes the do_get blind spot behind two ~26h silent outages.
+
+[2026-11-23T00:55:00] [ORCHESTRATOR] IW-T1 CYCLE COMPLETE — B (6bd1823) -> C APPROVED (N1-N3 non-blocking) -> D PASS (106/106 focused, 2132/2132 suite, loops clean, live probe 'ok'). Watcher now probes client-facing do_get every run; dead do_get = SEV1 'flight_read' finding. Effective next watcher run (22:30 nightly) — no restart needed (script-invoked). The ~26h silent do_get-outage blind spot is closed.
+
+[2026-11-23T12:59:53.322533+00:00] [EXECUTOR] claimed ENRICH-T1
