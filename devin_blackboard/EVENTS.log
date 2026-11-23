@@ -6927,3 +6927,35 @@ tests/test_rrg_dashboard.py: +5 tests in TestGenAiPrompt (49 total, was 44) — 
 VERIFY (poll_tasks --verify AND re-verified inside --done, ALL PASS both runs): TRAJ-AC1 focused 49/49 (9.30s); TRAJ-AC2 full suite 2162/2162 (271.51s, +5 vs prior 2157); TRAJ-AC3 loops clean (17 files); TRAJ-AC4 live generation OK — ARKK trajectory = {prev 104.48/114.37, delta -6.89/-2.07, heading SW, prev_quadrant LEADING, quadrant_change LEADING->IMPROVING}. Text ACs: AC5 nesting/4-headings/UNCHANGED|PREV->CURR/2dp rounding verified by tests + AC4 output; AC6 new-format Hdg+crossings block and legacy derive/omit paths verified on real docs/rra files; AC7 SKILL.md heading table + taxonomy + both narrative rules + updated gotcha in place.
 
 Deviation note: crossing count derived by analyze_rra (21) matches independent JSON diff; an earlier orchestrator note said "23 crossers" — the authoritative diff of current_position.quadrant across 11-13 vs 11-20 is 21 transitions (the extra 2 in the note were likely a miscount; all 21 transitions in my block match the note's enumerated moves exactly). No docs/rra regeneration performed (orchestrator-owned post-acceptance). Non-blocking observation: velocity_direction remains speed-only by design; heading is now the canonical direction field.
+
+[2026-11-23T15:05] [CHALLENGER-C] RRG-TRAJ-T1 review: APPROVED (HEAD 8194b24; impl 5a29c9f). Trusted nothing — re-ran every AC + 6 adversarial probes on the live-generated JSON, the legacy 11-20 prompt, the new-format isolated JSON, and a legacy-alone-in-dir case.
+
+AC re-run (all green, exit codes captured directly):
+- TRAJ-AC1 focused: 49/49 PASS in 7.01s, exit 0 (.tmp/c_traj_ac1.log).
+- TRAJ-AC2 full suite: 2162/2162 PASS in 303.60s, exit 0, 2 numpy warnings (.tmp/c_traj_ac2.log) — count matches B's 2162.
+- TRAJ-AC3 loops: "No unjustified loops found. (17 files checked)" exit 0.
+- TRAJ-AC4 live generation: exit 0 — ARKK trajectory = {velocity_1w 7.19, velocity_direction ACCELERATING, prev_rs_ratio 104.48, prev_rs_momentum 114.37, delta_rs_ratio -6.89, delta_rs_momentum -2.07, heading SW, prev_quadrant LEADING, quadrant_change LEADING->IMPROVING} (.tmp/c_traj_ac4.log).
+
+Free-text ACs (independently verified):
+- AC5: entry-key contract holds for ALL 96 tickers (set(entry)=={current_position,trajectory,persistence}); all 7 new keys nested inside trajectory; heading math matches sign(dr),sign(dm) with zero-positive convention for all 96 (0 mismatches); prev_quadrant matches _quadrant_of(prev) for all 96 (0 mismatches); quadrant_change is UNCHANGED or PREV->CURR for all 96 (0 format errors); values 2dp. Heading distribution NE34/SW32/SE19/NW11; qchange UNCHANGED75 + 21 crossings.
+- AC6: analyze_rra.py on NEW-format JSON (.tmp/rrg_traj_check) -> Hdg column + ### Quadrant Crossings block, exit 0, ARKK listed as LEADING->IMPROVING regime-break-bearish. On LEGACY 11-20 (docs/rra, prior=11-13) -> Hdg column + 21 crossings block, exit 0, ARKK SW -6.89/-2.07. On LEGACY-alone-in-dir (no prior) -> Hdg column omitted, no crossings block, caveat "Trajectory semantics unavailable", exit 0 (graceful).
+- AC7: SKILL.md has heading-semantics table (NE->LEADING/SW->LAGGING/NW momentum-only/SE rolling), full crossing taxonomy (8 labels + discontinuous default), both narrative rules (no "toward LEADING" unless delta_rs_ratio>0; no SW in Overweight), velocity_direction gotcha updated to point at heading.
+
+Adversarial probes:
+- PROBE1 (21-vs-23 discrepancy): independent diff of docs/rra 11-13 vs 11-20 current_position.quadrant -> exactly 21 crossings, matching B's analyze_rra output verbatim. The earlier "23" was a miscount. ARKK + GDX both LEADING->IMPROVING.
+- PROBE2 (SW-bar teeth): 16 SW-heading tickers would qualify for Overweight without the bar (incl. ARKK, GDX, XLE, IEO, NANR, CANE...). All 16 correctly excluded; Overweight bucket = 23 tickers, 0 SW. ARKK lands in Watch. Bar has real effect.
+- PROBE3 (legacy SW-bar regression): (r["heading"] or "") != "SW" — legacy-with-prior derives heading (bar applies); legacy-without-prior heading=None -> "" != "SW" True -> included (no bar, same as pre-TRAJ). No regression.
+- PROBE4 (prior-file selection): find_prior_prompt picks latest *_analysis_prompt*.json strictly older by filename date; same-date duplicates skipped via `cur > mm.group(1)`. Correct for 11-20 -> 11-13.
+- PROBE5 (native vs legacy-derived delta accuracy): 22/96 tickers differ by exactly 0.01 on delta_rs_ratio/momentum (native computes from unrounded values, legacy-derived from already-rounded current_position). 0 heading flips, 0 quadrant_change flips, 0 tickers within 0.02 of the 100 boundary. Cosmetic only.
+- PROBE6 (rounding artifact on native): 21/96 tickers where round(curr-prev,2) != round(curr,2)-round(prev,2) by 0.01 — expected IEEE rounding behavior; delta computed from unrounded values is the MORE accurate choice. AC5 "rounded consistently" satisfied (each value independently 2dp).
+
+NON-BLOCKING advisories (not a re-open):
+- N1 (LOW): 0.01 delta rounding divergence between native and legacy-derived paths (PROBE5). Never flips a label; documented in B's STATE note. Cosmetic.
+- N2 (LOW): find_prior_prompt glob is prefix-agnostic (`*_analysis_prompt*.json`) — would pick a Sectors file as prior for an ETFs file if both universes ever share a directory. docs/rra currently only has ETFs (28 files), so no manifestation. Latent.
+- N3 (INFO): Heading (0,0) flat-ticker -> NE ("toward LEADING") is the documented deterministic convention but semantically odd for a truly flat ticker. Tests cover (0,+) and (0,-) but not (0,0). Documented in code comment.
+- N4 (INFO): Short-history edge — new trajectory fields use iloc[-2] (need 2 weeks); velocity_direction still uses iloc[-3] (needs 3 weeks, pre-existing). New fields are MORE robust than velocity_direction, not a regression.
+
+Scope clean (delta 5a29c9f = scripts/rrg_dashboard.py + tests/test_rrg_dashboard.py + .devin/skills/analyze_rra/analyze_rra.py + .devin/skills/analyze_rra/SKILL.md; blackboard-only commits 0fe2646 + 8194b24; no src/ edits, no out-of-scope). Working tree clean post-verification.
+
+Verdict: APPROVED. Missed failure modes: NONE. Would deploy: YES. Next: Critic D final acceptance verification; orchestrator regenerates docs/rra.
+[2026-11-23T16:20] [CRITIC-D] RRG-TRAJ-T1 final verification: PASS (HEAD 8194b24; impl 5a29c9f). Re-ran all ACs independently: AC1 49/49 in 13.18s exit 0; AC2 2162/2162 in 293.75s exit 0 (2 numpy warnings, matches B/C); AC3 loops clean 17 files exit 0; AC4 live ARKK {prev 104.48/114.37, delta -6.89/-2.07, SW, LEADING->IMPROVING} exit 0. AC5 entry-key contract + all-7-keys + heading math + qchange format verified on all 96 tickers (0 violations). AC6 new-format Hdg+21 crossings; legacy+prior 21 crossings byte-identical block + caveat; legacy-alone graceful omit; all exit 0. AC7 SKILL.md heading table + taxonomy + both narrative rules + gotcha present. SW-bar confirmed (23 OW, 0 SW; ARKK->Watch). N1-N4 confirmed/accepted. Scope clean, no src/ edits, tree clean. Task already done; orchestrator may regenerate docs/rra.
