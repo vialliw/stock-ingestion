@@ -74,9 +74,11 @@ $pythonExe = (Get-Command python -ErrorAction Stop).Source
 
 # The wrapper chdirs to the repo root itself; -WorkingDirectory is set
 # anyway so the process starts with a sane cwd.
+# -s disables user site-packages so a user-scoped install (e.g. an
+# accidental duckdb --user upgrade) can never shadow the pinned deps.
 $action = New-ScheduledTaskAction `
     -Execute $pythonExe `
-    -Argument "`"$runner`"" `
+    -Argument "-s `"$runner`"" `
     -WorkingDirectory $repoRoot
 
 $trigger = New-ScheduledTaskTrigger -AtStartup
