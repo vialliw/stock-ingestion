@@ -165,6 +165,7 @@ ingestion:
   - CARG
   - CARR
   - CART
+  - CASK
   - CASS
   - CASY
   - CAT
@@ -673,7 +674,6 @@ ingestion:
   - MET
   - META
   - MGM
-  - MGPI
   - MGRC
   - MGY
   - MHK
@@ -861,7 +861,6 @@ ingestion:
   - PSN
   - PSX
   - PTC
-  - PTLE
   - PUMP
   - PVH
   - PWR
@@ -1019,7 +1018,6 @@ ingestion:
   - TAN
   - TAP
   - TARS
-  - TCBI
   - TDC
   - TDG
   - TDW
@@ -1072,6 +1070,7 @@ ingestion:
   - TTMI
   - TTWO
   - TWO
+  - TXCP
   - TXN
   - TXRH
   - TXT
@@ -1232,6 +1231,7 @@ ingestion:
   - ZS
   - ZTS
   - ZYME
+  - ZYN
   # macro series — Multi-Asset Correlation tab (F22-T1)
   - ^TNX
   - CL=F
