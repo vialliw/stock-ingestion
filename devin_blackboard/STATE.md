@@ -3121,3 +3121,16 @@ REV-si_hraw_review-g2. Awaiting user direction.
   script updated — the accidental-upgrade vector is closed.
 - Still pending user decisions: MGPI->CASK, PTLE->ZYN, TCBI->TXCP symbol
   swaps in config.yaml; watcher do_get-coverage defect task.
+
+## RRG-TRAJ-T2 — v4 report format shipped (2026-11-23)
+
+- Impl bd769f6 (B), C APPROVED, D PASS; report regen commit 0b09168.
+- analyze_rra.py now emits: S1 2x2 RRG grid (THEME_MAP theme bullets +
+  arrow suffixes), arrow map NE/SE/SW/NW -> ↗/↘/↙/↖ (+FLAT <0.05 both
+  axes), 'Heading' column (was Hdg) + new 'Persist' column,
+  standalone '## 5. Quadrant Crossings' (crossing_status per crossed
+  axis deadband 1.0; quadrant_persistence walk-back
+  TEMPORARY/PENDING/CONFIRMED), sections renumbered 1-9, caveat bullet.
+- 2026-11-20 report regenerated in v4 (committed); other 27 dated
+  reports still old format — full regen on next publish cycle if user
+  wants.
