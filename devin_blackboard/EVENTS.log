@@ -6636,4 +6636,4 @@ Evidence map:
     "passed": true,
     "output": ""
   }
-]
+][2026-11-23T12:30:43Z] ORCH: analyze_rra run for 2026-11-20 — pipeline --generate produced JSON + draft (resolved 2026-11-20); enriched per contract (6 reads + net call); weekly_summary.md row appended + arc updated (28 reports); report_index.md auto-regenerated; publish gate 30/0.

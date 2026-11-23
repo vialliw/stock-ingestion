@@ -1,0 +1,11 @@
+{
+  "as_of": "2026-11-20",
+  "resolved_date": "2026-11-20",
+  "prompt_json": "Relative_Rotation_Dashboard_ETFs_2026-11-20_analysis_prompt.json",
+  "report_md": "Relative_Rotation_Dashboard_ETFs_2026-11-20_analysis_report.md",
+  "report_action": "drafted_needs_enrichment",
+  "report_enriched": false,
+  "summary_action": "exists",
+  "summary_has_date": false,
+  "generated_at": "2026-11-23T12:29:37.400571+00:00"
+}
