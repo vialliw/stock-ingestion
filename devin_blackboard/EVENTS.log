@@ -7364,3 +7364,4 @@ Evidence map:
     "output": "No unjustified loops found. (17 files checked)\n........................................................................ [ 91%]\n.......                                                                  [100%]\n79 passed in 0.95s\n"
   }
 ]
+[2026-11-24T12:55:25.951418+00:00] [executor] RRG-HTML-T2 DONE — publish hardening: remote .html parity protection (same-stem local .md protects remote .html regardless of gate), --prune opt-in for dated remote-only artifact deletion (held otherwise, printed+logged+counted), log_event records deletions+holds, summary/toast report both counts. +5 tests (TestPublishHardening), 79/79 pass, check_loops exit 0, --verify ALL 6 ACs PASS. Files: scripts/rrg_weekly_pipeline.py, tests/test_rrg_weekly_pipeline.py, docs/enhancements/rrg_weekly_automation_design.md

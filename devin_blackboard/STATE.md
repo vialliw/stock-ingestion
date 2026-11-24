@@ -1,6 +1,48 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-24 (critic D: RRG-HTML-T1 final acceptance PASS)
+Last Updated: 2026-11-24 (executor B: RRG-HTML-T2 publish hardening done)
 Current Branch: main
+
+## RRG-HTML-T2 — DONE (executor B, 2026-11-24)
+
+Publish hardening: last-good `.html` parity protection + dated-artifact
+deletion circuit breaker (`--prune`). Closes Challenger F2 on T1 — a
+gate-regressed local `.md` can no longer orphan the live remote `.html`
+(public 404 window).
+
+- **`scripts/rrg_weekly_pipeline.py`:** mirror-sync deletion logic
+  rebuilt as an explicit decision list (`{name, reason, category}` —
+  `superseded` | `remote-only` | `dated-holdable`), then applied:
+  - **Parity (AC1):** a remote `.html` not in the publish set is kept
+    whenever a same-stem local `.md` exists in `docs/rra`, regardless
+    of gate result — the gate-failed `.md` now protects BOTH artifacts.
+  - **`--prune` breaker (AC2):** new `DATED_ARTIFACT_RE`
+    (`*_YYYY-MM-DD_analysis_report.(md|html)`); dated remote-only
+    deletions are HELD unless `--publish --prune`, printed
+    `held <name> (<reason>; --prune to delete)`. Superseded `.md` and
+    non-dated remote-only deletions stay ungated.
+  - **Observability (AC3):** batched `log_event` lines for deleted and
+    held sets (names + reasons); publish print/log/toast report
+    `N remote deleted, M held`. Dry-run plan text describes held vs
+    deleted. New `--prune` argparse flag threaded to `publish(prune=)`.
+- **Tests (+5, 79/79 pass):** `TestPublishHardening` — gate-failed .md
+  protects remote .html; dated remote-only held without --prune /
+  deleted with; log_event records deletions+holds; dry-run wording.
+  Existing `test_remote_only_md_and_html_deleted` re-seeded with
+  non-dated names (dated remote-only is now held by design); the
+  dated superseded-.md test still proves ungated deletion.
+- **Docs (AC4):** design doc Phase C step 4 now carries a `.md`/`.html`
+  deletion-decision parity table, the `--prune` breaker semantics, and
+  the recovery path (`git revert` on the dashboard repo — remote
+  history is the rollback).
+- `poll_tasks --verify`: ALL 6 ACs PASS, exit 0; check_loops exit 0
+  (17 files). Schema note: normalized the task entry (`owner`/`pending`
+  → `assigned_to`/`todo`, +`input_files`) and converted prose ACs to
+  structured dicts — original AC text preserved verbatim in `check`.
+
+Next: Challenger C / Critic D. The first real `--publish` after this
+ships with dated-remote-only holdings printed (none expected — local
+`docs/rra` covers all live reports); purge of stale dated artifacts is
+now a deliberate `--prune` decision, orchestrator's call.
 
 ## RRG-HTML-T1 — Critic D final verification: PASS (2026-11-24)
 
