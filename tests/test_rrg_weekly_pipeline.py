@@ -651,13 +651,15 @@ class TestPlanPublishHtml:
 # Mirror-sync deletion rules + .html rendering on the publish path
 # ------------------------------------------------------------------
 
-def _run_publish(tmp_path, monkeypatch, src_files, remote_files):
+def _run_publish(tmp_path, monkeypatch, src_files, remote_files,
+                 prune=False):
     """Drive publish() with faked git/render; returns (rc, remote_names,
     render_calls).  ``src_files`` seeds DOCS_RRG; ``remote_files`` is
     materialized into the fresh clone's report/ by the fake clone.
     ``remote_names`` is a snapshot of the remote report/ dir taken at
     the post-sync ``git status`` call — the finally-cleanup deletes the
-    clone before publish() returns, so post-hoc inspection is impossible."""
+    clone before publish() returns, so post-hoc inspection is impossible.
+    ``prune`` is threaded to publish() (dated-artifact deletion opt-in)."""
     src = tmp_path / "src"
     src.mkdir()
     for name, text in src_files.items():
@@ -704,7 +706,7 @@ def _run_publish(tmp_path, monkeypatch, src_files, remote_files):
     monkeypatch.setattr(rp, "_run", _fake_run)
     monkeypatch.setattr(rp, "_git", _fake_git)
 
-    rc = rp.publish(dry_run=False)
+    rc = rp.publish(dry_run=False, prune=prune)
     return rc, remote_names, render_calls
 
 
@@ -744,14 +746,12 @@ class TestMirrorSyncDeletion:
         assert renders == [(_R11_06, _R11_06[:-3] + ".html")]
 
     def test_remote_only_md_and_html_deleted(self, tmp_path, monkeypatch):
-        """Remote files with no local source at all are pruned."""
+        """Non-dated remote files with no local source are pruned without
+        --prune (dated remote-only artifacts are HELD — see below)."""
         rc, remote, _ = _run_publish(
             tmp_path, monkeypatch,
             src_files={_R11_13: ENRICHED},
-            remote_files={
-                "Relative_Rotation_Dashboard_ETFs_2020-01-01_analysis_report.md": "x",
-                "Relative_Rotation_Dashboard_ETFs_2020-01-01_analysis_report.html": "x",
-            })
+            remote_files={"stale_notes.md": "x", "orphan_page.html": "x"})
         assert rc == 0
         assert remote == [_R11_13[:-3] + ".html"]
 
@@ -769,6 +769,93 @@ class TestMirrorSyncDeletion:
         assert sorted(remote) == sorted(
             ["weekly_summary.md", "report_index.md",
              _R11_13[:-3] + ".html"])
+
+
+class TestPublishHardening:
+    """RRG-HTML-T2: last-good .html parity protection + the --prune
+    opt-in for dated-artifact deletion.  (Superseded-.md auto-deletion
+    without --prune is covered by test_superseded_remote_md_deleted —
+    its remote .md IS a dated name and still deletes.)"""
+
+    _OLD_MD = ("Relative_Rotation_Dashboard_ETFs_"
+               "2020-01-01_analysis_report.md")
+    _OLD_HTML = _OLD_MD[:-3] + ".html"
+
+    def test_gate_failed_local_md_protects_remote_html(
+            self, tmp_path, monkeypatch):
+        """Parity: a gate-failed local .md protects its remote same-stem
+        .html exactly as it protects its remote .md — a regressed draft
+        must not 404 the last good published report."""
+        rc, remote, _ = _run_publish(
+            tmp_path, monkeypatch,
+            src_files={_R11_13: DRAFT,       # fails gate -> protects
+                       _R11_06: ENRICHED},   # publishable
+            remote_files={_R11_13: "stale remote .md",
+                          _R11_13[:-3] + ".html": "live .html"})
+        assert rc == 0
+        assert _R11_13 in remote                  # .md protected (as before)
+        assert _R11_13[:-3] + ".html" in remote   # .html now protected too
+
+    def test_dated_remote_only_held_without_prune(
+            self, tmp_path, monkeypatch, capsys):
+        """Dated remote-only artifacts (.md AND .html) are HELD — left
+        on remote, printed as held, counted in the summary."""
+        rc, remote, _ = _run_publish(
+            tmp_path, monkeypatch,
+            src_files={_R11_13: ENRICHED},
+            remote_files={self._OLD_MD: "x", self._OLD_HTML: "x"})
+        assert rc == 0
+        assert self._OLD_MD in remote and self._OLD_HTML in remote
+        out = capsys.readouterr().out
+        assert f"held {self._OLD_MD}" in out
+        assert f"held {self._OLD_HTML}" in out
+        assert "--prune" in out and "2 held" in out
+
+    def test_dated_remote_only_deleted_with_prune(
+            self, tmp_path, monkeypatch, capsys):
+        """--prune opts in to deleting dated remote-only artifacts."""
+        rc, remote, _ = _run_publish(
+            tmp_path, monkeypatch,
+            src_files={_R11_13: ENRICHED},
+            remote_files={self._OLD_MD: "x", self._OLD_HTML: "x"},
+            prune=True)
+        assert rc == 0
+        assert remote == [_R11_13[:-3] + ".html"]
+        out = capsys.readouterr().out
+        assert f"deleted {self._OLD_MD} (remote-only)" in out
+        assert f"deleted {self._OLD_HTML} (remote-only)" in out
+        assert "2 remote deleted" in out
+
+    def test_log_event_records_deletions_and_holds(
+            self, tmp_path, monkeypatch):
+        """Every deletion AND every held-deletion lands in EVENTS.log
+        with file name + reason."""
+        rc, remote, _ = _run_publish(
+            tmp_path, monkeypatch,
+            src_files={_R11_13: ENRICHED},
+            remote_files={_R11_13: "old .md",        # superseded -> deleted
+                          self._OLD_HTML: "x"})      # dated -> held
+        assert rc == 0
+        log = (tmp_path / "EVENTS.log").read_text(encoding="utf-8")
+        assert "publish deleted remote file(s)" in log
+        assert f"{_R11_13} (superseded" in log
+        assert "publish held dated remote file(s)" in log
+        assert f"{self._OLD_HTML} (remote-only)" in log
+
+    def test_dry_run_shows_held_vs_deleted(
+            self, tmp_path, monkeypatch, capsys):
+        """Dry-run plan output describes both outcomes: non-dated
+        deletions happen, dated remote-only artifacts are HELD unless
+        --prune."""
+        _dated(tmp_path, "2026-11-13", ENRICHED)
+        monkeypatch.setattr(rp, "DOCS_RRG", tmp_path)
+        monkeypatch.setattr(rp, "SUMMARY_FILE",
+                            tmp_path / "weekly_summary.md")
+        monkeypatch.setattr(rp, "STATE_FILE",
+                            tmp_path / ".rrg_pipeline_state.json")
+        assert rp.publish(dry_run=True) == 0
+        out = capsys.readouterr().out
+        assert "HELD" in out and "--prune" in out and "deleted" in out
 
 
 class TestRenderHtml:

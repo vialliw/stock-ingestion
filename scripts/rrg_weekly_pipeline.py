@@ -28,7 +28,10 @@ Phase C ``--publish``
     deleted iff it is remote-only — no same-named local source — or it
     is a remote ``.md`` superseded by a shipped same-stem ``.html``;
     a local ``.md`` that failed the gate still protects its remote
-    ``.md``), commit as ``devin-ai-integration[bot]``, push only on
+    ``.md`` AND its remote same-stem ``.html``; deleting a remote-only
+    DATED artifact — ``*_YYYY-MM-DD_analysis_report.(md|html)`` —
+    additionally requires ``--prune``, otherwise it is HELD), commit as
+    ``devin-ai-integration[bot]``, push only on
     diff, cleanup, EVENTS.log entry, toast via
     ``scripts/notify_done.ps1`` only when published.
 
@@ -82,6 +85,10 @@ PRESET_NAME = "ETFs"
 # Dated artifacts produced for a resolved week, e.g.
 # Relative_Rotation_Dashboard_ETFs_2026-11-13_analysis_report.md
 DATED_REPORT_RE = re.compile(r"_(\d{4}-\d{2}-\d{2})_analysis_report\.md$")
+# Dated publish artifacts (.md source AND its rendered .html): deleting
+# one from the remote requires the explicit --prune opt-in.
+DATED_ARTIFACT_RE = re.compile(
+    r"_\d{4}-\d{2}-\d{2}_analysis_report\.(?:md|html)$")
 PROMPT_RE = re.compile(r"_analysis_prompt\.json$")
 WEEKLY_READ_RE = re.compile(r"^>\s*(?:Weekly read|Read):", re.MULTILINE)
 NETCALL_RE = re.compile(r"\*\*Net call:\*\*")
@@ -481,8 +488,14 @@ def _render_html(md_path: Path, html_path: Path) -> None:
             f"(exit {proc.returncode}): {(proc.stderr or '').strip()[:400]}")
 
 
-def publish(dry_run: bool = False) -> int:
-    """Phase C: gate -> render .html -> preflight -> clone -> sync -> push."""
+def publish(dry_run: bool = False, prune: bool = False) -> int:
+    """Phase C: gate -> render .html -> preflight -> clone -> sync -> push.
+
+    ``prune`` opts in to deleting remote-only DATED report artifacts
+    (``*_YYYY-MM-DD_analysis_report.(md|html)``); without it they are
+    HELD on the remote — a regressed/removed local draft must never
+    silently 404 the last good published report.
+    """
     resolved = _state_resolved_date()
     plan = plan_publish(DOCS_RRG, resolved_date=resolved)
 
@@ -501,9 +514,11 @@ def publish(dry_run: bool = False) -> int:
         print("[dry-run] would preflight: git ls-remote " + REMOTE_URL)
         print(f"[dry-run] would wipe+clone {REMOTE_URL} -> {CLONE_DIR}")
         print("[dry-run] would mirror-sync the publish set -> report/ "
-              "(reports ship .html, not .md; remote-only files deleted; "
-              "a remote .md superseded by a shipped same-stem .html is "
-              "deleted; .json never synced), commit as "
+              "(reports ship .html, not .md; non-dated remote-only "
+              "files deleted; a remote .md superseded by a shipped "
+              "same-stem .html is deleted; dated remote-only artifacts "
+              "HELD unless --prune; a same-stem local .md protects its "
+              "remote .md AND .html; .json never synced), commit as "
               "devin-ai-integration[bot], push only on diff")
         print("[dry-run] no clone, no push, no files changed")
         return 0
@@ -551,37 +566,70 @@ def publish(dry_run: bool = False) -> int:
         report_dir = CLONE_DIR / "report"
         report_dir.mkdir(exist_ok=True)
 
-        # Mirror-sync: copy the publish set in, then prune remote files
-        # that should no longer be served:
+        # Mirror-sync: copy the publish set in, then decide remote
+        # deletions:
         #  - a remote .md whose same-stem .html is being shipped is
-        #    SUPERSEDED -> deleted (this is how dated reports migrate
-        #    from .md to .html on Pages);
-        #  - any other remote .md with no same-named local .md is
-        #    remote-only -> deleted;
-        #  - a local .md that FAILED the gate keeps its remote .md alive;
-        #  - a remote .html not in the publish set is remote-only ->
-        #    deleted;
+        #    SUPERSEDED -> always deleted (this is how dated reports
+        #    migrate from .md to .html on Pages; NOT gated by --prune);
+        #  - any other remote .md with no same-named local .md, or a
+        #    remote .html not in the publish set with no same-stem local
+        #    .md, is remote-only -> deleted, EXCEPT dated artifacts
+        #    (*_YYYY-MM-DD_analysis_report.(md|html)) which are HELD
+        #    unless --prune;
+        #  - a local .md that FAILED the gate keeps BOTH its remote .md
+        #    and its remote same-stem .html alive (parity — a regressed
+        #    draft must not 404 the last good published report);
         #  - .json is never synced and never deleted.
         for name in plan["publish"]:
             shutil.copyfile(DOCS_RRG / name, report_dir / name)
         publish_set = set(plan["publish"])
         local_md = {p.name for p in DOCS_RRG.glob("*.md")}
+        deletions = []
         for remote_md in report_dir.glob("*.md"):
             if remote_md.name in publish_set:
                 continue  # synced .md (weekly_summary.md, report_index.md)
             stem_html = remote_md.name[:-3] + ".html"
             if stem_html in publish_set:
-                remote_md.unlink()
-                print(f"  deleted {remote_md.name} "
-                      f"(superseded by {stem_html})")
+                deletions.append({"name": remote_md.name,
+                                  "reason": f"superseded by {stem_html}",
+                                  "category": "superseded"})
             elif remote_md.name not in local_md:
-                remote_md.unlink()
-                print(f"  deleted remote-only {remote_md.name}")
+                deletions.append({"name": remote_md.name,
+                                  "reason": "remote-only",
+                                  "category": "dated-holdable"
+                                  if DATED_ARTIFACT_RE.search(remote_md.name)
+                                  else "remote-only"})
             # else: local .md exists but failed the gate -> protected
         for remote_html in report_dir.glob("*.html"):
-            if remote_html.name not in publish_set:
-                remote_html.unlink()
-                print(f"  deleted remote-only {remote_html.name}")
+            if remote_html.name in publish_set:
+                continue
+            if remote_html.name[:-5] + ".md" in local_md:
+                continue  # same-stem local .md protects remote .html too
+            deletions.append({"name": remote_html.name,
+                              "reason": "remote-only",
+                              "category": "dated-holdable"
+                              if DATED_ARTIFACT_RE.search(remote_html.name)
+                              else "remote-only"})
+
+        deleted, held = [], []
+        for d in deletions:
+            if d["category"] == "dated-holdable" and not prune:
+                held.append(d)
+                print(f"  held {d['name']} ({d['reason']}; "
+                      f"--prune to delete)")
+            else:
+                (report_dir / d["name"]).unlink()
+                deleted.append(d)
+                print(f"  deleted {d['name']} ({d['reason']})")
+        if deleted:
+            log_event("[RRG-WEEKLY] publish deleted remote file(s): "
+                      + "; ".join(f"{d['name']} ({d['reason']})"
+                                  for d in deleted))
+        if held:
+            log_event("[RRG-WEEKLY] publish held dated remote file(s) "
+                      "(no --prune): "
+                      + "; ".join(f"{d['name']} ({d['reason']})"
+                                  for d in held))
 
         _git(CLONE_DIR, "add", "-A", "report")
         status = _git(CLONE_DIR, "status", "--porcelain", "report")
@@ -615,12 +663,15 @@ def publish(dry_run: bool = False) -> int:
                       .stdout or "").strip()
         pushed = len(plan["publish"])
         print(f"publish: pushed {pushed} file(s) -> report/ "
-              f"(commit {commit_sha})")
+              f"(commit {commit_sha}); {len(deleted)} remote deleted, "
+              f"{len(held)} held")
         log_event(f"[RRG-WEEKLY] published {pushed} file(s) -> "
                   f"{REMOTE_URL}/report (commit {commit_sha}); "
-                  f"skipped {len(plan['skip'])} unenriched")
+                  f"skipped {len(plan['skip'])} unenriched; "
+                  f"{len(deleted)} remote deleted, {len(held)} held")
         toast(f"RRA weekly publish: {pushed} file(s) -> report/ "
-              f"({commit_sha})")
+              f"({commit_sha}); {len(deleted)} deleted, "
+              f"{len(held)} held")
         return 0
     finally:
         _force_rmtree(CLONE_DIR)
@@ -640,6 +691,11 @@ def main(argv: Optional[list] = None) -> int:
                     help="Phase C only: gate + mirror-sync + push")
     ap.add_argument("--all", action="store_true",
                     help="generate then publish (default)")
+    ap.add_argument("--prune", action="store_true",
+                    help="with --publish: actually delete remote-only "
+                         "dated report artifacts "
+                         "(*_YYYY-MM-DD_analysis_report.(md|html)); "
+                         "without it they are HELD on the remote")
     ap.add_argument("--dry-run", action="store_true",
                     help="print intended actions only; never writes, "
                          "clones, or pushes")
@@ -659,7 +715,7 @@ def main(argv: Optional[list] = None) -> int:
         if do_generate:
             generate(dry_run=args.dry_run)
         if do_publish:
-            return publish(dry_run=args.dry_run)
+            return publish(dry_run=args.dry_run, prune=args.prune)
         return 0
     except Exception as exc:  # noqa: BLE001 — pipeline must exit !=0, not traceback-crash silently
         print(f"rrg_weekly_pipeline FAILED: {exc}", file=sys.stderr)

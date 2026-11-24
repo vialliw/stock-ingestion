@@ -138,13 +138,32 @@ are deleted remotely).
    — fail loudly (log + toast) if auth/connectivity is broken.
 4. Clone/pull the remote into `.tmp/rrg-dash` (inside workspace),
    **mirror-sync** the publish set → `report/`: add/update shipped
-   files; a remote file is deleted iff **(a)** it is remote-only (no
-   same-named local source — `.html` not in the publish set, `.md` with
-   no local `.md`), or **(b)** it is a remote `.md` whose same-stem
-   `.html` is in the publish set (superseded — this is how dated reports
-   migrate `.md` → `.html`). A local `.md` that FAILED the gate still
-   protects its remote `.md` from deletion. `.json` files are NOT
-   synced and never deleted.
+   files; deletions are decided per remote file:
+
+   | Remote file | Condition | Action |
+   |---|---|---|
+   | `.md` in publish set (`weekly_summary.md`, `report_index.md`) | — | kept (synced) |
+   | `.md` | same-stem `.html` in publish set | **deleted — superseded** (how dated reports migrate `.md` → `.html`; never gated by `--prune`) |
+   | `.md` | same-named local `.md` exists | **kept** — a local `.md` that FAILED the gate still protects its remote `.md` |
+   | `.md` | remote-only (no local `.md`) | dated name → **held unless `--prune`**; non-dated → deleted |
+   | `.html` | in publish set | kept (synced) |
+   | `.html` | same-stem local `.md` exists | **kept — parity protection**: a gate-failed local `.md` protects its remote `.html` exactly as it protects its remote `.md`; a regressed/removed draft must never 404 the last good published report |
+   | `.html` | remote-only (no same-stem local `.md`) | dated name → **held unless `--prune`**; non-dated → deleted |
+
+   **`--prune` circuit breaker:** deleting a *dated* report artifact
+   (`*_YYYY-MM-DD_analysis_report.(md|html)`) that has no local source
+   requires the explicit `--prune` flag on `--publish`. Without it such
+   files are HELD — printed `held <name> (<reason>; --prune to delete)`,
+   recorded via `log_event`, and counted in the publish summary/toast
+   (`N remote deleted, M held`). Superseded `.md` and non-dated
+   remote-only files are NOT gated. `.json` files are NOT synced and
+   never deleted.
+
+   **Recovery path:** the remote is a git repo — any wrong deletion or
+   bad publish is recovered via `git revert` of the publish commit on
+   `vialliw/Relative-Rotation-Analysis-Dashboard` (remote history is the
+   rollback; held files simply wait for a `--prune` run or a restored
+   local source).
 5. If diff → commit authored `devin-ai-integration[bot]
    <158243242+devin-ai-integration[bot]@users.noreply.github.com>` →
    push. Remote `auto_index.yaml` regenerates `REPORT_INDEX.md`.
@@ -176,4 +195,5 @@ the multi-trigger form, not `/sc DAILY`).
 - Timing: Fri 22:15 primary (+ Sat/Sun 09:00 publish retries); enrichment on Fri 22:45 + Sat/Sun 08:30.
 - Dated reports publish as rendered `.html` (styled/sortable via `rra_html.py`); `weekly_summary.md` + `report_index.md` publish as `.md`; `.json` never synced; commit author = devin-ai-integration[bot].
 - `report_index.md` links dated reports to their absolute Pages `.html` URLs (`https://vialliw.github.io/Relative-Rotation-Analysis-Dashboard/report/<stem>.html`).
+- Publish deletion parity + circuit breaker: a gate-failed local `.md` protects its remote `.md` AND same-stem `.html`; dated remote-only artifacts are HELD unless `--prune`; remote recovery is `git revert` on the dashboard repo.
 - No `src/` changes; all new code lives in `scripts/` + `tests/` + `.devin/skills/`.

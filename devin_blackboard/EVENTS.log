@@ -7306,3 +7306,61 @@ Verdict: PASS — task is eligible for done. Marked --done as critic.
 [2026-11-24T12:05:00] [ORCHESTRATOR] RRG-HTML-T1 migration COMPLETE. B impl e7f2faf (rra_html.py renderer + analyze --html + summarize Pages links + pipeline html publish + tests/docs), C APPROVED (3 non-blocking), D PASS all 7 ACs (render byte-diff vs approved = 2 intentional glyph lines). Housekeeping: local .gitignore +docs/rra/*.html (e717297); remote .gitignore narrowed to !report/*.html (0f1d362). report_index.md regenerated w/ absolute Pages links. --publish: 30 files (28 .html + 2 .md) pushed 64a6810; 28 legacy .md deleted (superseded), sample removed. Live-verified: reports serve verbatim custom HTML (markers 15-23), index links render. Remote README documented (da9acdf).
 
 [2026-11-24T12:51:13.034266+00:00] [executor] claimed RRG-HTML-T2
+[2026-11-24T12:55:07.105974+00:00] [executor] completed RRG-HTML-T2 -> Publish hardening implemented: (AC1) remote .html parity — same-stem local .md now protects remote .html regardless of gate result; (AC2) new --prune flag gates dated-artifact deletion (*_YYYY-MM-DD_analysis_report.(md|html) via DATED_ARTIFACT_RE) — held otherwise, printed 'held <name> (reason; --prune to delete)'; superseded-.md + non-dated remote-only stay ungated; (AC3) batched log_event lines for deleted+held with names/reasons, summary print+log+toast report 'N remote deleted, M held'; (AC4) design doc gained a .md/.html deletion-decision parity table, --prune breaker, git-revert recovery path; (AC5) +5 tests in TestPublishHardening (parity protect, held-without-prune, deleted-with-prune, log_event records, dry-run wording) + updated remote-only test to non-dated names; (AC6) 79/79 pytest pass, check_loops exit 0. poll_tasks --verify: ALL 6 ACs PASS.
+Evidence map:
+[
+  {
+    "id": "RRG-HTML-T2-AC1",
+    "check": "AC1 (parity protection): in publish() mirror-sync, a remote .html not in the publish set is deletable ONLY when no same-stem local .md exists in docs/rra. A gate-failed local .md now protects its remote same-stem .html exactly as it protects its remote same-named .md (the .md rule already exists \u2014 extend equivalent semantics to .html).",
+    "command": "python -m pytest tests/test_rrg_weekly_pipeline.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "........................................................................ [ 91%]\n.......                                                                  [100%]\n79 passed in 0.91s\n"
+  },
+  {
+    "id": "RRG-HTML-T2-AC2",
+    "check": "AC2 (dated-artifact deletion breaker): deletions of dated-report artifacts \u2014 names matching the dated report pattern *_YYYY-MM-DD_analysis_report.(md|html) \u2014 require explicit opt-in via a new CLI flag `--prune` on --publish. Without --prune such files are HELD (left on remote), each printed as 'held' with reason and counted in the publish summary. Non-dated remote-only files and the superseded-.md rule (same-stem .html in publish set) are NOT gated by --prune \u2014 they keep current behavior.",
+    "command": "python -c \"import sys; s=open('scripts/rrg_weekly_pipeline.py',encoding='utf-8').read(); sys.exit(0 if ('--prune' in s and 'held' in s) else 1)\" && python -m pytest tests/test_rrg_weekly_pipeline.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "........................................................................ [ 91%]\n.......                                                                  [100%]\n79 passed in 1.02s\n"
+  },
+  {
+    "id": "RRG-HTML-T2-AC3",
+    "check": "AC3 (observability): every deletion AND every held-deletion is recorded via log_event (file names + reason); the publish toast/summary reports both counts. Held deletions also noted in the publish plan output.",
+    "command": "python -c \"import sys; s=open('scripts/rrg_weekly_pipeline.py',encoding='utf-8').read(); sys.exit(0 if ('log_event' in s and 'held' in s) else 1)\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "RRG-HTML-T2-AC4",
+    "check": "AC4 (docs): docs/enhancements/rrg_weekly_automation_design.md documents the new protection semantics (parity table .md vs .html), the --prune opt-in, and the recovery path (remote git history / git revert) in the publish section.",
+    "command": "python -c \"import sys; t=open('docs/enhancements/rrg_weekly_automation_design.md',encoding='utf-8').read(); sys.exit(0 if ('--prune' in t and 'revert' in t and 'held' in t.lower()) else 1)\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "RRG-HTML-T2-AC5",
+    "check": "AC5: tests in test_rrg_weekly_pipeline.py cover: (a) gate-failed local .md protects remote same-stem .html; (b) absent local source -> dated .html HELD without --prune, deleted with --prune; (c) superseded-.md still auto-deleted when same-stem .html ships (no --prune needed); (d) non-dated remote-only file deleted without --prune; (e) log_event records deletions+holds; (f) dry-run shows held vs deleted. All green.",
+    "command": "python -m pytest tests/test_rrg_weekly_pipeline.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "........................................................................ [ 91%]\n.......                                                                  [100%]\n79 passed in 0.90s\n"
+  },
+  {
+    "id": "RRG-HTML-T2-AC6",
+    "check": "AC6: `python -m pytest tests/test_rrg_weekly_pipeline.py -q` all pass; `python scripts/check_loops.py --src-dir src` exit 0.",
+    "command": "python scripts/check_loops.py --src-dir src && python -m pytest tests/test_rrg_weekly_pipeline.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n........................................................................ [ 91%]\n.......                                                                  [100%]\n79 passed in 0.95s\n"
+  }
+]

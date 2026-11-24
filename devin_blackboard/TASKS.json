@@ -5458,7 +5458,7 @@
   {
     "id": "RRG-HTML-T2",
     "title": "Publish hardening: protect last-good .html from gate regression + deletion circuit breaker",
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "RRG-HTML-T1"
     ],
