@@ -12,6 +12,7 @@ Usage:
     python .devin/skills/analyze_rra/analyze_rra.py <input.json>
     python .devin/skills/analyze_rra/analyze_rra.py <input.json> --out <report.md>
     python .devin/skills/analyze_rra/analyze_rra.py <input.json> --stats-only
+    python .devin/skills/analyze_rra/analyze_rra.py --html <report.md> --html-out <report.html>
 """
 
 import argparse
@@ -594,11 +595,37 @@ def build_report(data: dict, src: Path) -> str:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("input", type=Path, help="analysis-prompt JSON file")
+    ap.add_argument("input", type=Path, nargs="?",
+                    help="analysis-prompt JSON file (not needed with --html)")
     ap.add_argument("--out", type=Path, help="write report here (default: stdout)")
     ap.add_argument("--stats-only", action="store_true",
                     help="print quadrant census + counts only, no report")
+    ap.add_argument("--html", type=Path, metavar="REPORT_MD",
+                    help="render an existing report .md to styled HTML "
+                         "via rra_html.py and exit — no JSON needed")
+    ap.add_argument("--html-out", type=Path, metavar="REPORT_HTML",
+                    help="write the --html output here (default: stdout)")
     args = ap.parse_args()
+
+    if args.html:
+        # Render-only path: report .md -> publish .html, no re-extraction.
+        # rra_html needs mistune; import lazily so extraction stays stdlib-only.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import rra_html  # noqa: E402
+        html = rra_html.render(
+            args.html.read_text(encoding="utf-8"),
+            rra_html.title_from_filename(args.html.name))
+        if args.html_out:
+            args.html_out.parent.mkdir(parents=True, exist_ok=True)
+            args.html_out.write_text(html, encoding="utf-8")
+            print(f"wrote {args.html_out} ({len(html)} bytes)",
+                  file=sys.stderr)
+        else:
+            sys.stdout.write(html)
+        return
+
+    if args.input is None:
+        ap.error("input JSON file required (or use --html <report.md>)")
 
     data = load(args.input)
     if args.stats_only:

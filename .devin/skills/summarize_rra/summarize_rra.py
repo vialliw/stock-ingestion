@@ -24,6 +24,11 @@ from pathlib import Path
 
 REPORT_RE = re.compile(r"_(\d{4}-\d{2}-\d{2})_analysis_report\.md$")
 READ_RE = re.compile(r"^>\s*(?:Weekly read|Read):\s*(.*)$")
+# GitHub Pages base of the publish target — the pipeline ships each dated
+# report as <stem>.html under report/ (same convention the remote repo's
+# action_update_index.py uses), so index links point at the .html pages.
+PAGES_BASE = ("https://vialliw.github.io/"
+              "Relative-Rotation-Analysis-Dashboard/report")
 NETCALL_RE = re.compile(r"^\*\*Net call:\*\*\s*(.*)$")
 CENSUS_RE = re.compile(r"\*\*(LEADING|IMPROVING|WEAKENING|LAGGING):\s*(\d+)\*\*")
 
@@ -93,7 +98,8 @@ def build_index(items: list[dict]) -> str:
     ]
     for it in items:
         c = it["census"]
-        L.append(f"| {it['date']} | [{it['file']}]({it['file']}) | "
+        html_name = it["file"][:-3] + ".html"  # .md -> published .html
+        L.append(f"| {it['date']} | [{it['file']}]({PAGES_BASE}/{html_name}) | "
                  f"{c.get('LEADING', '-')} | {c.get('IMPROVING', '-')} | "
                  f"{c.get('WEAKENING', '-')} | {c.get('LAGGING', '-')} |")
     return "\n".join(L) + "\n"
@@ -118,29 +124,37 @@ def main():
         raise SystemExit(f"{args.src_dir}: no dated *_YYYY-MM-DD_analysis_report.md files")
     items = [extract(p) for p in reports]
 
+    # --digest / --index / --out are independent outputs — any subset may
+    # be combined in one invocation (the old early `return` after --index
+    # silently dropped a --out passed alongside it).
+    acted = False
+
+    if args.digest:
+        acted = True
+        print(json.dumps(items, indent=2))
+        missing = [it["date"] for it in items if not it["complete"]]
+        if missing:
+            print(f"incomplete enrichment: {', '.join(missing)}", file=sys.stderr)
+
     if args.index:
+        acted = True
         index = build_index(items)
         args.index.parent.mkdir(parents=True, exist_ok=True)
         args.index.write_text(index, encoding="utf-8")
         print(f"wrote {args.index} ({len(index)} bytes, {len(items)} rows)",
               file=sys.stderr)
-        return
 
-    if args.digest:
-        print(json.dumps(items, indent=2))
-        missing = [it["date"] for it in items if not it["complete"]]
-        if missing:
-            print(f"incomplete enrichment: {', '.join(missing)}", file=sys.stderr)
-        return
-
-    table = build_table(items)
     if args.out:
+        acted = True
+        table = build_table(items)
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(table, encoding="utf-8")
         print(f"wrote {args.out} ({len(table)} bytes, {len(items)} rows)",
               file=sys.stderr)
-    else:
-        print(table, end="")
+
+    if not acted:
+        # No output flag at all -> draft table to stdout (original default).
+        print(build_table(items), end="")
 
 
 if __name__ == "__main__":

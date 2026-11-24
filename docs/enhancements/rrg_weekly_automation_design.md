@@ -2,12 +2,17 @@
 
 Status: approved by user 2026-11-16 (timing = Fri 22:15, implement via
 agents); **enrichment engine updated to auto via headless local
-`devin -p` 2026-11-23** (was semi-auto).
+`devin -p` 2026-11-23** (was semi-auto); **dated reports publish as
+styled `.html` (RRG-HTML-T1, 2026-11-24)** — `.md` stays the internal
+source of truth.
 
 ## Goal
 
 Automate the deterministic halves of the weekly RRG report workflow that
-ships `docs/rra/*.md` to `vialliw/Relative-Rotation-Analysis-Dashboard:report/`:
+ships `docs/rra/` artifacts to
+`vialliw/Relative-Rotation-Analysis-Dashboard:report/` — dated
+`*_analysis_report*.md` publish as rendered `.html`,
+`weekly_summary.md`/`report_index.md` publish as `.md`:
 
 - **Step 2 (generate JSON)** — automated
 - **Step 3 (analyze → report)** — draft automated; narrative enrichment
@@ -111,21 +116,39 @@ fallback (the skills contract is unchanged).
 
 ### Phase C — publish (`--publish`)
 
-1. **Enrichment gate** — a dated report is publishable only if it
-   contains both `> Weekly read:` (or `> Read:`) and `**Net call:**`;
-   `weekly_summary.md` is publishable only if it contains the resolved
-   date of each dated report it claims to cover. Unenriched artifacts
-   are skipped (never shipped as drafts).
-2. Preflight `git ls-remote https://github.com/vialliw/Relative-Rotation-Analysis-Dashboard`
+Artifact architecture: **`.md` = internal source** (draft → enrich in
+`docs/rra/`); **`.html` = publish artifact** for dated reports only —
+`weekly_summary.md` and `report_index.md` stay `.md` and publish
+(Jekyll renders them on Pages; no name collisions once the report `.md`
+are deleted remotely).
+
+1. **Enrichment gate (on `.md`, unchanged)** — a dated report is
+   publishable only if it contains both `> Weekly read:` (or `> Read:`)
+   and `**Net call:**`; `weekly_summary.md` is publishable only if it
+   contains the resolved date of each dated report it claims to cover.
+   Unenriched artifacts are skipped (never shipped as drafts).
+2. **Render** — every gated `*_analysis_report*.md` is rendered to a
+   same-stem `.html` in `docs/rra/` via
+   `.devin/skills/analyze_rra/rra_html.py` (mistune + post-processing:
+   sortable numeric-aware tables, green/red quadrant-crossing and tilt
+   rows, colored census-grid cells — approved reference
+   `.tmp/rra_report_2026-11-20.html`). The `.html` ships INSTEAD of the
+   `.md`.
+3. Preflight `git ls-remote https://github.com/vialliw/Relative-Rotation-Analysis-Dashboard`
    — fail loudly (log + toast) if auth/connectivity is broken.
-3. Clone/pull the remote into `.tmp/rrg-dash` (inside workspace),
-   **mirror-sync** `docs/rrg/*.md` → `report/` (add/update changed,
-   delete remote-only `.md` files — remote `report/` should equal local
-   set; `.json` files are NOT synced).
-4. If diff → commit authored `devin-ai-integration[bot]
+4. Clone/pull the remote into `.tmp/rrg-dash` (inside workspace),
+   **mirror-sync** the publish set → `report/`: add/update shipped
+   files; a remote file is deleted iff **(a)** it is remote-only (no
+   same-named local source — `.html` not in the publish set, `.md` with
+   no local `.md`), or **(b)** it is a remote `.md` whose same-stem
+   `.html` is in the publish set (superseded — this is how dated reports
+   migrate `.md` → `.html`). A local `.md` that FAILED the gate still
+   protects its remote `.md` from deletion. `.json` files are NOT
+   synced and never deleted.
+5. If diff → commit authored `devin-ai-integration[bot]
    <158243242+devin-ai-integration[bot]@users.noreply.github.com>` →
    push. Remote `auto_index.yaml` regenerates `REPORT_INDEX.md`.
-5. Cleanup temp clone; log to `devin_blackboard/EVENTS.log`; toast via
+6. Cleanup temp clone; log to `devin_blackboard/EVENTS.log`; toast via
    `scripts/notify_done.ps1` only when something was actually published.
 
 ### Scheduling — `scripts/register_rrg_weekly.ps1` + `scripts/register_rrg_enrich.ps1`
@@ -151,5 +174,6 @@ the multi-trigger form, not `/sc DAILY`).
 ## Decisions locked
 
 - Timing: Fri 22:15 primary (+ Sat/Sun 09:00 publish retries); enrichment on Fri 22:45 + Sat/Sun 08:30.
-- md-only sync; commit author = devin-ai-integration[bot].
-- No `src/` changes; all new code lives in `scripts/` + `tests/`.
+- Dated reports publish as rendered `.html` (styled/sortable via `rra_html.py`); `weekly_summary.md` + `report_index.md` publish as `.md`; `.json` never synced; commit author = devin-ai-integration[bot].
+- `report_index.md` links dated reports to their absolute Pages `.html` URLs (`https://vialliw.github.io/Relative-Rotation-Analysis-Dashboard/report/<stem>.html`).
+- No `src/` changes; all new code lives in `scripts/` + `tests/` + `.devin/skills/`.

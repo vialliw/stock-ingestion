@@ -60,11 +60,19 @@ It is **not** enriched — it must always reflect the directory exactly:
 
 ```
 python .devin/skills/summarize_rra/summarize_rra.py --index docs/rra/report_index.md
+# --index, --out and --digest are independent outputs and may be combined:
+python .devin/skills/summarize_rra/summarize_rra.py \
+    --out docs/rra/weekly_summary.md --index docs/rra/report_index.md
 ```
 
 - Output: `# RRA Report Index — ETF Dashboard vs SPY` + a
   `| Date | Report | Lead | Impr | Weak | Lag |` table (report name is a
   markdown link; quadrant counts come from each report's census line).
+- Link targets are the PUBLISHED Pages pages — dated reports ship as
+  styled `.html`, so each link is absolute:
+  `https://vialliw.github.io/Relative-Rotation-Analysis-Dashboard/report/<same-stem>.html`
+  (link text stays the `.md` filename). Only dated `*_analysis_report.md`
+  rows are linked this way.
 - The weekly pipeline (`scripts/rrg_weekly_pipeline.py --generate`) runs
   this step **unconditionally** after the summary check, so additions
   and deletions are reflected on every run. Never edit the file by hand.

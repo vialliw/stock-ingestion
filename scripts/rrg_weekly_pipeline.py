@@ -14,15 +14,23 @@ Phase B — manual enrichment in a Devin session (unchanged; this script
     never writes ``> Read:`` / ``**Net call:**`` narrative).
 
 Phase C ``--publish``
-    Enrichment gate (dated report: ``> Weekly read:`` or ``> Read:``
-    AND ``**Net call:**``; weekly_summary.md must contain the resolved
-    date of every dated report being shipped AND carry no draft
-    placeholders — no ``TODO`` tokens, no ``<!-- missing`` markers),
-    preflight
-    ``git ls-remote``, clone into ``.tmp/rrg-dash``, mirror-sync
-    ``docs/rra/*.md`` -> ``report/`` (json never synced), commit as
-    ``devin-ai-integration[bot]``, push only on diff, cleanup, EVENTS.log
-    entry, toast via ``scripts/notify_done.ps1`` only when published.
+    Enrichment gate on the .md sources (dated report: ``> Weekly read:``
+    or ``> Read:`` AND ``**Net call:**``; weekly_summary.md must contain
+    the resolved date of every dated report being shipped AND carry no
+    draft placeholders — no ``TODO`` tokens, no ``<!-- missing``
+    markers).  Every gated ``*_analysis_report*.md`` is then rendered to
+    a same-stem ``.html`` in ``docs/rra/`` via
+    ``.devin/skills/analyze_rra/rra_html.py`` and the ``.html`` is
+    shipped INSTEAD of the ``.md``; ``weekly_summary.md`` and
+    ``report_index.md`` still ship as ``.md``.  Then preflight
+    ``git ls-remote``, clone into ``.tmp/rrg-dash``, mirror-sync the
+    publish set -> ``report/`` (json never synced; a remote file is
+    deleted iff it is remote-only — no same-named local source — or it
+    is a remote ``.md`` superseded by a shipped same-stem ``.html``;
+    a local ``.md`` that failed the gate still protects its remote
+    ``.md``), commit as ``devin-ai-integration[bot]``, push only on
+    diff, cleanup, EVENTS.log entry, toast via
+    ``scripts/notify_done.ps1`` only when published.
 
 Usage:
     python scripts/rrg_weekly_pipeline.py --all        (default; cannot
@@ -57,6 +65,7 @@ DOCS_RRG = _REPO_ROOT / "docs" / "rra"
 STATE_FILE = DOCS_RRG / ".rrg_pipeline_state.json"
 ANALYZE_SCRIPT = _REPO_ROOT / ".devin" / "skills" / "analyze_rra" / "analyze_rra.py"
 SUMMARIZE_SCRIPT = _REPO_ROOT / ".devin" / "skills" / "summarize_rra" / "summarize_rra.py"
+RRA_HTML_SCRIPT = _REPO_ROOT / ".devin" / "skills" / "analyze_rra" / "rra_html.py"
 SUMMARY_FILE = DOCS_RRG / "weekly_summary.md"
 INDEX_FILE = DOCS_RRG / "report_index.md"
 CLONE_DIR = _REPO_ROOT / ".tmp" / "rra-dash"
@@ -172,12 +181,34 @@ def summary_draft_markers(summary_path: Path) -> list[str]:
     return found
 
 
+# Report .md files — dated (``*_YYYY-MM-DD_analysis_report.md``) and the
+# undated flagship duplicate (``*_analysis_reportYYYYMMDD.md``) — publish
+# as same-stem styled .html instead of the .md source.
+REPORT_MD_RE = re.compile(r"_analysis_report\d*\.md$")
+
+
+def publish_name_for(name: str) -> str:
+    """Map a publishable local .md to the filename shipped to report/.
+
+    Analysis reports ship as ``<stem>.html`` (rendered via rra_html.py);
+    every other publishable ``.md`` (``weekly_summary.md``,
+    ``report_index.md``, ad-hoc docs) ships as-is — Pages/Jekyll renders
+    ``.md`` natively.
+    """
+    if REPORT_MD_RE.search(name):
+        return name[:-3] + ".html"  # strip ".md"
+    return name
+
+
 def plan_publish(src_dir: Path,
                  resolved_date: Optional[str] = None) -> dict:
     """Classify every ``src_dir/*.md`` against the enrichment gate.
 
     Returns ``{"publish": [...], "skip": [{"name","reason"}, ...]}``.
     ``.json`` files are never considered (only ``*.md`` is globbed).
+    ``publish`` holds the SHIPPED filenames — report .md are translated
+    to their same-stem ``.html`` artifact by :func:`publish_name_for`;
+    ``skip`` keeps the local ``.md`` names.
 
     - dated report -> needs ``> Weekly read:``/``> Read:`` + ``**Net call:**``
     - weekly_summary.md -> needs every shipped dated report's resolved
@@ -229,7 +260,8 @@ def plan_publish(src_dir: Path,
                          "reason": "; ".join(reasons)})
         else:
             publish.append(summary_name)
-    return {"publish": sorted(publish), "skip": skip}
+    return {"publish": sorted(publish_name_for(n) for n in publish),
+            "skip": skip}
 
 
 # ------------------------------------------------------------------
@@ -437,8 +469,20 @@ def _state_resolved_date() -> Optional[str]:
         return None
 
 
+def _render_html(md_path: Path, html_path: Path) -> None:
+    """Render one gated report .md to its same-stem .html artifact via
+    rra_html.py — a subprocess, like analyze/summarize, so mistune never
+    has to import inside the pipeline process."""
+    proc = _run([sys.executable, str(RRA_HTML_SCRIPT), str(md_path),
+                 "--out", str(html_path)], cwd=_REPO_ROOT)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"rra_html.py failed on {md_path.name} "
+            f"(exit {proc.returncode}): {(proc.stderr or '').strip()[:400]}")
+
+
 def publish(dry_run: bool = False) -> int:
-    """Phase C: gate -> preflight -> clone -> mirror-sync -> push."""
+    """Phase C: gate -> render .html -> preflight -> clone -> sync -> push."""
     resolved = _state_resolved_date()
     plan = plan_publish(DOCS_RRG, resolved_date=resolved)
 
@@ -448,13 +492,19 @@ def publish(dry_run: bool = False) -> int:
         print(f"  skip {item['name']}: {item['reason']}")
 
     if dry_run:
+        n_html = sum(1 for n in plan["publish"] if n.endswith(".html"))
+        if n_html:
+            print(f"[dry-run] would render {n_html} report .md -> "
+                  f"same-stem .html in docs/rra/ ({RRA_HTML_SCRIPT.name})")
         for name in plan["publish"]:
             print(f"[dry-run] would ship report/{name}")
         print("[dry-run] would preflight: git ls-remote " + REMOTE_URL)
         print(f"[dry-run] would wipe+clone {REMOTE_URL} -> {CLONE_DIR}")
-        print("[dry-run] would mirror-sync docs/rra/*.md -> report/ "
-              "(.json never synced; remote-only .md deleted), "
-              "commit as devin-ai-integration[bot], push only on diff")
+        print("[dry-run] would mirror-sync the publish set -> report/ "
+              "(reports ship .html, not .md; remote-only files deleted; "
+              "a remote .md superseded by a shipped same-stem .html is "
+              "deleted; .json never synced), commit as "
+              "devin-ai-integration[bot], push only on diff")
         print("[dry-run] no clone, no push, no files changed")
         return 0
 
@@ -463,6 +513,13 @@ def publish(dry_run: bool = False) -> int:
         log_event("[RRG-WEEKLY] publish: nothing passed the enrichment "
                   "gate; remote untouched")
         return 0
+
+    # Render the .html publish artifacts: every gated report .md gets a
+    # same-stem styled .html written into DOCS_RRG — the .html is what
+    # ships, never the .md.
+    for name in plan["publish"]:
+        if name.endswith(".html"):
+            _render_html(DOCS_RRG / (name[:-5] + ".md"), DOCS_RRG / name)
 
     # Preflight: auth/connectivity check before touching the clone.
     proc = _run(["git", "ls-remote", REMOTE_URL, "HEAD"], timeout=120)
@@ -494,16 +551,37 @@ def publish(dry_run: bool = False) -> int:
         report_dir = CLONE_DIR / "report"
         report_dir.mkdir(exist_ok=True)
 
-        # Mirror-sync: copy publishable files in; delete remote-only .md
-        # (a local file that failed the gate is NOT remote-only — it
-        # stays on the remote rather than being deleted).
+        # Mirror-sync: copy the publish set in, then prune remote files
+        # that should no longer be served:
+        #  - a remote .md whose same-stem .html is being shipped is
+        #    SUPERSEDED -> deleted (this is how dated reports migrate
+        #    from .md to .html on Pages);
+        #  - any other remote .md with no same-named local .md is
+        #    remote-only -> deleted;
+        #  - a local .md that FAILED the gate keeps its remote .md alive;
+        #  - a remote .html not in the publish set is remote-only ->
+        #    deleted;
+        #  - .json is never synced and never deleted.
         for name in plan["publish"]:
             shutil.copyfile(DOCS_RRG / name, report_dir / name)
-        local_names = {p.name for p in DOCS_RRG.glob("*.md")}
+        publish_set = set(plan["publish"])
+        local_md = {p.name for p in DOCS_RRG.glob("*.md")}
         for remote_md in report_dir.glob("*.md"):
-            if remote_md.name not in local_names:
+            if remote_md.name in publish_set:
+                continue  # synced .md (weekly_summary.md, report_index.md)
+            stem_html = remote_md.name[:-3] + ".html"
+            if stem_html in publish_set:
+                remote_md.unlink()
+                print(f"  deleted {remote_md.name} "
+                      f"(superseded by {stem_html})")
+            elif remote_md.name not in local_md:
                 remote_md.unlink()
                 print(f"  deleted remote-only {remote_md.name}")
+            # else: local .md exists but failed the gate -> protected
+        for remote_html in report_dir.glob("*.html"):
+            if remote_html.name not in publish_set:
+                remote_html.unlink()
+                print(f"  deleted remote-only {remote_html.name}")
 
         _git(CLONE_DIR, "add", "-A", "report")
         status = _git(CLONE_DIR, "status", "--porcelain", "report")

@@ -145,7 +145,7 @@ label:
 
 ## Procedure
 
-1. **Generate the draft** — run the bundled extractor (stdlib only):
+1. **Generate the draft (.md)** — run the bundled extractor (stdlib only):
    ```
    python .devin/skills/analyze_rra/analyze_rra.py <input.json> --out docs/rra/<report>.md
    ```
@@ -153,13 +153,35 @@ label:
    (e.g. `..._analysis_prompt20261113.json` →
    `..._analysis_report20261113.md`). Quick sanity check first with
    `--stats-only`.
-2. **Review + enrich** — read the draft; fix anything the rules
+2. **Review + enrich (.md)** — read the draft; fix anything the rules
    misbucketed (e.g. a high-consistency LEADER newly in WEAKENING belongs
    in §4 commentary), then add the analytical narrative per
    `response_style`. Keep tables verbatim. Enrichment is REQUIRED, not
    optional — see the contract below.
-3. **Save** — the report lands in `docs/rra/`; do not modify the input
+3. **Save (.md)** — the report lands in `docs/rra/`; do not modify the input
    JSON. Log the run to `devin_blackboard/EVENTS.log` per AGENTS.md.
+4. **Render (.html, at publish time)** — the styled, sortable standalone
+   page. The `.md` stays the internal source of truth
+   (draft → enrich); the `.html` is the publish artifact — the weekly
+   pipeline renders it for every gated report and ships the `.html` to
+   `report/` INSTEAD of the `.md`. Manual render:
+   ```
+   python .devin/skills/analyze_rra/rra_html.py <report.md> --out <report.html>
+   # or via the extractor entry point:
+   python .devin/skills/analyze_rra/analyze_rra.py --html <report.md> --html-out <report.html>
+   ```
+   `rra_html.render(md_text, title)` is the reusable API; the `<title>`
+   is derived from the input filename's date by default
+   (`title_from_filename`). Needs `mistune` (requirements.txt).
+
+   Render conventions (approved design, ref `.tmp/rra_report_2026-11-20.html`):
+   §1 grid LEADING cell green / LAGGING cell red (matched dynamically on
+   `LEADING (n)`/`LAGGING (n)`); every data table sortable
+   (numeric-aware click-toggle, ▲/▼ markers); §5 bullet groups become
+   one sortable table per `###` group (green rows land on `->LEADING`,
+   red on `->LAGGING`); §8 tilts become a table (Overweight green /
+   Avoid red); prose keywords (quadrants, statuses, transitions)
+   bolded, code spans and existing bold untouched.
 
 ## Enrichment contract (REQUIRED)
 
