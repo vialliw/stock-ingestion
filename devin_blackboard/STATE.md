@@ -1,6 +1,79 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-24 (executor B: RRG-HTML-T1 done — dated reports publish as styled .html)
+Last Updated: 2026-11-24 (critic D: RRG-HTML-T1 final acceptance PASS)
 Current Branch: main
+
+## RRG-HTML-T1 — Critic D final verification: PASS (2026-11-24)
+
+**CRITIC-D verdict: PASS** (HEAD 3d36031; impl e7f2faf). Trusted nothing —
+re-ran all 7 acceptance_criteria commands plus independent spot-checks.
+poll_tasks --verify: ALL PASS, exit 0.
+
+- AC1: 11-20 render byte-diff vs approved .tmp/rra_report_2026-11-20.html:
+  35413B/1237L both, exactly 2 lines differ (sorted-asc/sorted-desc CSS —
+  scratch \x15B2/\x15BC bug -> literal ▲/▼). 14/14 markers present.
+  05-15 dynamic census: md IMP8/LEAD26/LAG52/WEAK10 == html exactly;
+  title derives from filename date. No hardcoded counts.
+- AC2: --html render-only output byte-identical to direct rra_html CLI;
+  no prompt JSON needed; SKILL.md documents the contract.
+- AC3: --out + --index both write in one invocation; index = 28 links,
+  all absolute https://vialliw.github.io/Relative-Rotation-Analysis-
+  Dashboard/report/<stem>.html; 0 links end .md; link text stays .md name.
+- AC4: dry-run '30 publishable, 0 skipped' = 28 .html + report_index.md +
+  weekly_summary.md; no .md reports ship. Deletion rules inspected
+  (rrg_weekly_pipeline.py:565-584): superseded / remote-only / gate-failed
+  protection all correct; .json never globbed; render before clone = atomic.
+- AC5: requirements.txt:18 'mistune>=3,<4' (duckdb-style pin).
+- AC6: 74/74 pytest green in 0.86s; design doc documents the architecture.
+- AC7: check_loops.py exit 0 (17 files).
+- Scope clean: e7f2faf delta = exactly the 9 output_files; later commits
+  blackboard-only.
+- C findings F1/F2/F3 confirmed non-blocking. F1 (docs/rra/*.html
+  unignored) is orchestrator housekeeping — recommended before next real
+  --publish.
+
+Status: eligible for done — marked done by critic D.
+
+## RRG-HTML-T1 — Challenger C review: APPROVED (2026-11-24)
+
+**CHALLENGER-C verdict: APPROVED** (HEAD e9b3bd6; impl e7f2faf). Trusted
+nothing — re-rendered all 28 reports, byte-diffed the 11-20 render vs
+approved .tmp/rra_report_2026-11-20.html, traced every publish deletion
+rule, ran the +15 tests, probed renderer edge cases.
+
+- AC1 fidelity: 11-20 render BYTE-IDENTICAL to approved output after
+  normalizing the ONE admitted divergence (scratch '\x15B2'/'\x15BC'
+  control-char bug -> literal ▲/▼). Only 6 raw bytes differ, all in the
+  sorted-asc/sorted-desc CSS content strings. Nothing else diverges.
+- AC1 generalization: all 28 reports render cleanly; dynamic counts
+  verified (LEADING 9..44, LAGGING 22..68 — no hardcoded 35/34).
+  title_from_filename handles dated + compact-flagship + undated
+  fallback. §5/§8 edge cases (empty groups, no entries, missing landed,
+  whipsaw ⚠) all handled without crashes.
+- AC3: PAGES_BASE matches GitHub Pages convention; 28 index links point
+  at absolute .html URLs, link text stays .md filename. --index early-
+  return bug fixed (--out + --index combine; --index alone no stdout).
+- AC4: deletion rules traced — no scenario where a kept remote report
+  gets deleted within AC intent. Render-failure atomic (render before
+  clone; failure aborts before sync — tested). Stale local .html when
+  .md gate-failed does NOT ship (not in publish_set).
+- AC5/AC6/AC7: mistune>=3,<4 pin matches style; 74/74 tests pass;
+  check_loops exit 0; rra_html.py 3 loops all `# justified:`; scope
+  clean (exactly 9 output_files, no src/ edits).
+
+NON-BLOCKING findings:
+- F1 (minor): publish() leaves .html artifacts in docs/rra/ post-publish
+  with no cleanup and no .gitignore coverage (git check-ignore exits 1).
+  28 .html files could be accidentally committed to the main repo via
+  `git add -A`. .gitignore is not in B's output_files -> orchestrator
+  housekeeping (add `docs/rra/*.html` to .gitignore, or clean up in
+  publish() finally block at rrg_weekly_pipeline.py:626).
+- F2 (advisory): a previously-published .html is deleted as remote-only
+  when its .md later fails the gate (report vanishes from Pages). AC4
+  only requires .md protection; .html case unspecified. Design choice.
+- F3 (advisory): §8 table header emitted even with no tilt bullets
+  (rra_html.py:133-134). Cosmetic; never occurs in real data.
+
+Verdict: APPROVED. Would deploy: YES. Next: Critic D final acceptance.
 
 ## RRG-HTML-T1 — DONE (executor B, 2026-11-24)
 

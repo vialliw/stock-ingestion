@@ -7170,3 +7170,134 @@ Evidence map:
   }
 ]
 [2026-11-24T11:42:46.895155+00:00] [EXECUTOR-B] RRG-HTML-T1 complete (impl e7f2faf). rra_html.py port verified vs approved output (marker-identical; deliberate ▲/▼ escape fix). Pipeline ships same-stem .html for gated reports; superseded-.md + remote-only deletion rules implemented; gate protection preserved. 74/74 pytest, loops clean, --verify ALL PASS x7.
+[2026-11-24T12:30:00Z] [CHALLENGER-C] RRG-HTML-T1 review: APPROVED (HEAD e9b3bd6; impl e7f2faf). Trusted nothing — re-rendered all 28 reports, byte-diffed the 11-20 render vs approved .tmp/rra_report_2026-11-20.html, traced every publish deletion rule, ran the +15 tests, and probed renderer edge cases.
+
+VERDICT: APPROVED. No blockers, no majors. 3 minor/advisory findings (non-blocking).
+
+Fidelity (AC1):
+- 11-20 render is BYTE-IDENTICAL to the approved .tmp/rra_report_2026-11-20.html
+  after normalizing the ONE admitted divergence (the scratch's '\x15B2'/'\x15BC'
+  control-char+'B2'/'BC' sort-arrow bug -> literal ▲/▼). Confirmed: only 6 raw
+  bytes differ (3 per CSS line x 2 lines), all in the sorted-asc/sorted-desc
+  ::after content strings. Nothing else diverges. (rra_html.py:248-249 vs
+  make_html_v4.py:113-114)
+
+Generalization (AC1):
+- All 28 reports render cleanly (no crashes). Dynamic counts verified per-file:
+  LEADING ranges 9..44, LAGGING ranges 22..68 — NO hardcoded 35/34 anywhere
+  (rra_html.py:197-200 regex on \d+). 05-15 shows LEADING (26)/LAGGING (52)
+  matching B's claim. title_from_filename handles both dated
+  (_YYYY-MM-DD_analysis_report.md) and compact-flagship
+  (_analysis_reportYYYYMMDD.md) formats, with stem fallback for undated
+  files (rra_html.py:284-294).
+- §5 edge cases: empty group (no entries) -> no table emitted (flush guards on
+  rows); entry with no transition header -> row still forms (cur_trans=None,
+  never occurs in real data); entry with no landed field -> landed/past render
+  as em-dash; whipsaw -> ⚠ appended to Past col (verified on 05-15: 5 ⚠
+  glyphs). UNCHANGED status is in the _S5_ENTRY regex (rra_html.py:45) but
+  occurs in zero real reports — defensive only.
+- §8 edge case: header row emitted even when §8 has no tilt bullets
+  (rra_html.py:133-134) — cosmetic, never occurs in real data (see F3).
+
+Publish logic (AC4):
+- Deletion rules traced: remote .md deleted iff (a) in publish_set as a synced
+  .md [weekly_summary/report_index — kept], or (b) same-stem .html in
+  publish_set [superseded -> deleted], or (c) not in local_md [remote-only ->
+  deleted]; else (local .md exists but gate-failed) -> PROTECTED. Remote .html
+  deleted iff not in publish_set. .json never globbed. No scenario found where
+  a remote report that should be kept gets deleted within AC4 intent.
+  (rrg_weekly_pipeline.py:565-584)
+- Render-failure atomicity: render loop (520-522) runs BEFORE preflight/clone
+  (524-546); a RuntimeError from _render_html aborts publish before any clone/
+  sync — remote untouched. Test test_render_runs_before_clone confirms the
+  ordering; test_failure_raises confirms _render_html raises. (passes)
+- Stale local .html when .md gate-failed: the stale .html is NOT in publish_set
+  (publish_name_for only applied to gated .mds), so it is neither copied to the
+  clone nor protected — it just sits locally. Does NOT ship. Correct.
+
+Link correctness (AC3):
+- PAGES_BASE = "https://vialliw.github.io/Relative-Rotation-Analysis-Dashboard/
+  report" matches the GitHub Pages convention for the remote repo
+  (vialliw/Relative-Rotation-Analysis-Dashboard, files under report/). build_index
+  emits absolute URLs with .md->.html stem swap; link text stays the .md
+  filename. Verified: 28 index rows, all links end in .html, all link text ends
+  in .md. (summarize_rra.py:101-105)
+- --index early-return bug FIXED: --out + --index combine in one invocation
+  (verified: both files written, 28 rows each). --index alone still writes only
+  the index, no summary stdout noise. (summarize_rra.py:124-157)
+
+Test quality (AC4/AC6):
+- +15 tests cover real semantics, not just happy paths: publish_name_for (dated/
+  flagship/summary/other), plan_publish html translation (skip keeps local .md
+  name), mirror-sync deletion (superseded/gate-failed-protects/remote-only/
+  publish-set-kept — 4 distinct scenarios), _render_html (invokes script/failure
+  raises/render-before-clone ordering), summarize (Pages links/combined
+  invocation/--index alone no stdout). 74/74 pass.
+
+Style/rules (AC5/AC7):
+- check_loops exit 0 (17 files in src/). rra_html.py (in .devin/skills/, not
+  scanned by check_loops) has 3 for-loops, ALL with `# justified:` comments
+  (lines 78-79, 135-136, 217-218). rrg_weekly_pipeline.py new loops are file-
+  iteration/generator-expr (not data-transformation loops).
+- requirements.txt: mistune>=3,<4 matches duckdb>=2,<3 pin style.
+- Scope: git diff-tree e7f2faf = exactly the 9 output_files; no src/ or
+  unrelated files touched.
+
+NON-BLOCKING findings:
+- F1 (minor): publish() writes .html artifacts into docs/rra/ (rrg_weekly_
+  pipeline.py:520-522) but never cleans them up, and docs/rra/*.html is NOT
+  in .gitignore (verified: git check-ignore docs/rra/foo.html exits 1). After
+  a real --publish run, 28 .html files persist in the working tree and could
+  be accidentally committed to the main repo via `git add -A`. .gitignore is
+  not in B's output_files, so this is the orchestrator's housekeeping job
+  (add `docs/rra/*.html` to .gitignore, or have publish() clean up in its
+  finally block at line 626). Not an AC violation.
+- F2 (advisory): if a report .md was previously published as .html and later
+  fails the gate, the remote .html is deleted as "remote-only" (rrg_weekly_
+  pipeline.py:581-584) — the report vanishes from Pages. AC4 only requires
+  gate-failed .md to protect remote .md; the .html case is unspecified.
+  Design choice, not an AC violation. Worth documenting in the design doc.
+- F3 (advisory): §8 tilt table header is emitted even when §8 has no tilt
+  bullets (rra_html.py:133-134 always prepends the header inside _sub). Cosmetic
+  only; never occurs in real data (every report has tilts).
+
+Would deploy: YES. Next: Critic D final acceptance.
+
+## 2026-11-24 — CRITIC-D final acceptance: RRG-HTML-T1 => PASS (HEAD 3d36031; impl e7f2faf)
+
+Re-ran every acceptance_criteria command + independent spot-checks (trusted
+nothing from B/C reports). poll_tasks --verify: ALL 7 PASS, exit 0.
+
+- AC1 PASS: rra_html CLI rendered 11-20 report; byte-diff vs approved
+  .tmp/rra_report_2026-11-20.html = 35413 bytes both, 1237 lines both,
+  EXACTLY 2 lines differ (lines 19-20: sorted-asc/sorted-desc CSS content —
+  scratch '\x15B2'/'\x15BC' octal bug -> literal ▲/▼ e296b2/e296bc).
+  All 14 markers present. Dynamic census on 05-15: md IMP8/LEAD26/LAG52/
+  WEAK10 == html IMP8/LEAD26/LAG52/WEAK10; title 'RRA Analysis Report —
+  2026-05-15' derives from filename. No hardcoded counts.
+- AC2 PASS: analyze_rra.py --html wrote .tmp/rrg_html_t1_verify2.html
+  byte-identical to direct rra_html CLI output (no prompt JSON needed);
+  SKILL.md documents draft->enrich->render contract (lines 166-173).
+- AC3 PASS: --out + --index in one invocation wrote both files; index has
+  28 links, ALL absolute https://vialliw.github.io/Relative-Rotation-
+  Analysis-Dashboard/report/<stem>.html, link text stays .md filename;
+  0 links end in .md. weekly_summary.md contains 'Weekly summary'.
+- AC4 PASS: --publish --dry-run: '30 publishable, 0 skipped'; ship list =
+  28 *_analysis_report.html + report_index.md + weekly_summary.md; no .md
+  reports. Deletion logic inspected (rrg_weekly_pipeline.py:565-584):
+  synced .md kept; remote .md superseded by same-stem .html deleted;
+  remote-only .md deleted; gate-failed local .md protects remote .md
+  (else-branch); remote .html not in publish_set deleted; .json never
+  globbed. Render loop (520-522) precedes preflight/clone (524-546) ->
+  render failure aborts before remote touch.
+- AC5 PASS: requirements.txt:18 'mistune>=3,<4' (matches 'duckdb>=2,<3').
+- AC6 PASS: pytest tests/test_rrg_weekly_pipeline.py: 74/74 in 0.86s;
+  design doc documents 'publish artifact' + 'same-stem' architecture.
+- AC7 PASS: check_loops.py --src-dir src exit 0 (17 files); pytest green.
+- Scope: git diff-tree e7f2faf = exactly the 9 output_files; e9b3bd6 +
+  3d36031 touched only devin_blackboard/. No src/ or tests/ drift.
+- C findings F1/F2/F3 re-confirmed non-blocking: F1 = orchestrator
+  housekeeping (docs/rra/*.html untracked, not gitignored); F2 = .html
+  superseded-deletion unspecified (design choice); F3 = cosmetic §8 header.
+
+Verdict: PASS — task is eligible for done. Marked --done as critic.
