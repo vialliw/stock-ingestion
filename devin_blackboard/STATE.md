@@ -1,6 +1,79 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-24 (executor B: RRG-HTML-T2 publish hardening done)
+Last Updated: 2026-11-24 (challenger C: RRG-HTML-T2 review APPROVED)
 Current Branch: main
+
+## RRG-HTML-T2 — Challenger C review: APPROVED (2026-11-24)
+
+**CHALLENGER-C verdict: APPROVED** (HEAD 7173046; impl 7173046). Trusted
+nothing — re-ran the 5 TestPublishHardening tests + full 79/79 suite,
+check_loops (exit 0, 17 files), and traced every deletion branch in
+publish() by hand against the F2 scenario and the AC2 breaker spec.
+
+- **F2 hole closure (CONFIRMED):** replayed the exact regression — local
+  `R_2026-11-13_analysis_report.md` regressed to DRAFT (no markers, gate
+  fails) while remote still has the live `.md` + `.html`. Code path
+  (rrg_weekly_pipeline.py:588-612): the gate-failed `.md` is in
+  `local_md`, so `remote_md` hits the `elif remote_md.name not in
+  local_md` -> NOT taken -> protected (line 602 comment); `remote_html`
+  hits `if remote_html.name[:-5] + ".md" in local_md: continue` (line
+  606-607) -> protected. Neither enters `deletions`, so `--prune` is
+  irrelevant for them. Test `test_gate_failed_local_md_protects_remote_html`
+  asserts both survive. The F2 404 window is closed for `.md` AND `.html`.
+- **AC2 breaker (CONFIRMED):** `DATED_ARTIFACT_RE`
+  (`_\d{4}-\d{2}-\d{2}_analysis_report\.(?:md|html)$`, line 88-89) gates
+  ONLY `category="dated-holdable"` items (line 616); `superseded` and
+  non-dated `remote-only` delete unconditionally. Superseded-.md is safe:
+  `stem_html in publish_set` (line 592) requires a gated local `.md` ->
+  freshly rendered `.html` ships, so the `.md` is genuinely replaced. A
+  stale/accidental local `.html` cannot trigger superseded (plan_publish
+  globs only `*.md`, line 233; publish_set is built from
+  publish_name_for on gated `.md`s).
+- **Held-file UX (CONFIRMED):** held files re-warn every run — the
+  `deletions` list is rebuilt from a fresh clone each publish, and held
+  items are printed + `log_event`'d every time (line 617-619, 628-632).
+  No silent-permanent state. Decision list is deterministic: each remote
+  file is visited once in either the `.md` or `.html` loop with if/elif/
+  else, so a file can only land in one category.
+- **Render-vs-hold (CONFIRMED):** a held dated `.md` + its local `.md`
+  present -> both `.md` and same-stem `.html` protected (parity). The
+  remote `.html` is the last good render; the remote `.md` is the last
+  good enriched source — consistent pair. Documented in the design-doc
+  parity table (docs/enhancements/rrg_weekly_automation_design.md:141-
+  158). Render-before-clone atomicity preserved (line 535-537 before
+  554) -> a render failure aborts before any deletion.
+- **Tests (CONFIRMED):** +5 TestPublishHardening cover the F2 path
+  (gate-failed .md protects .html), held-without-prune, deleted-with-
+  prune, log_event records, dry-run wording. Re-seeded
+  `test_remote_only_md_and_html_deleted` now uses non-dated names
+  (`stale_notes.md`, `orphan_page.html`) and still meaningfully asserts
+  both .md and .html remote-only deletion without --prune. 79/79 pass.
+- **Regressions (CONFIRMED):** `--prune` wired main()->publish(prune=)
+  (line 718); dry-run text describes held vs deleted (line 516-522);
+  log_event/toast single-count (one call each for deleted/held sets, one
+  summary print, one toast — line 624-632, 665-672); scope = exactly the
+  3 output_files (scripts/rrg_weekly_pipeline.py, tests/, design doc) +
+  blackboard.
+
+NON-BLOCKING advisories (not a re-open):
+- A1 (minor): no explicit test that `--prune` does NOT override parity
+  protection (i.e. --prune + gate-failed local .md -> remote .html still
+  protected). Code inspection confirms it (the `continue` at line 606-607
+  fires before `deletions.append`, so `prune` never sees protected
+  files), but a test would lock the invariant against future refactors.
+- A2 (minor): `--prune` alone (no --publish/--all) silently behaves as
+  `--all --prune` because `explicit=False` -> `do_publish=True` (line
+  710-712). Help text says "with --publish". Not a bug — --prune is
+  meaningless without publish — but a user typing `--prune` expecting a
+  no-op gets a full generate+publish. Could error or warn. Low priority.
+- A3 (advisory): parity protection is broad — ANY same-stem local `.md`
+  protects a remote `.html`, including non-report `.md` (e.g. a
+  hypothetical stale `weekly_summary.html` would be protected by
+  `weekly_summary.md`). Per AC1 spec ("deletable ONLY when no same-stem
+  local .md exists") this is by design; non-report `.md` ships as `.md`
+  so a same-stem `.html` on remote is accidental and rare. Non-issue in
+  practice.
+
+Verdict: APPROVED. Would deploy: YES. Next: Critic D final acceptance.
 
 ## RRG-HTML-T2 — DONE (executor B, 2026-11-24)
 
