@@ -1,6 +1,54 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-24 (enrichment agents: v4 re-enrichment ALL batches done — 05-15..11-20 complete)
+Last Updated: 2026-11-24 (executor B: RRG-HTML-T1 done — dated reports publish as styled .html)
 Current Branch: main
+
+## RRG-HTML-T1 — DONE (executor B, 2026-11-24)
+
+Dated RRA reports now publish as styled/sortable `.html` instead of
+`.md` (impl e7f2faf). Architecture: `.md` = internal source
+(draft→enrich in `docs/rra/`); `.html` = publish artifact for dated
+reports; `weekly_summary.md` + `report_index.md` stay `.md`.
+
+- **`.devin/skills/analyze_rra/rra_html.py` (new):** generalized port
+  of approved `.tmp/make_html_v4.py` — `render(md_text, title)` + CLI
+  `<in.md> --out <out.html>`. Grid green/red cells derive dynamically
+  from `LEADING (n)`/`LAGGING (n)` (any count); `<title>` derives from
+  the input filename's date (YYYY-MM-DD or compact YYYYMMDD flagship).
+  §5 groups→one sortable table per `###` group, §8 tilts→table, prose
+  keyword bolding, all conventions preserved. One intentional fix vs
+  the scratch: its `content:" \25B2"` Python-octal bug emitted a
+  control char + "B2"; the port emits literal ▲/▼ — render is
+  otherwise marker-identical to `.tmp/rra_report_2026-11-20.html`.
+  All 28 reports render cleanly (263 colored crossing/tilt rows).
+- **analyze_rra.py:** `--html <in.md> --html-out <out>` render-only
+  entry (lazy rra_html import — extractor stays stdlib-only).
+- **summarize_rra.py:** `build_index` links dated reports to absolute
+  `https://vialliw.github.io/Relative-Rotation-Analysis-Dashboard/report/<stem>.html`;
+  `--index` early-return fixed — `--out`/`--index`/`--digest` combine.
+- **scripts/rrg_weekly_pipeline.py:** `publish_name_for` maps gated
+  `*_analysis_report*.md` → same-stem `.html` in the publish set;
+  `publish()` renders via `_render_html` (rra_html subprocess) into
+  `docs/rra/` before preflight and ships `.html` INSTEAD of `.md`.
+  Mirror-sync: remote `.md` deleted iff remote-only OR superseded by a
+  shipped same-stem `.html`; remote `.html` deleted iff not in the
+  publish set; a gate-FAILED local `.md` still protects its remote
+  `.md`; `.json` never synced/deleted. Dry-run prints the render line
+  + `.html` ship list (verified live: 30 publishable = 28 .html +
+  summary + index).
+- **requirements.txt:** `mistune>=3,<4`. **Docs:** both SKILL.mds +
+  `rrg_weekly_automation_design.md` document the contract.
+- **Tests:** +15 in test_rrg_weekly_pipeline.py (publish_name_for,
+  plan html translation, superseded/remote-only/protected deletion
+  rules, _render_html subprocess/failure/ordering, summarize absolute
+  links + combined invocation); **74/74 PASS**. check_loops exit 0.
+- **poll_tasks --verify: ALL 7 ACs PASS.** Schema note: normalized the
+  task entry (`owner`/`pending` → `assigned_to`/`todo`, +`input_files`)
+  and converted prose ACs to structured `{id,check,command}` dicts —
+  original AC text preserved verbatim in `check`.
+
+Next: Challenger C / Critic D. Remote housekeeping (remote `.gitignore`
+`*.html` removal, legacy `.md` purge via superseded rule) happens on
+the next real `--publish` run — orchestrator's call.
 
 ## RRA v4 re-enrichment — batch 10-09..11-13 (enrichment agent, 2026-11-24)
 

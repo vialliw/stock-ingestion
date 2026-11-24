@@ -7169,3 +7169,4 @@ Evidence map:
     "output": "No unjustified loops found. (17 files checked)\n........................................................................ [ 97%]\n..                                                                       [100%]\n74 passed in 0.88s\n"
   }
 ]
+[2026-11-24T11:42:46.895155+00:00] [EXECUTOR-B] RRG-HTML-T1 complete (impl e7f2faf). rra_html.py port verified vs approved output (marker-identical; deliberate ▲/▼ escape fix). Pipeline ships same-stem .html for gated reports; superseded-.md + remote-only deletion rules implemented; gate protection preserved. 74/74 pytest, loops clean, --verify ALL PASS x7.
