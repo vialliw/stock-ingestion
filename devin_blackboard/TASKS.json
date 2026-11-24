@@ -5454,5 +5454,65 @@
     ],
     "verification": "B implements + self-verifies; C challenges; D runs AC1-AC7 with evidence (render a known .md, diff markers vs .tmp/rra_report_2026-11-20.html approved output; pytest; check_loops).",
     "notes": "Architecture: .md remains internal source of truth (draft->enrich); .html is the publish artifact for dated reports only. weekly_summary.md + report_index.md stay .md and publish (Jekyll renders them on Pages; no name collisions once report .md are deleted remotely). Renderer reference: .tmp/make_html_v4.py + approved output .tmp/rra_report_2026-11-20.html (14-marker check used previously). Remote .gitignore '*.html' removal + legacy .md deletion happen via the publish run itself (orchestrator handles remote housekeeping). mistune already installed locally."
+  },
+  {
+    "id": "RRG-HTML-T2",
+    "title": "Publish hardening: protect last-good .html from gate regression + deletion circuit breaker",
+    "status": "in_progress",
+    "depends_on": [
+      "RRG-HTML-T1"
+    ],
+    "output_files": [
+      "scripts/rrg_weekly_pipeline.py",
+      "tests/test_rrg_weekly_pipeline.py",
+      "docs/enhancements/rrg_weekly_automation_design.md"
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "RRG-HTML-T2-AC1",
+        "check": "AC1 (parity protection): in publish() mirror-sync, a remote .html not in the publish set is deletable ONLY when no same-stem local .md exists in docs/rra. A gate-failed local .md now protects its remote same-stem .html exactly as it protects its remote same-named .md (the .md rule already exists — extend equivalent semantics to .html).",
+        "command": "python -m pytest tests/test_rrg_weekly_pipeline.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "RRG-HTML-T2-AC2",
+        "check": "AC2 (dated-artifact deletion breaker): deletions of dated-report artifacts — names matching the dated report pattern *_YYYY-MM-DD_analysis_report.(md|html) — require explicit opt-in via a new CLI flag `--prune` on --publish. Without --prune such files are HELD (left on remote), each printed as 'held' with reason and counted in the publish summary. Non-dated remote-only files and the superseded-.md rule (same-stem .html in publish set) are NOT gated by --prune — they keep current behavior.",
+        "command": "python -c \"import sys; s=open('scripts/rrg_weekly_pipeline.py',encoding='utf-8').read(); sys.exit(0 if ('--prune' in s and 'held' in s) else 1)\" && python -m pytest tests/test_rrg_weekly_pipeline.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "RRG-HTML-T2-AC3",
+        "check": "AC3 (observability): every deletion AND every held-deletion is recorded via log_event (file names + reason); the publish toast/summary reports both counts. Held deletions also noted in the publish plan output.",
+        "command": "python -c \"import sys; s=open('scripts/rrg_weekly_pipeline.py',encoding='utf-8').read(); sys.exit(0 if ('log_event' in s and 'held' in s) else 1)\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "RRG-HTML-T2-AC4",
+        "check": "AC4 (docs): docs/enhancements/rrg_weekly_automation_design.md documents the new protection semantics (parity table .md vs .html), the --prune opt-in, and the recovery path (remote git history / git revert) in the publish section.",
+        "command": "python -c \"import sys; t=open('docs/enhancements/rrg_weekly_automation_design.md',encoding='utf-8').read(); sys.exit(0 if ('--prune' in t and 'revert' in t and 'held' in t.lower()) else 1)\"",
+        "expected_exit": 0
+      },
+      {
+        "id": "RRG-HTML-T2-AC5",
+        "check": "AC5: tests in test_rrg_weekly_pipeline.py cover: (a) gate-failed local .md protects remote same-stem .html; (b) absent local source -> dated .html HELD without --prune, deleted with --prune; (c) superseded-.md still auto-deleted when same-stem .html ships (no --prune needed); (d) non-dated remote-only file deleted without --prune; (e) log_event records deletions+holds; (f) dry-run shows held vs deleted. All green.",
+        "command": "python -m pytest tests/test_rrg_weekly_pipeline.py -q",
+        "expected_exit": 0
+      },
+      {
+        "id": "RRG-HTML-T2-AC6",
+        "check": "AC6: `python -m pytest tests/test_rrg_weekly_pipeline.py -q` all pass; `python scripts/check_loops.py --src-dir src` exit 0.",
+        "command": "python scripts/check_loops.py --src-dir src && python -m pytest tests/test_rrg_weekly_pipeline.py -q",
+        "expected_exit": 0
+      }
+    ],
+    "verification": "B implements + self-verifies; C challenges deletion-path edge cases; D re-runs every AC command and reports evidence.",
+    "notes": "Motivation: Challenger F2 on T1 — a previously-published .html was deleted as 'remote-only' whenever its local .md regressed below the enrichment gate (regen overwrite, in-flight enrichment, accidental edit) -> public 404 window. Fix parity + make dated-artifact deletion opt-in. Remote rollback stays git-revert.",
+    "role": "executor",
+    "assigned_to": "executor",
+    "input_files": [
+      "scripts/rrg_weekly_pipeline.py",
+      "tests/test_rrg_weekly_pipeline.py",
+      "docs/enhancements/rrg_weekly_automation_design.md"
+    ]
   }
 ]
