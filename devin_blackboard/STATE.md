@@ -1,6 +1,57 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-24 (challenger C: RRG-HTML-T2 review APPROVED)
+Last Updated: 2026-11-24 (critic D: RRG-HTML-T2 final verification PASS)
 Current Branch: main
+
+## RRG-HTML-T2 — Critic D final verification: PASS (2026-11-24)
+
+**CRITIC-D verdict: PASS** (HEAD ae80890; impl 7173046). Trusted nothing —
+re-ran every acceptance_criteria command verbatim plus the focused F2
+test, hand-traced both deletion loops, and ran the live dry-run.
+poll_tasks --verify: ALL 6 ACs PASS, exit 0.
+
+- AC1 (parity): traced rrg_weekly_pipeline.py:588-612 — a gate-failed
+  local `.md` is in `local_md`, so its remote `.md` skips the
+  remote-only elif (line 596→602 comment) and its remote same-stem
+  `.html` hits `if remote_html.name[:-5]+".md" in local_md: continue`
+  (line 606-607). Neither enters `deletions` -> `--prune` can never
+  reach them. Focused test
+  `TestPublishHardening::test_gate_failed_local_md_protects_remote_html`
+  PASSED standalone (1/1): DRAFT local .md + remote .md+.html -> both
+  survive while the ENRICHED report ships.
+- AC2 (--prune breaker): flag at 694-698, signature 491, wired
+  main()->publish(prune=) at 718. DATED_ARTIFACT_RE
+  (`_\d{4}-\d{2}-\d{2}_analysis_report\.(?:md|html)$`, 90-91) classifies
+  only `dated-holdable` items; line 616 holds them unless prune.
+  `superseded` (592-595) and non-dated `remote-only` delete
+  unconditionally — verified by test_superseded_remote_md_deleted
+  (dated name, no --prune) and test_remote_only_md_and_html_deleted
+  (non-dated stale_notes.md/orphan_page.html).
+- AC3 (observability): log_event emits names+reasons for deleted
+  (624-627) and held (628-632) sets; summary print (665-667), log
+  (668-671) and toast (672-674) all report `N remote deleted, M held`;
+  dry-run plan text (516-522) states held-vs-deleted. Test
+  test_log_event_records_deletions_and_holds asserts both log lines.
+- AC4 (docs): design doc 143-166 — 7-row .md/.html parity decision
+  table, `--prune` circuit-breaker paragraph, and the git-revert
+  recovery path on the dashboard repo. All present verbatim.
+- AC5: 79/79 pass in ~1s. TestPublishHardening (+5) maps to (a)-(f);
+  (c)/(d) covered by the re-seeded TestMirrorSyncDeletion tests.
+- AC6: `python scripts/check_loops.py --src-dir src` -> "No unjustified
+  loops found. (17 files checked)", exit 0. pytest 79/79.
+- Functional: `--publish --dry-run` -> "30 publishable, 0 skipped",
+  28 .html + report_index.md + weekly_summary.md ship list + new
+  wording ("dated remote-only artifacts HELD unless --prune; a
+  same-stem local .md protects its remote .md AND .html");
+  `--publish --prune --dry-run` parses and runs identically; `--help`
+  documents --prune.
+- Scope clean: 7173046 delta = exactly the 3 output_files + blackboard;
+  no src/ edits. Working tree clean.
+- C advisories confirmed non-blocking: A1 (no --prune-vs-parity test —
+  code-proven, continue at 606 precedes deletions.append); A2 (bare
+  --prune implies full --all run, 709-712 — documented "with --publish"
+  behavior); A3 (broad same-stem protection — per AC1 spec, by design).
+
+Status: PASS — final gate satisfied; task stands done.
 
 ## RRG-HTML-T2 — Challenger C review: APPROVED (2026-11-24)
 
