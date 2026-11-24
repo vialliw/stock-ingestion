@@ -7102,3 +7102,70 @@ Verdict: PASS. All 7 ACs verified with concrete evidence. docs/rra regeneration 
 [2026-11-24T00:00:00] [ORCHESTRATOR] RRG-TRAJ-T2 full regen + publish COMPLETE (user-approved v4 format). Regenerated all 28 dated reports via v4 analyze_rra.py; 4 parallel enrichment agents ported reads (arrows, new section map) + authored fresh S5 crossings reads; 11-20 kept committed v4-enriched version. Contract verified 28/28 (1 Weekly read pre-grid + 6 Read + 1 Net call, grid+S5 present, zero letter-code leftovers). weekly_summary.md regenerated (rows pull enriched v4 reads, arc recap updated to arrow/persistence wording); report_index.md regenerated 28 rows. Published: rrg_weekly_pipeline --publish -> 30/30 publishable, pushed to vialliw/Relative-Rotation-Analysis-Dashboard report/ commit 5e9acfc.
 
 [2026-11-24T11:24:58.755532+00:00] [EXECUTOR] claimed RRG-HTML-T1
+[2026-11-24T11:42:27.180074+00:00] [EXECUTOR] completed RRG-HTML-T1 -> impl commit e7f2faf. NEW .devin/skills/analyze_rra/rra_html.py — generalized port of .tmp/make_html_v4.py: render(md_text,title)->html + CLI (in.md --out out.html); grid q-lead/q-lag classes via regex on 'LEADING (n)'/'LAGGING (n)' (no hardcoded counts), title derived from input filename date (YYYY-MM-DD or compact YYYYMMDD). 11-20 render is marker-identical to approved .tmp/rra_report_2026-11-20.html except ONE intentional fix: the scratch's '\25B2'/'\25BC' octal-escape bug emitted control-char+'B2'/'BC' in the sort-arrow CSS — the port emits literal ▲/▼. All 28 docs/rra reports render (263 x-lead/x-lag rows, per-file titles, dynamic counts verified on 05-15: LEADING (26)/LAGGING (52)). analyze_rra.py --html <in.md> --html-out <out> render-only path (lazy rra_html import keeps extractor stdlib-only). summarize_rra.py: build_index links dated reports to absolute https://vialliw.github.io/Relative-Rotation-Analysis-Dashboard/report/<stem>.html (link text = .md filename); --index early-return fixed — --out/--index/--digest now combine in one invocation. rrg_weekly_pipeline.py: plan_publish translates gated *_analysis_report*.md -> same-stem .html (publish_name_for); publish() renders each via rra_html subprocess into docs/rra/ then ships .html INSTEAD of .md; summary/index stay .md; mirror-sync deletes remote-only .md/.html + remote .md superseded by shipped .html; gate-failed local .md still protects remote .md; .json never synced/deleted; dry-run shows render line + .html ship list. requirements.txt: mistune>=3,<4 (matches 'duckdb>=2,<3' pin style). Design doc documents md-source(draft->enrich)/html-publish architecture. SKILL.mds document render step + Pages link contract. poll_tasks --verify: ALL 7 ACs PASS. pytest tests/test_rrg_weekly_pipeline.py: 74/74 PASS (1.0s) incl. +15 new (publish_name_for, plan html translation, superseded/remote-only/protected deletion rules, _render_html subprocess+failure+before-clone ordering, summarize absolute links + combined --out --index). check_loops exit 0 (17 files). NOTE: normalized task schema (owner/pending -> assigned_to=B/todo + role=executor + input_files) and converted prose acceptance_criteria into structured {id,check,command,expected_exit} preserving the original AC text verbatim in 'check' — required for --claim/--verify.
+Evidence map:
+[
+  {
+    "id": "RRG-HTML-T1-AC1",
+    "check": "AC1: New module .devin/skills/analyze_rra/rra_html.py ports .tmp/make_html_v4.py into a reusable renderer: render(md_text, title)->html + CLI `python rra_html.py <in.md> --out <out.html>`. Must GENERALIZE the scratch: quadrant-cell green/red classes derive dynamically from `LEADING (n)`/`LAGGING (n)` cell text (no hardcoded counts); page title derives from the input filename date. All reviewed v4 conventions preserved: \u00a71 grid green LEADING / red LAGGING cells; all data tables sortable (numeric-aware, click-toggle asc/desc, \u25b2/\u25bc); \u00a75 bullet groups -> 1 sortable table per ### group (Ticker|Crossing|Signal|Status|Heading|\u0394Ratio|\u0394Mom|Landed|Past|Persist); \u00a75 rows green when Crossing ends ->LEADING, red when ->LAGGING; \u00a78 tilt bullets -> table, Overweight row green, Avoid row red; prose keyword bolding (quadrants/statuses/directions/transitions) skipping code spans and existing bold.",
+    "command": "python .devin/skills/analyze_rra/rra_html.py docs/rra/Relative_Rotation_Dashboard_ETFs_2026-11-20_analysis_report.md --out .tmp/rrg_html_t1_verify.html && python -c \"import sys; q=chr(34); h=open('.tmp/rrg_html_t1_verify.html',encoding='utf-8').read(); need=['table class='+q+'grid'+q,'class='+q+'q-lead'+q,'class='+q+'q-lag'+q,'table class='+q+'sortable'+q,'class='+q+'x-lead'+q,'class='+q+'x-lag'+q,'sorted-asc','sorted-desc','th>Persist','th>Crossing','<title>RRA Analysis Report','2026-11-20</title>']; miss=[x for x in need if x not in h]; print('missing:',miss); sys.exit(0 if not miss else 1)\" && python .devin/skills/analyze_rra/rra_html.py docs/rra/Relative_Rotation_Dashboard_ETFs_2026-05-15_analysis_report.md --out .tmp/rrg_html_t1_verify0515.html && python -c \"import sys; sys.exit(0 if ((h:=open('.tmp/rrg_html_t1_verify0515.html',encoding='utf-8').read()) and 'LEADING (26)' in h and 'LAGGING (52)' in h and 'q-lead' in h and 'q-lag' in h) else 1)\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "missing: []\nwrote .tmp\\rrg_html_t1_verify.html (33606 bytes)\nwrote .tmp\\rrg_html_t1_verify0515.html (32024 bytes)\n"
+  },
+  {
+    "id": "RRG-HTML-T1-AC2",
+    "check": "AC2: analyze_rra.py gains an HTML render entry point (e.g. `--html <in.md> --html-out <out>` or delegates to rra_html CLI) so reports can be rendered without re-extraction; SKILL.md documents the draft(en .md) -> enrich(.md) -> render(.html at publish) contract.",
+    "command": "python .devin/skills/analyze_rra/analyze_rra.py --html docs/rra/Relative_Rotation_Dashboard_ETFs_2026-11-20_analysis_report.md --html-out .tmp/rrg_html_t1_verify2.html && python -c \"import sys; sys.exit(0 if ('table class=' in open('.tmp/rrg_html_t1_verify2.html',encoding='utf-8').read()) else 1)\" && python -c \"import sys; sys.exit(0 if ((t:=open('.devin/skills/analyze_rra/SKILL.md',encoding='utf-8').read()) and 'rra_html' in t and 'render' in t) else 1)\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "wrote .tmp\\rrg_html_t1_verify2.html (33606 bytes)\n"
+  },
+  {
+    "id": "RRG-HTML-T1-AC3",
+    "check": "AC3: summarize_rra.py build_index links dated reports to their Pages-rendered targets: absolute `https://vialliw.github.io/Relative-Rotation-Analysis-Dashboard/report/<name>.html` (same PAGES_BASE convention as remote action_update_index.py); link text stays the filename. weekly_summary.md output unchanged. Fix the `--index` early-return bug so `--out` and `--index` can run in one invocation.",
+    "command": "python .devin/skills/summarize_rra/summarize_rra.py --src-dir docs/rra --out .tmp/rrg_t1_summary.md --index .tmp/rrg_t1_index.md && python -c \"import sys; sys.exit(0 if ((i:=open('.tmp/rrg_t1_index.md',encoding='utf-8').read()) and (s:=open('.tmp/rrg_t1_summary.md',encoding='utf-8').read()) and 'https://vialliw.github.io/Relative-Rotation-Analysis-Dashboard/report/Relative_Rotation_Dashboard_ETFs_2026-11-20_analysis_report.html' in i and 'Weekly summary' in s) else 1)\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "wrote .tmp\\rrg_t1_index.md (6887 bytes, 28 rows)\nwrote .tmp\\rrg_t1_summary.md (14730 bytes, 28 rows)\n"
+  },
+  {
+    "id": "RRG-HTML-T1-AC4",
+    "check": "AC4: rrg_weekly_pipeline.py publish phase: enrichment gate stays on .md (unchanged semantics); for every dated/report .md that passes the gate, render same-stem .html into docs/rra/ via rra_html and ship the .html INSTEAD of the .md; weekly_summary.md and report_index.md still ship as .md. Mirror-sync extended: remote file deleted iff (a) it is a remote-only file with no same-named local source, OR (b) it is a remote .md whose same-stem .html is in the publish set (superseded). A local .md that FAILED the gate still protects its remote .md from deletion. .json never synced. Dry-run output updated to reflect the html publish set.",
+    "command": "python -m pytest tests/test_rrg_weekly_pipeline.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "........................................................................ [ 97%]\n..                                                                       [100%]\n74 passed in 1.07s\n"
+  },
+  {
+    "id": "RRG-HTML-T1-AC5",
+    "check": "AC5: requirements.txt declares mistune (pinned >=3.x,<4 style consistent with repo conventions).",
+    "command": "python -c \"import sys; sys.exit(0 if (any(l.startswith('mistune') for l in open('requirements.txt',encoding='utf-8').read().splitlines())) else 1)\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "RRG-HTML-T1-AC6",
+    "check": "AC6: tests/test_rrg_weekly_pipeline.py updated/extended: plan_publish html translation, superseded-.md deletion rule, gate-failure protection, dry-run wording \u2014 all green. docs/enhancements/rrg_weekly_automation_design.md updated to document the md-source/html-publish architecture.",
+    "command": "python -c \"import sys; sys.exit(0 if ((t:=open('docs/enhancements/rrg_weekly_automation_design.md',encoding='utf-8').read()) and 'publish artifact' in t and 'same-stem' in t) else 1)\"",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": ""
+  },
+  {
+    "id": "RRG-HTML-T1-AC7",
+    "check": "AC7: `python scripts/check_loops.py --src-dir src` exit 0; targeted pytest green: `python -m pytest tests/test_rrg_weekly_pipeline.py -q` (plus any other touched-file tests) \u2014 run and report.",
+    "command": "python scripts/check_loops.py --src-dir src && python -m pytest tests/test_rrg_weekly_pipeline.py -q",
+    "expected_exit": 0,
+    "actual_exit": 0,
+    "passed": true,
+    "output": "No unjustified loops found. (17 files checked)\n........................................................................ [ 97%]\n..                                                                       [100%]\n74 passed in 0.88s\n"
+  }
+]
