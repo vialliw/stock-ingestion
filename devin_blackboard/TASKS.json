@@ -5377,5 +5377,47 @@
         "text": "T2-AC7: SKILL.md documents all v4 changes (grid spec, arrow map+FLAT, probabilistic taxonomy, persistence/confirmation semantics, updated enrichment contract w/ pre-table weekly-read placement)."
       }
     ]
+  },
+  {
+    "id": "RRG-HTML-T1",
+    "title": "RRA reports: publish styled HTML (replace .md reports on GitHub Pages)",
+    "status": "in_progress",
+    "role": "executor",
+    "assigned_to": "B",
+    "input_files": [
+      ".tmp/make_html_v4.py",
+      ".tmp/rra_report_2026-11-20.html",
+      "docs/rra/Relative_Rotation_Dashboard_ETFs_2026-11-20_analysis_report.md",
+      "scripts/rrg_weekly_pipeline.py",
+      ".devin/skills/summarize_rra/summarize_rra.py",
+      "tests/test_rrg_weekly_pipeline.py",
+      "requirements.txt",
+      "docs/enhancements/rrg_weekly_automation_design.md"
+    ],
+    "depends_on": [
+      "RRG-TRAJ-T2"
+    ],
+    "output_files": [
+      ".devin/skills/analyze_rra/rra_html.py",
+      ".devin/skills/analyze_rra/analyze_rra.py",
+      ".devin/skills/analyze_rra/SKILL.md",
+      ".devin/skills/summarize_rra/summarize_rra.py",
+      ".devin/skills/summarize_rra/SKILL.md",
+      "scripts/rrg_weekly_pipeline.py",
+      "tests/test_rrg_weekly_pipeline.py",
+      "requirements.txt",
+      "docs/enhancements/rrg_weekly_automation_design.md"
+    ],
+    "acceptance_criteria": [
+      "AC1: New module .devin/skills/analyze_rra/rra_html.py ports .tmp/make_html_v4.py into a reusable renderer: render(md_text, title)->html + CLI `python rra_html.py <in.md> --out <out.html>`. Must GENERALIZE the scratch: quadrant-cell green/red classes derive dynamically from `LEADING (n)`/`LAGGING (n)` cell text (no hardcoded counts); page title derives from the input filename date. All reviewed v4 conventions preserved: §1 grid green LEADING / red LAGGING cells; all data tables sortable (numeric-aware, click-toggle asc/desc, ▲/▼); §5 bullet groups -> 1 sortable table per ### group (Ticker|Crossing|Signal|Status|Heading|ΔRatio|ΔMom|Landed|Past|Persist); §5 rows green when Crossing ends ->LEADING, red when ->LAGGING; §8 tilt bullets -> table, Overweight row green, Avoid row red; prose keyword bolding (quadrants/statuses/directions/transitions) skipping code spans and existing bold.",
+      "AC2: analyze_rra.py gains an HTML render entry point (e.g. `--html <in.md> --html-out <out>` or delegates to rra_html CLI) so reports can be rendered without re-extraction; SKILL.md documents the draft(en .md) -> enrich(.md) -> render(.html at publish) contract.",
+      "AC3: summarize_rra.py build_index links dated reports to their Pages-rendered targets: absolute `https://vialliw.github.io/Relative-Rotation-Analysis-Dashboard/report/<name>.html` (same PAGES_BASE convention as remote action_update_index.py); link text stays the filename. weekly_summary.md output unchanged. Fix the `--index` early-return bug so `--out` and `--index` can run in one invocation.",
+      "AC4: rrg_weekly_pipeline.py publish phase: enrichment gate stays on .md (unchanged semantics); for every dated/report .md that passes the gate, render same-stem .html into docs/rra/ via rra_html and ship the .html INSTEAD of the .md; weekly_summary.md and report_index.md still ship as .md. Mirror-sync extended: remote file deleted iff (a) it is a remote-only file with no same-named local source, OR (b) it is a remote .md whose same-stem .html is in the publish set (superseded). A local .md that FAILED the gate still protects its remote .md from deletion. .json never synced. Dry-run output updated to reflect the html publish set.",
+      "AC5: requirements.txt declares mistune (pinned >=3.x,<4 style consistent with repo conventions).",
+      "AC6: tests/test_rrg_weekly_pipeline.py updated/extended: plan_publish html translation, superseded-.md deletion rule, gate-failure protection, dry-run wording — all green. docs/enhancements/rrg_weekly_automation_design.md updated to document the md-source/html-publish architecture.",
+      "AC7: `python scripts/check_loops.py --src-dir src` exit 0; targeted pytest green: `python -m pytest tests/test_rrg_weekly_pipeline.py -q` (plus any other touched-file tests) — run and report."
+    ],
+    "verification": "B implements + self-verifies; C challenges; D runs AC1-AC7 with evidence (render a known .md, diff markers vs .tmp/rra_report_2026-11-20.html approved output; pytest; check_loops).",
+    "notes": "Architecture: .md remains internal source of truth (draft->enrich); .html is the publish artifact for dated reports only. weekly_summary.md + report_index.md stay .md and publish (Jekyll renders them on Pages; no name collisions once report .md are deleted remotely). Renderer reference: .tmp/make_html_v4.py + approved output .tmp/rra_report_2026-11-20.html (14-marker check used previously). Remote .gitignore '*.html' removal + legacy .md deletion happen via the publish run itself (orchestrator handles remote housekeeping). mistune already installed locally."
   }
 ]
