@@ -1,6 +1,93 @@
 # Project State — Canonical Source
-Last Updated: 2026-11-24 (Critic D verified RRG-TRAJ-T2: PASS)
+Last Updated: 2026-11-24 (enrichment agents: v4 re-enrichment ALL batches done — 05-15..11-20 complete)
 Current Branch: main
+
+## RRA v4 re-enrichment — batch 10-09..11-13 (enrichment agent, 2026-11-24)
+
+Enriched the 6 regenerated v4 drafts 2026-10-09 through 2026-11-13 in
+`docs/rra/` per the SKILL enrichment contract + the 2026-11-20
+reference file. Each file now carries exactly 1 `> Weekly read:` (S1,
+split one sentence per `>` line, between census counts and the 2x2
+grid) + 6 `> Read:` (ends of S2-S7) + 1 `**Net call:**` (end of S8).
+All ported prose: NE/SE/SW/NW -> ↗/↘/↙/↖, Hdg -> Heading (0 leftover
+codes verified). Insert-only edits at unique anchors — deterministic
+content (tables, grid, crossings, headings) byte-verbatim; CRLF
+endings preserved.
+
+New S5 reads authored per file summarizing confirmed/provisional
+counts, named key crossers and CW-vs-CCW balance. Minimal taxonomy
+fixes inside ported prose where old 'confirmed' wording clashed with
+the new CONFIRMED/PROVISIONAL labels (10-09 FXI, 10-30 EWC+XLK, 11-06
+XLY — all provisional under new labels). Detail in EVENTS.log.
+
+## RRA v4 re-enrichment — batch 2026-08-21..2026-10-02 (enrichment agent, 2026-11-24)
+
+Ported prior enrichment onto the 7 regenerated v4 drafts (2x2 grid,
+arrows, standalone `## 5. Quadrant Crossings`, sections 1-9). Per file:
+1 `> Weekly read:` (S1 pre-grid, split one sentence per `> ` line) +
+6 `> Read:` (S2/S3/S4 ported ends, new S5 composed, old velocity->S6,
+old laggards->S7) + 1 `**Net call:**` (S8). NE/SE/SW/NW->↗/↘/↙/↖ and
+Hdg->Heading substituted in ported prose only; zero raw codes remain.
+Fresh S5 reads summarize confirmed/provisional splits, key crossers and
+CW/CCW balance (08-21 one-way rightward 13C/8P; 08-28 GDX I->L + SMH
+breakdown confirmed; 09-04 XLK W->Lag confirmed; 09-11 7-name L->I
+regime-break wave + CIBR L->W, 16C/3P; 09-18 SLV bottoming confirmed
+10.39; 09-25 all-CCW 10-break liquidation vs COMT/DBC/FTGC; 10-02 USO
+W->L confirmed 10.24 vs financial/cyclical liquidation).
+Insertions-only — deterministic v4 content byte-verbatim, CRLF
+preserved. Contract verified per file; anomalies: none.
+Tool: .tmp/enrich_port_v4.py. Remaining unenriched batch: 05-15..08-14.
+
+## RRA v4 re-enrichment — batch 2026-05-15..2026-06-26 (enrichment agent, 2026-11-24)
+
+Ported prior enrichment onto the 7 regenerated v4 drafts (the
+commodity-regime arc) per the same contract. Per file: 1 `> Weekly
+read:` (S1 pre-grid, split one sentence per `> ` line) + 6 `> Read:`
+(S2/S3/S4 ported ends, new S5 composed, old velocity->S6, old
+laggards->S7) + 1 `**Net call:**` (S8). NE/SE/SW/NW->↗/↘/↙/↖ and
+Hdg->Heading substituted in ported prose only (1 Hdg fix, 05-15 S2);
+zero raw codes remain.
+Fresh S5 reads summarize confirmed/provisional splits, key crossers and
+CW/CCW balance: 05-15 21x 12C/9P (8-name W->Lag breakdown wave; EWA
+confirmed L->I break vs XLU/IYR/CORN provisional; EWZ discontinuous);
+05-22 11x 8C/3P (9 bearish, VDE/XLE confirmed 5.36/6.33; XSW bottoming
+9.64); 05-29 17x 9C/8P (IEO/FCG/EWY confirmed second-tier unwind; VDE
+landed 0.00 past; SOYB/CANE confirmed ags breaks); 06-05 8x 5C/3P
+all-bearish; 06-12 13x 9C/4P (XOP/BCD/IEO confirmed + 5-name squeeze
+wave + UNG confirmed bottoming); 06-19 10x 7C/3P (COMT/DBC
+discontinuous, regime break stamped); 06-26 14x 10C/4P (10 CCW but
+mostly squeezes; USO signature crash 11.38/21.77; JETS/XTN confirmed
+W->L re-acceleration).
+Insertions-only — deterministic v4 content byte-verbatim, CRLF
+preserved. Contract verified per file; anomalies: none.
+Remaining unenriched batch: 07-03..08-14.
+
+## RRA v4 re-enrichment — batch 2026-07-03..2026-08-14 (enrichment agent, 2026-11-24)
+
+Ported prior enrichment onto the 7 regenerated v4 drafts (the
+growth-regime arc: tech-led regime forms, cracks, hands off to
+metals/healthcare) per the same contract. Per file: 1 `> Weekly
+read:` (S1 pre-grid, split one sentence per `> ` line) + 6 `> Read:`
+(S2/S3/S4 ported ends, new S5 composed, old velocity->S6, old
+laggards->S7) + 1 `**Net call:**` (S8). NE/SE/SW/NW->↗/↘/↙/↖ and
+Hdg->Heading substituted in ported prose only; zero raw codes remain.
+Fresh S5 reads summarize confirmed/provisional splits, key crossers
+and CW/CCW balance: 07-03 15x 11C/4P (ARKK/XSW I->L + XBI/XPH/VBK
+re-accel vs ICLN/LIT/CPER breaks, UNG 5.69); 07-10 8x 6C/2P
+housekeeping week; 07-17 4x 1C/3P first fractures (PBW L->Lag
+diagonal confirmed 3.27/2.14; VBK/KRE thin cracks); 07-24 17x 7C/10P
+boundary churn (ARKK/AWAY L->I confirmed ↙, QCLN L->Lag diagonal
+4.24/4.37, VHT L->L confirmed; XLF/IYF/IAI provisional handoff);
+07-31 11x 5C/6P squeeze-led (IEO/AMLP/SCHH + IBB ↗; AWAY/DIA
+provisional); 08-07 14x 4C/10P even 7/7 (SMH L->W regime break
+CONFIRMED 3.40 — semi arc ends; QQQ 0.03 coin-flip); 08-14 14x 6C/8P
+post-semi handoff (IHI/VTV/CPER/XAR confirmed vs QQQ I->Lag break
+confirmed 2.79).
+Insertions-only — verified vs freshly regenerated extractor drafts
+(.tmp/draft_*.md): only blank/'>'/'**Net call:**' lines added, all
+deterministic v4 content byte-verbatim, CRLF preserved. Contract
+verified per file; anomalies: none. Tool: .tmp/enrich_v4_batch.py.
+All 27 v4 reports (05-15..11-20) now enriched.
 
 ## RRG-TRAJ-T2 — Critic D final verification: PASS (2026-11-24)
 
