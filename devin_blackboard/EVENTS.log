@@ -7301,3 +7301,6 @@ nothing from B/C reports). poll_tasks --verify: ALL 7 PASS, exit 0.
   superseded-deletion unspecified (design choice); F3 = cosmetic §8 header.
 
 Verdict: PASS — task is eligible for done. Marked --done as critic.
+
+[2026-11-24T11:48:47.348225+00:00] [RRG-WEEKLY] published 30 file(s) -> https://github.com/vialliw/Relative-Rotation-Analysis-Dashboard/report (commit 64a6810); skipped 0 unenriched
+[2026-11-24T12:05:00] [ORCHESTRATOR] RRG-HTML-T1 migration COMPLETE. B impl e7f2faf (rra_html.py renderer + analyze --html + summarize Pages links + pipeline html publish + tests/docs), C APPROVED (3 non-blocking), D PASS all 7 ACs (render byte-diff vs approved = 2 intentional glyph lines). Housekeeping: local .gitignore +docs/rra/*.html (e717297); remote .gitignore narrowed to !report/*.html (0f1d362). report_index.md regenerated w/ absolute Pages links. --publish: 30 files (28 .html + 2 .md) pushed 64a6810; 28 legacy .md deleted (superseded), sample removed. Live-verified: reports serve verbatim custom HTML (markers 15-23), index links render. Remote README documented (da9acdf).

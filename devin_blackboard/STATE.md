@@ -3342,3 +3342,16 @@ REV-si_hraw_review-g2. Awaiting user direction.
 - 2026-11-20 report regenerated in v4 (committed); other 27 dated
   reports still old format — full regen on next publish cycle if user
   wants.
+
+## RRG-HTML-T1 — HTML publish migration COMPLETE (2026-11-24)
+
+- Renderer .devin/skills/analyze_rra/rra_html.py (generalized port);
+  analyze_rra.py --html entry; summarize build_index -> absolute Pages
+  .html links + --index/--out combine fix; pipeline publishes
+  same-stem .html for dated reports, .md roll-ups stay; superseded-.md
+  + remote-only deletion rules; mistune>=3,<4; 74 pipeline tests green.
+- C APPROVED (F1 fixed via docs/rra/*.html gitignore; F2/F3 advisory).
+- D PASS all 7 ACs. Remote: .gitignore !report/*.html; publish 64a6810
+  (28 .html + 2 .md; 28 legacy .md deleted); README Pages docs da9acdf.
+- Site: https://vialliw.github.io/Relative-Rotation-Analysis-Dashboard/
+  report/report_index.html — all report links render interactive HTML.
