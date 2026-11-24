@@ -19,3 +19,6 @@ incidents/
 
 # RRG pipeline runtime state (machine-local, rewritten each --generate run)
 docs/rrg/.rrg_pipeline_state.json
+
+# Rendered publish artifacts — regenerated at --publish time, never source
+docs/rra/*.html
